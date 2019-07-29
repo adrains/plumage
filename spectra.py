@@ -18,6 +18,7 @@ class ParameterOutOfBoundsException(Exception):
 # Properties
 #------------------------------------------------------------------------------
 using_echelle = True
+norm = 1
 
 # Echelle dispersers:
 # - 300/300nm --> 300-500nm
@@ -113,33 +114,70 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution, norm=1,
     return idl.wave, idl.spectrum
 
 # Retrieve list of standards    
-standards =  pd.read_csv("standards.tsv", sep="\t", header=0, 
-                         dtype={"source_id":str})
+def retrieve_standards(idl):
+    """Get spectra for standards
+    """
+
+    standards =  pd.read_csv("standards.tsv", sep="\t", header=0, 
+                             dtype={"source_id":str})
                          
-mask = (standards["teff"] < 5500) * (standards["logg"] > 4.0)
-training_set = standards[mask][["teff","logg","feh"]]
+    mask = (standards["teff"] < 5500) * (standards["logg"] > 4.0)
+    training_set = standards[mask][["teff","logg","feh"]]
 
-spectra = []
+    spectra = []
 
-idl = idl_init()
+    idl = idl_init()
 
-standards = standards[mask].copy()
+    standards = standards[mask].copy()
 
-for star_i, row in standards.iterrows():
-    print(star_i)
-    wave, spec = get_idl_spectrum(idl, row["teff"], row["logg"], row["feh"], 
-                                  wl_min, wl_max, resolution, 1, True, 
-                                  wl_per_pixel)
+    for star_i, row in standards.iterrows():
+        print(star_i)
+        wave, spec = get_idl_spectrum(idl, row["teff"], row["logg"], row["feh"], 
+                                      wl_min, wl_max, resolution, 1, True, 
+                                      wl_per_pixel)
                                   
-    spectra.append(spec)
+        spectra.append(spec)
     
-spectra = np.array(spectra) 
-normalized_ivar = np.ones_like(spectra) * 0.01   
-np.savetxt("spectra_standards.csv", spectra)
-np.savetxt("spectra_wavelengths.csv", wave)
+    spectra = np.array(spectra) 
+    normalized_ivar = np.ones_like(spectra) * 0.01   
+    np.savetxt("spectra_standards.csv", spectra)
+    np.savetxt("spectra_wavelengths.csv", wave)
 
-import thecannon as tc
+    import thecannon as tc
 
-vectorizer = tc.vectorizer.PolynomialVectorizer(("teff", "logg", "feh"), 2)
-model = tc.CannonModel(training_set, spectra, normalized_ivar,
-                       vectorizer=vectorizer)
+    vectorizer = tc.vectorizer.PolynomialVectorizer(("teff", "logg", "feh"), 2)
+    model = tc.CannonModel(training_set, spectra, normalized_ivar,
+                           vectorizer=vectorizer)
+
+
+def get_idl_spectra(idl, teffs, loggs, fehs, wl_min, wl_max, resolution, norm,
+                    do_resample, wl_per_pixel):
+    """Call get_idl_spectrum multiple times
+    """
+    spectra = []
+    
+    for star_i, (teff, logg, feh) in enumerate(zip(teffs, loggs, fehs)):
+        print("Star %i, [%i, %0.2f, %0.2f]" % (star_i, teff, logg, feh))
+        wave, spec = get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, 
+                                      resolution, norm, True, wl_per_pixel)
+        spectra.append(spec)
+    
+    spectra = np.array(spectra)
+    return wave, spectra
+    
+    
+def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
+    """Plot a grid of spectra
+    """
+    plt.close("all")
+    
+    for star_i, (teff, logg, feh) in enumerate(zip(teffs, loggs, fehs)):
+        lbl = "[%i, %0.2f, %0.2f]" % (teff, logg, feh)
+        plt.plot(wave, spectra[star_i], label=lbl, alpha=0.9, linewidth=0.5)
+        
+    plt.xlabel("Wavelength (A)")
+    plt.ylabel("Normalised Flux")
+    leg = plt.legend(loc="best")
+    
+    for legobj in leg.legendHandles:
+        legobj.set_linewidth(2.0)
