@@ -164,6 +164,13 @@ def get_idl_spectra(idl, teffs, loggs, fehs, wl_min, wl_max, resolution, norm,
     
     spectra = np.array(spectra)
     return wave, spectra
+
+
+def save_spectra(wave, spectra):
+    """
+    """
+    np.savetxt("sample_spectra.csv", spectra)
+    np.savetxt("sample_wavelengths.csv", wave)
     
     
 def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
