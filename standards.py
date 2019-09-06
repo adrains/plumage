@@ -1,4 +1,4 @@
-from __future__ import division, print_function
+#from __future__ import division, print_function
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -24,6 +24,17 @@ interferometry = pd.read_csv("interferometry.tsv", sep="\t", header=1,
                      skiprows=0, dtype={"source_id":str, "useful":bool})
 interferometry.set_index("source_id", inplace=True)
 interferometry = interferometry[[type(ii) == str for ii in interferometry.index.values]] 
+
+herczeg = pd.read_csv("data/herczeg_2014_standards_gaia.tsv", sep="\t", header=1, 
+                     skiprows=0, dtype={"source_id":str, "useful":bool})
+herczeg.set_index("source_id", inplace=True)
+herczeg = herczeg[[type(ii) == str for ii in herczeg.index.values]]
+
+tess = pd.read_csv("data/tess_wifes.tsv", sep="\t", header=1, 
+                     skiprows=0, dtype={"source_id":str, "useful":bool})
+tess.set_index("source_id", inplace=True)
+tess = tess[[type(ii) == str for ii in tess.index.values]] 
+ 
 
 # Decide on limits, and mask
 faint_mag = 10       # This gives ~15.6x the SNR of our faintest echelle target
@@ -78,10 +89,12 @@ plt.scatter(newton_masked["teff"], newton_masked["logg"], norm=norm,
 plt.scatter(mann_masked["teff"], mann_masked["logg"], c=mann_masked["feh"], 
             marker="+", label="Mann+2015")  
 plt.scatter(int_masked["teff"], int_masked["logg"], c=int_masked["feh"], 
-            marker="^", label="Interferometry", norm=norm)  
+            marker="^", label="Interferometry", norm=norm) 
+plt.scatter(herczeg["teff"], herczeg["logg"], c=herczeg["feh"], 
+            marker="*", label="Herczeg+14", norm=norm)  
 cb = plt.colorbar()
 cb.set_label("[Fe/H]")
-plt.ylim([5.2, 2.5])
+plt.ylim([5.2, 0])
 plt.xlim([7300,2500])
 plt.xlabel(r"T$_{\rm eff}$ (K)")
 plt.ylabel("logg")
@@ -104,7 +117,10 @@ mscat = coord_ax.scatter((mann_masked["ra"]-180)*np.pi/180,
                           marker="+", label="Mann+2015", norm=norm) 
 iscat = coord_ax.scatter((int_masked["ra"]-180)*np.pi/180, 
                           int_masked["dec"]*np.pi/180, c=int_masked["feh"], 
-                          marker="^", label="Interferometry", norm=norm)  
+                          marker="^", label="Interferometry", norm=norm) 
+iscat = coord_ax.scatter((herczeg["ra"]-180)*np.pi/180, 
+                          herczeg["dec"]*np.pi/180, c=herczeg["feh"], 
+                          marker="*", label="Herczeg+14", norm=norm)   
 coord_ax.set_title("On-sky positions")
 coord_ax.set_xlabel("RA")
 coord_ax.set_ylabel("DEC")
@@ -139,18 +155,23 @@ mann_masked["Gmag_abs"] = mann_masked["Gmag"] - 5*np.log10(mann_masked["dist"]/1
 int_masked["dist"] = 1000 / int_masked["plx"]  
 int_masked["Gmag_abs"] = int_masked["Gmag"] - 5*np.log10(int_masked["dist"]/10)  
 
-cats = [royas_masked, newton_masked, mann_masked, int_masked, ys_candidates] 
-labels = ["Royas-Ayala+2012", "Newton+2014", "Mann+2015", "Interferometry", "YS"]
-markers = ["o", "s", "+", "^", "*"]
+herczeg["dist"] = 1000 / herczeg["plx"]  
+herczeg["Gmag_abs"] = herczeg["Gmag"] - 5*np.log10(herczeg["dist"]/10)  
+
+cats = [royas_masked, newton_masked, mann_masked, int_masked, herczeg, ys_candidates] 
+labels = ["Royas-Ayala+2012", "Newton+2014", "Mann+2015", "Interferometry", 
+          "Herczeg+14", "YS Candidates"]
+markers = ["o", "s", "+", "^", "*", "1"]
 
 plt.figure()
 
-for cat_i in xrange(0, len(cats)):
+for cat_i in range(0, len(cats)):
+    print(labels[cat_i])
     plt.plot(cats[cat_i]["BP-RP"], cats[cat_i]["Gmag_abs"], markers[cat_i],
              label=labels[cat_i])
-    
-    if labels[cat_i] != "YS":
-        for star_i in xrange(0, len(cats[cat_i])):
+    print(labels[cat_i])
+    if labels[cat_i] != "YS Candidates":
+        for star_i in range(0, len(cats[cat_i])):
             txt = "[%s, %s]" % (cats[cat_i].iloc[star_i]["teff"],
                                 cats[cat_i].iloc[star_i]["logg"])
             plt.text(cats[cat_i].iloc[star_i]["BP-RP"], 
@@ -160,7 +181,11 @@ plt.xlabel("Bp-Rp")
 plt.ylabel("Gmag abs")
 plt.legend(loc="best")
 plt.ylim([14,-2])
-          
+plt.gcf().set_size_inches(16, 9)
+#plt.save("plots/2.3m_ys_cmd.pdf")
+
+#plt.show()
+
 # -----------------------------------------------------------------------------
 # Merge target lists and save to create list to be observed
 # -----------------------------------------------------------------------------
@@ -177,6 +202,8 @@ cols = ['ID', 'ra', 'dec', 'plx', 'pm_ra', 'pm_dec', 'Gmag', 'BPmag', 'RPmag',
            
 standards = pd.concat([royas_masked[cols], newton_masked[cols], mann_masked[cols], 
                        int_masked[cols]])
+#standards = herczeg[herczeg["Gmag"] > 11.5][cols].copy()
+standards = tess[tess["useful"]][cols].copy()
 standards = standards[~standards.index.duplicated(keep="first")].copy()
 standards.sort_values("ra", inplace=True)
 
@@ -190,6 +217,7 @@ standards["taros_input"] = ['"%s" %s %s ! G=%0.2f'
                                 fmt_hour(standards.iloc[ii]["ra"]),
                                 fmt_deg(standards.iloc[ii]["dec"]),
                                 standards.iloc[ii]["Gmag"]) 
-                            for ii in xrange(0, len(standards))]
-
-standards.to_csv("standards.tsv",  sep="\t")
+                            for ii in range(0, len(standards))]
+#standards.to_csv("hstandards.tsv",  sep="\t")
+standards.to_csv("tstandards.tsv",  sep="\t")
+#standards.to_csv("standards.tsv",  sep="\t")
