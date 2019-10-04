@@ -92,42 +92,81 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr="08", ext_sci="10"):
 # -----------------------------------------------------------------------------
 # Processing spectra
 # -----------------------------------------------------------------------------
-def normalise_spectra(wl, flux, lambda_0=6200, do_mask=True):
+def normalise_spectra(wl, spectrum, show_fit=False):
+    """Normalise spectra by a 2nd order polynomial in log space. Automatically
+    detects which WiFeS arm and grating is being used and masks out regions
+    accordingkly. Currently only implemented for B3000 and R7000.
+
+    Parameters
+    ----------
+    wl: float array
+        Wavelength scale for the spectrum.
+
+    spectrum: float array
+        The spectrum corresponding to wl, units irrelevant.
+
+    show_fit: boolean
+        Whether to plot the normalised spectrum, or show the polynomial fit.
+
+    Returns
+    -------
+    spectrum_norm: float array
+        The normalised spectrum.
     """
-    """
-    # Pivot wavelengths about zero
+    # Fit to flux in log space
+    spectrum_fit = np.log(spectrum)
+
+    # Red arm, R7000 grating
+    if np.round(wl.mean()/100)*100 == 6200:
+        lambda_0 = 6200
+
+        h_alpha = np.logical_and(wl > 6540, wl < 6580)
+        edges = np.logical_or(wl < 5450, wl > 6950)
+        nan = ~np.isfinite(spectrum_fit)
+
+        ignore = np.logical_or.reduce((h_alpha, edges, nan))
+    
+    # Blue arm, B3000 grating
+    elif np.round(wl.mean()/100)*100 == 4600:
+        lambda_0 = 4600
+        ca_hk = np.logical_and(wl > 3920, wl < 3980)
+        edges = np.logical_or(wl < 4000, wl > 4650)
+        nan = ~np.isfinite(spectrum_fit)
+
+        ignore = np.logical_or.reduce((ca_hk, edges, nan))
+
+    else:
+        raise Exception("Grating not recognised or implemented. Must be"
+                        " either B3000 or R7000.")
+
+    # Make the mask
+    mask = np.ones_like(spectrum).astype(bool)
+    mask[ignore] = False
+
+    # Normalise wavelength scale (pivot about 0)
     wl_norm = (1/wl - 1/lambda_0)*(wl[0]-lambda_0)
 
-    # Mask
-    mask = np.ones_like(flux)
-    h_alpha = np.logical_and(wl > 6540, wl < 6580)
-    edges = np.logical_or(wl < 5450, wl > 6950)
-    flux_fit = np.log(flux)
-    flux_fit[h_alpha] = np.nan
-    flux_fit[edges] = np.nan
+    # Fit 2nd order polynomial to get coefficients
+    poly = Polynomial.fit(wl_norm[mask], spectrum_fit[mask], 2)
 
-    #med = np.nanmedian(flux_fit)
-
-    idx = np.isfinite(wl_norm) & np.isfinite(flux_fit)
-
-    # Fit 2nd order polynomial
-    poly = Polynomial.fit(wl_norm[idx], flux_fit[idx], 2)
-    #poly = Polynomial.fit(wl_norm, flux_fit, 2)
-
+    # Calculate the normalising function and normalise
     norm = poly(wl_norm)
 
-    flux_norm = flux / np.exp(norm)
+    spectrum_norm = spectrum / np.exp(norm)
 
     # Plot
     #plt.close("all")
-    #plt.plot(wl[:-1], flux_fit[:-1], label="Normalised flux")
-    #plt.plot(wl, norm, label="poly")
-    plt.plot(wl, flux_norm, label="Normalised flux")
+    if show_fit:
+        plt.plot(wl[:-1], spectrum_fit[:-1], label="flux")
+        plt.plot(wl, norm, label="fit")
+    else:
+        plt.plot(wl, spectrum_norm, label="Normalised flux")
+
     plt.xlabel("Wavelength (A)")
     plt.ylabel("Flux (Normalised)")
-    #plt.ylim([0.95,1.05])
+    #plt.ylim([-1, 10])
 
-    return wl_norm, flux_norm, norm
+    return spectrum_norm
 
 
 def compute_barycentric_correction(ra, dec, obs_time, site="SSO"):
