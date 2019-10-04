@@ -4,6 +4,7 @@ Create a mask for an M dwarf star: regions to include in the fit
 marusa@mash:/priv/mulga1/marusa>source env/bin/activate
 """
 from __future__ import division, print_function
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy import constants as const
@@ -17,7 +18,7 @@ class ParameterOutOfBoundsException(Exception):
 #------------------------------------------------------------------------------
 # Properties
 #------------------------------------------------------------------------------
-using_echelle = True
+using_echelle = False
 norm = 1
 
 # Echelle dispersers:
@@ -188,3 +189,100 @@ def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
     
     for legobj in leg.legendHandles:
         legobj.set_linewidth(2.0)
+
+# -----------------------------------------------------------------------------
+# Template spectra
+# -----------------------------------------------------------------------------\
+def get_template_spectra(teffs, loggs, fehs, setting="R7000"):
+    """Creates synthetic spectra in a given grating format to serve as RV
+    templates.
+
+    Parameters
+    ----------
+    teffs: float array
+        Stellar temperatures in Kelvin.
+    
+    loggs: float array
+        Stellar surface gravities in cgs units.
+
+    fehs: float array
+        Stellar metallicities relative to Solar.
+
+    setting: string
+        The grating setting to generate the spectra for. Currently only R7000
+        and B3000 are supported.
+
+    Returns
+    -------
+    spectra: 3D float array
+        The synthetic spectra in the form [N_star, wl/flux, pixel]. The stars
+        are ordered by teff, then logg, then [Fe/H].
+    """
+    # Get the spectrograph settings
+    if setting == "R7000":
+        wl_min = 5400
+        wl_max = 7000
+        resolution = 7000
+        n_px = 3637
+
+    elif setting == "B3000":
+        wl_min = 3500
+        wl_max = 5700
+        resolution = 3000
+        n_px = 2858
+
+    else:
+        raise Exception("Unknown grating setting.")
+
+    # Calculate the wavelength spacing
+    wl_per_pixel = (wl_max - wl_min) / n_px 
+
+    # Load in the IDL object
+    idl = idl_init()
+
+    spectra = []
+
+    for teff in teffs:
+        for logg in loggs:
+            for feh in fehs:
+                wave, spec = get_idl_spectrum(idl, teff, logg, feh, wl_min, 
+                                              wl_max, resolution, norm=0,
+                                              do_resample=True, 
+                                              wl_per_pixel=wl_per_pixel)
+                
+                spectra.append((wave,spec))
+    
+    return np.stack(spectra)
+
+
+def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
+    """Save the generated synthetic templates in templates/.
+    
+    Parameters
+    ----------
+    spectra: 3D float array
+        The synthetic spectra in the form [N_star, wl/flux, pixel]. The stars
+        are ordered by teff, then logg, then [Fe/H].
+
+    teffs: float array
+        Stellar temperatures in Kelvin.
+    
+    loggs: float array
+        Stellar surface gravities in cgs units.
+
+    fehs: float array
+        Stellar metallicities relative to Solar.
+
+    setting: string
+        The grating format of the spectra.
+    """
+    spec_i = 0
+
+    for teff in teffs:
+        for logg in loggs:
+            for feh in fehs:
+                fname = "template_%s_%i_%0.2f_%0.2f.csv" % (setting, teff, 
+                                                            logg, feh)
+                path = os.path.join("templates", fname)
+
+                np.savetxt(path, spectra[spec_i,:,:].T)
