@@ -81,21 +81,12 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr="08", ext_sci="10"):
     spectra_b = np.stack(spectra_b)
     spectra_r = np.stack(spectra_r)
 
-    data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, ra, dec, airmass]
-    cols = ["id", "snr_b", "snr_r", "exp_time", "ob_mjd", "ra", "dec", 
-            "airmass"]
+    data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass]
+    cols = ["id", "snr_b", "snr_r", "exp_time", "ob_mjd", "ob_date", "ra", 
+            "dec", "airmass"]
     observations = pd.DataFrame(data=np.array(data).T, columns=cols)
 
     return observations, spectra_b, spectra_r
-
-
-
-def load_spectra_arm():
-    """
-    """
-    pass
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -110,21 +101,29 @@ def normalise_spectra(wl, flux, lambda_0=6200, do_mask=True):
     # Mask
     mask = np.ones_like(flux)
     h_alpha = np.logical_and(wl > 6540, wl < 6580)
+    edges = np.logical_or(wl < 5450, wl > 6950)
     flux_fit = np.log(flux)
     flux_fit[h_alpha] = np.nan
+    flux_fit[edges] = np.nan
+
+    #med = np.nanmedian(flux_fit)
 
     idx = np.isfinite(wl_norm) & np.isfinite(flux_fit)
 
     # Fit 2nd order polynomial
     poly = Polynomial.fit(wl_norm[idx], flux_fit[idx], 2)
+    #poly = Polynomial.fit(wl_norm, flux_fit, 2)
 
-    norm = polyval(wl_norm[::], poly.coef)
+    norm = poly(wl_norm)
 
     flux_norm = flux / np.exp(norm)
 
     # Plot
-    plt.plot(wl_norm, flux_norm)
-    plt.xlabel("Wavelength (Arbitrary)")
+    #plt.close("all")
+    #plt.plot(wl[:-1], flux_fit[:-1], label="Normalised flux")
+    #plt.plot(wl, norm, label="poly")
+    plt.plot(wl, flux_norm, label="Normalised flux")
+    plt.xlabel("Wavelength (A)")
     plt.ylabel("Flux (Normalised)")
     #plt.ylim([0.95,1.05])
 
