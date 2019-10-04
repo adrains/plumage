@@ -257,7 +257,7 @@ def get_template_spectra(teffs, loggs, fehs, setting="R7000"):
 
 def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
     """Save the generated synthetic templates in templates/.
-    
+
     Parameters
     ----------
     spectra: 3D float array
@@ -277,7 +277,9 @@ def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
         The grating format of the spectra.
     """
     spec_i = 0
+    params = []
 
+    # For all params, save a CSV file
     for teff in teffs:
         for logg in loggs:
             for feh in fehs:
@@ -286,3 +288,13 @@ def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
                 path = os.path.join("templates", fname)
 
                 np.savetxt(path, spectra[spec_i,:,:].T)
+
+                params.append([teff, logg, feh])
+
+                spec_i += 1
+
+    # Now save a file keeping track of the params of each star
+    params_file = "template_%s_params.csv" % setting
+    params_path = os.path.join("templates", params_file)
+
+    np.savetxt(params_path, params, fmt=["%i", "%0.1f", "%0.1f"])
