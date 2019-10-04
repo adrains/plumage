@@ -169,14 +169,42 @@ def normalise_spectra(wl, spectrum, show_fit=False):
     return spectrum_norm
 
 
-def compute_barycentric_correction(ra, dec, obs_time, site="SSO"):
+def compute_barycentric_correction(ras, decs, times, site="SSO"):
+    """Compute the barycentric corrections for a set of stars
+
+    Parameters
+    ----------
+    ras: string array
+        Array of right ascensions in string form: "HH:MM:SS.S".
+    
+    decs: string array
+        Array of declinations in string form: "DD:MM:SS.S".
+
+    times: string/float array
+        Array of times in MJD format.
+
+    site: string
+        The site name to look up its coordinates.
+
+    Returns
+    -------
+    bcors: astropy.units.quantity.Quantity array
+        Array of barycentric corrections in km/s.
     """
-    """
+    # Get the location
     loc = EarthLocation.of_site(site)
-    sc = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
-    barycorr = sc.radial_velocity_correction(obstime=Time(obs_time), 
-                                             location=loc)  
-    barycorr.to(u.km/u.s)  
+
+    # Initialise barycentric correction array
+    bcors = []
+
+    # Calculate the barycentric correction for every star
+    for ra, dec, time in zip(ras, decs, times):
+        sc = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
+        time = Time(float(time), format="mjd")
+        barycorr = sc.radial_velocity_correction(obstime=time, location=loc)  
+        bcors.append(barycorr.to(u.km/u.s))
+
+    return bcors
 
 def do_template_match(wl, flux_norm, obs_time, obs_loc, obs_coor):
     """
