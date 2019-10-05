@@ -1,7 +1,4 @@
-"""
-Create a mask for an M dwarf star: regions to include in the fit
-
-marusa@mash:/priv/mulga1/marusa>source env/bin/activate
+"""Code for working with synthetic spectra.
 """
 from __future__ import division, print_function
 import os

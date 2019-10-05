@@ -1,4 +1,4 @@
-"""
+"""Code for dealing with observed spectra
 """
 import os
 import numpy as np 
@@ -212,10 +212,10 @@ def load_pkl_spectra(n_obs):
 # -----------------------------------------------------------------------------
 # Processing spectra
 # -----------------------------------------------------------------------------
-def normalise_spectra(wl, spectrum, show_fit=False):
-    """Normalise spectra by a 2nd order polynomial in log space. Automatically
-    detects which WiFeS arm and grating is being used and masks out regions
-    accordingkly. Currently only implemented for B3000 and R7000.
+def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
+    """Normalise a single spectrum by a 2nd order polynomial in log space. 
+    Automatically detects which WiFeS arm and grating is being used and masks 
+    out regions accordingly. Currently only implemented for B3000 and R7000.
 
     Parameters
     ----------
@@ -286,7 +286,29 @@ def normalise_spectra(wl, spectrum, show_fit=False):
     plt.ylabel("Flux (Normalised)")
     #plt.ylim([-1, 10])
 
-    return spectrum_norm
+    # Normalise the uncertainties too if we have been given them
+    if e_spectrum is not None:
+        e_spectrum_norm = e_spectrum / np.exp(norm)
+
+        return spectrum_norm, e_spectrum_norm
+    
+    else:
+        return spectrum_norm
+
+
+def normalise_spectra(spectra):
+    """
+    """
+    spectra_norm = spectra.copy()
+
+    for spec_i in range(len(spectra_norm)):
+        print("(%4i/%i) normalised" % (spec_i+1, len(spectra)))
+        spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
+                                       spectra[spec_i][1,:]) # flux
+                                       #spectra[spec_i][2,:]) # uncertainty
+        spectra_norm[spec_i][1,:] = spec_norm
+    
+    return spectra_norm
 
 
 # -----------------------------------------------------------------------------
@@ -330,37 +352,193 @@ def compute_barycentric_correction(ras, decs, times, site="SSO"):
     return bcors
 
 
-def calc_rv_shif_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
-    """
+def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
+    """Loss function for least squares fitting.
+
+    Parameters
+    ----------
+    rv: float array
+        rv[0] is the radial velocity in km/s
+    
+    wave: float array
+        Wavelength scale of the science spectra
+
+    spec: float array
+        Fluxes for the science spectra
+
+    e_spec: float array
+        Uncertainties on the science fluxes
+
+    ref_spec_interp: InterpolatedUnivariateSpline function
+        Interpolation function to take wavelengths and compute template
+        spectrum
+
+    bcor: float
+        Barycentric velocity in km/s
+
+    Returns
+    -------
+    loss: float
+        The goodness of fit.
     """
     # Shift the template spectrum
-    ref_spec = ref_spec_interp(wave * (1 - (rv+bcor)/const.c.si.value))
+    ref_spec = ref_spec_interp(wave * (1-(rv[0]-bcor)/(const.c.si.value/1000)))
 
     # Return loss
     return np.sum((ref_spec - spec)**2 / 2)
 
 
-def calc_rv_shift(ref_wl, ref_spec):
-    """
+def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
+    """Calculate the RV shift for a single science and template spectrum.
+
+    Parameters
+    ----------
+    ref_wl: float array
+        Wavelength scale of the template spectra
+    
+    ref_spec: float array
+        Fluxes for the template spectra
+
+    sci_wl: float array
+        Wavelength scale of the science spectra
+
+    sci_spec: float array
+        Fluxes for the science spectra
+
+    e_sci_spec: float array
+        Uncertainties on the science fluxes
+
+    bcor: float
+        Barycentric velocity in km/s
+
+    Returns
+    -------
+    fit, cov, infodict, mesg, ief: various
+        Outputs of scipy.optimize.leastsq()
     """
     # Make interpolation function
     ref_spec_interp = ius(ref_wl, ref_spec)
 
-    # Do fit
+    # Do fit, have initial RV guess be 0 km/s
     rv = 0
-    args = (wave, spec, e_spec, ref_spec_interp, bcor)
-    fit = leastsq(calc_rv_shif_residual, rv, args=args)
+    args = (sci_wl, sci_spec, e_sci_spec, ref_spec_interp, bcor.value)
+    fit, cov, infodict, mesg, ier = leastsq(calc_rv_shift_residual, rv, 
+                                            args=args, full_output=True)
+
+    return fit, cov, infodict, mesg, ier
 
 
+def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
+                      print_diagnostics=False):
+    """Find the best fitting template to determine the RV and temperature of
+    the star.
 
-def do_template_match(wl, flux_norm, obs_time, obs_loc, obs_coor):
+    Parameters
+    ----------
+    sci_spectra: float array
+        2D numpy array containing spectra of form [wl/spec/sigma, flux].
+    
+    bcor: float
+        Barycentric velocity in km/s
+
+    ref_params: float array
+        Array of stellar parameters of form [teff, logg, feh]
+    
+    ref_spectra: float array
+        Array of imported template spectra of form [star, wl/spec, flux]
+    
+    print_diagnostics: boolean
+        Whether to print diagnostics about the fit
+
+    Returns
+    -------
+    rv: float
+        Fitted radial velocity in km/s
+
+    teff: float
+        Fitted effective temperature in K
+
+    quality: float
+        Quality of the fit
     """
+    # Fit each template to the science data to figure out the best match
+    rvs = []
+    fit_quality = []
+
+    for params, ref_spec in zip(ref_params, ref_spectra):
+        fit, cov, infodict, _, _ = calc_rv_shift(ref_spec[0,:], ref_spec[1,:], 
+                                                 sci_spectra[0,:], 
+                                                 sci_spectra[1,:], 
+                                                 sci_spectra[2,:], bcor)
+        rvs.append(fit[0])
+        fit_quality.append(infodict["fvec"])
+
+        if print_diagnostics:
+            print("\tTeff = %i K, RV = %0.2f km/s, quality = %0.2f" 
+                  % (params[0], fit[0], infodict["fvec"]))
+
+    # Now figure out what best fit is
+    fit_i = np.argmin(fit_quality)
+
+    rv = rvs[fit_i]
+    teff = ref_params[fit_i][0]
+    quality = fit_quality[fit_i]
+
+    return rv, teff, quality
+
+
+def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
+                            print_diagnostics=True):
+    """Do template fitting on all stars for radial velocity and temperature.
+
+    Parameters
+    ----------
+    sci_spectra: float array
+        3D numpy array containing spectra of form [N_ob, wl/spec/sigma, flux].
+    
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    ref_params: float array
+        Array of stellar parameters of form [teff, logg, feh]
+    
+    ref_spectra: float array
+        Array of imported template spectra of form [star, wl/spec, flux]
+    
+    print_diagnostics: boolean
+        Whether to print diagnostics about the fit
+
+    Returns
+    -------
+    rvs: float array
+        Fitted radial velocity in km/s
+
+    teffs: float array
+        Fitted effective temperature in K
+
+    fit_quality: float array
+        Quality of the fit
     """
+    # Initialise
+    rvs = []
+    teffs = []
+    fit_quality = []
 
+    # For every star, do template fitting
+    for star_i, sci_spec in enumerate(sci_spectra):
+        if print_diagnostics:
+            print("\n(%4i/%i) Running fitting on %s:" 
+                 % (star_i+1, len(sci_spec), observations.iloc[star_i]["id"]))
 
+        bcor = observations.iloc[star_i]["bcor"]
+        rv, teff, fit_qual = do_template_match(sci_spec, bcor, ref_params, 
+                                               ref_spectra, print_diagnostics)
+        
+        rvs.append(rv)
+        teffs.append(teff)
+        fit_quality.append(fit_qual)
 
-    return teff, rv
-
+    return rvs, teffs, fit_quality
 
 
 

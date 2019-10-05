@@ -100,3 +100,26 @@ def merge_spectra_pdfs():
 
     with open(fn, 'wb') as fout:
         merger.write(fout)
+
+def plot_teff_sorted_spectra(spectra, observations):
+    """Plot all spectra, their IDs, RVs, and Teffs sorted by Teff.
+    """
+    plt.close("all")
+    teff_order = np.argsort(observations["teff_fit"].values)
+    sorted_spec = spectra[teff_order]
+    ids = observations["id"].values[teff_order]
+    teffs = observations["teff_fit"].values[teff_order]
+    rvs = observations["rv"].values[teff_order]
+
+    for sp_i, (spec, id, teff, rv) in enumerate(zip(sorted_spec, ids, teffs, rvs)): 
+        plt.plot(spec[0,:], sp_i+spec[1,:], linewidth=0.1) 
+        label = "%s [%i K, %0.2f km/s]" % (id, teff, rv)
+        plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
+                      ha="center")
+
+    plt.xlabel("Wavelength (A)")
+    plt.ylabel("Flux (Normalised, offset)")
+    plt.ylim([0,sp_i+2])
+    plt.gcf().set_size_inches(9, 32)
+    plt.tight_layout()
+    plt.savefig("plots/teff_sorted_spectra.pdf") 
