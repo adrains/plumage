@@ -298,3 +298,35 @@ def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
     params_path = os.path.join("templates", params_file)
 
     np.savetxt(params_path, params, fmt=["%i", "%0.1f", "%0.1f"])
+
+
+def load_synthetic_templates(setting="R7000"):
+    """Load in the saved synthetic templates
+
+    Parameters
+    ----------
+    setting: string
+        The grating setting determining which templatesd to import.
+
+    Returns
+    -------
+    params: float array
+        Array of stellar parameters of form [teff, logg, feh]
+    
+    templates: float array
+        Array of imported template spectra of form [star, wl/spec, flux]
+    """
+    # Load in the synthetic star params
+    params_file = os.path.join("templates", "template_%s_params.csv" % setting)
+
+    params = np.loadtxt(params_file)
+
+    templates = []
+
+    for param in params:
+        tfile = os.path.join("templates", "template_%s_%i_%0.2f_%0.2f.csv"
+                             % (setting, param[0], param[1], param[2]))
+        spec = np.loadtxt(tfile)
+        templates.append(spec.T)
+
+    return params, np.stack(templates)

@@ -4,13 +4,17 @@ import os
 import numpy as np 
 import pandas as pd
 import glob
+import pickle
+from scipy.optimize import leastsq
 from astropy.table import Table
 from astropy.io import fits
+import astropy.constants as const
 from astropy import units as u
 from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation
 import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import Polynomial, polyval
+from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 
 # -----------------------------------------------------------------------------
@@ -26,8 +30,33 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
     return catalogue
 
 
-def load_all_spectra(spectra_folder="spectra/", ext_snr="08", ext_sci="10"):
-    """Load in spectra
+def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
+    """Load in all fits cubes containing 1D spectra to extract both the spectra
+    and key details of the observations.
+
+    Parameters
+    ----------
+    spectra_folder: string
+        Root directory of nightly extracted 1D fits cubes.
+
+    ext_snr: int
+        The fits extension with non-fluxed 1D spectra to get a measure of SNR.
+    
+    ext_sci: int
+        The fits extension containing the spectra to be used for science.
+
+    Returns
+    -------
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    spectra_b: float array
+        3D numpy array containing blue arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+
+    spectra_r: float array
+        3D numpy array containing red arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
     """
     # Initialise
     ids = []
@@ -67,24 +96,115 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr="08", ext_sci="10"):
                   % (fi+1, len(spectra_b_files), ids[-1], obs_date[-1]))
 
             # Get SNR measurements for each arm
-            sig_b = np.median(fits_b[1].data["spectrum"])
+            sig_b = np.median(fits_b[ext_snr].data["spectrum"])
             snrs_b.append(sig_b / sig_b**0.5)
 
-            sig_r = np.median(fits_r[1].data["spectrum"])
+            sig_r = np.median(fits_r[ext_snr].data["spectrum"])
             snrs_r.append(sig_r / sig_r**0.5)
 
             # Get the flux and telluric corrected spectra
-            spectra_b.append(np.stack(fits_b[3].data))
-            spectra_r.append(np.stack(fits_r[3].data))
+            spec_b = np.stack(fits_b[ext_sci].data)
+            spectra_b.append(spec_b.T)
+            spec_r = np.stack(fits_r[ext_sci].data)
+            spectra_r.append(spec_r.T)
         
     # Now combine the arrays into our output structures
     spectra_b = np.stack(spectra_b)
     spectra_r = np.stack(spectra_r)
 
+    # Convert arrays
+    snrs_b = np.array(snrs_b).astype(float).astype(int)
+    snrs_r = np.array(snrs_r).astype(float).astype(int)
+    exp_time = np.array(exp_time).astype(float)
+    obs_mjd = np.array(obs_mjd).astype(float)
+    airmass = np.array(airmass).astype(float)
+
     data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass]
-    cols = ["id", "snr_b", "snr_r", "exp_time", "ob_mjd", "ob_date", "ra", 
+    cols = ["id", "snr_b", "snr_r", "exp_time", "mjd", "date", "ra", 
             "dec", "airmass"]
     observations = pd.DataFrame(data=np.array(data).T, columns=cols)
+
+    return observations, spectra_b, spectra_r
+
+
+def save_pkl_spectra(observations, spectra_b, spectra_r):
+    """Save the imported spectra and observation info into respective pickle
+    files in spectra/.
+
+    Parameters
+    ----------
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    spectra_b: float array
+        3D numpy array containing blue arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+
+    spectra_r: float array
+        3D numpy array containing red arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+    """
+    # Get number of obs
+    n_obs = len(observations)
+
+    # Save observation log
+    ob_out = os.path.join("spectra", "saved_observations_%i.pkl" % n_obs)
+    pkl_obs = open(ob_out, "wb")
+    pickle.dump(observations, pkl_obs)
+    pkl_obs.close()
+
+    # Save blue arm spectra
+    sb_out = os.path.join("spectra", "saved_spectra_b_%i.pkl" % n_obs)
+    pkl_sb = open(sb_out, "wb")
+    pickle.dump(spectra_b, pkl_sb)
+    pkl_sb.close()
+
+    # Save red arm 
+    sr_out = os.path.join("spectra", "saved_spectra_r_%i.pkl" % n_obs)
+    pkl_sr = open(sr_out, "wb")
+    pickle.dump(spectra_r, pkl_sr)
+    pkl_sr.close()
+
+
+def load_pkl_spectra(n_obs):
+    """Load the save spectra and observations from pickle files stored in
+    spectra/.
+
+    Parameters
+    ----------
+    n_obs: int
+        The number of observations, tells you which pickles to select.
+
+    Returns
+    -------
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    spectra_b: float array
+        3D numpy array containing blue arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+
+    spectra_r: float array
+        3D numpy array containing red arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+    """
+    # Load observation log
+    ob_out = os.path.join("spectra", "saved_observations_%i.pkl" % n_obs)
+    pkl_obs = open(ob_out, "rb")
+    observations = pickle.load(pkl_obs)
+    pkl_obs.close()
+
+    # Load blue arm spectra
+    sb_out = os.path.join("spectra", "saved_spectra_b_%i.pkl" % n_obs)
+    pkl_sb = open(sb_out, "rb")
+    spectra_b = pickle.load(pkl_sb)
+    pkl_sb.close()
+
+    # Load red arm spectra
+    sr_out = os.path.join("spectra", "saved_spectra_r_%i.pkl" % n_obs)
+    pkl_sr = open(sr_out, "rb")
+    spectra_r = pickle.load(pkl_sr)
+    pkl_sr.close()
 
     return observations, spectra_b, spectra_r
 
@@ -169,6 +289,9 @@ def normalise_spectra(wl, spectrum, show_fit=False):
     return spectrum_norm
 
 
+# -----------------------------------------------------------------------------
+# Radial Velocities
+# -----------------------------------------------------------------------------
 def compute_barycentric_correction(ras, decs, times, site="SSO"):
     """Compute the barycentric corrections for a set of stars
 
@@ -205,6 +328,30 @@ def compute_barycentric_correction(ras, decs, times, site="SSO"):
         bcors.append(barycorr.to(u.km/u.s))
 
     return bcors
+
+
+def calc_rv_shif_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
+    """
+    """
+    # Shift the template spectrum
+    ref_spec = ref_spec_interp(wave * (1 - (rv+bcor)/const.c.si.value))
+
+    # Return loss
+    return np.sum((ref_spec - spec)**2 / 2)
+
+
+def calc_rv_shift(ref_wl, ref_spec):
+    """
+    """
+    # Make interpolation function
+    ref_spec_interp = ius(ref_wl, ref_spec)
+
+    # Do fit
+    rv = 0
+    args = (wave, spec, e_spec, ref_spec_interp, bcor)
+    fit = leastsq(calc_rv_shif_residual, rv, args=args)
+
+
 
 def do_template_match(wl, flux_norm, obs_time, obs_loc, obs_coor):
     """
