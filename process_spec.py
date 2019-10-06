@@ -4,6 +4,8 @@ import numpy as np
 import plumage.synthetic as synth
 import plumage.spectra as spec
 import plumage.plotting as pplt
+import plumage.utils as utils
+from astropy.table import Table
 
 # Load in science spectra
 print("Importing science spectra...")
@@ -62,5 +64,21 @@ wl_new_r = np.arange(wl_min_r, wl_max_r, wl_per_pixel_r)
 spec_rvcor_b = spec.correct_all_rvs(spectra_b_norm, observations, wl_new_b)
 spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)
 
+# Import catalogue
+catalogue_file = "data/all_star_2m3_crossmatch.fits"
+catalogue = Table.read(catalogue_file).to_pandas() 
+catalogue.rename(columns={"Gaia ID":"source_id"}, inplace=True)  
+catalogue["source_id"] = catalogue["source_id"].astype(str)
+catalogue["TOI"] = catalogue["TOI"].astype(str)
+catalogue["2MASS_Source_ID_1"] = [id.decode().replace(" ", "") 
+                                  for id in catalogue["2MASS_Source_ID_1"]]
+catalogue["program"] = [prog.decode().replace(" ", "") 
+                        for prog in catalogue["program"]]
+catalogue["subset"] = [ss.decode().replace(" ", "") 
+                        for ss in catalogue["subset"]]
+
+# Find Gaia IDs
+utils.do_id_crossmatch(observations, catalogue)
+
 # Plot the spectra sorted by temperature
-pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations)
+pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations, catalogue)
