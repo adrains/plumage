@@ -42,5 +42,25 @@ observations["teff_fit"] = teffs
 observations["rv"] = rvs
 observations["template_fit_quality"] = fit_quality
 
+# Create a new wl scale for each arm
+
+# Blue arm
+wl_min_b = 3500
+wl_max_b = 5700
+n_px_b = 2858
+wl_per_pixel_b = (wl_max_b - wl_min_b) / n_px_b
+wl_new_b = np.arange(wl_min_b, wl_max_b, wl_per_pixel_b)
+
+# Red arm
+wl_min_r = 5400
+wl_max_r = 7000
+n_px_r = 3637
+wl_per_pixel_r = (wl_max_r - wl_min_r) / n_px_r 
+wl_new_r = np.arange(wl_min_r, wl_max_r, wl_per_pixel_r) 
+
+# RV correct the spectra
+spec_rvcor_b = spec.correct_all_rvs(spectra_b_norm, observations, wl_new_b)
+spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)
+
 # Plot the spectra sorted by temperature
-pplt.plot_teff_sorted_spectra(spectra_r_norm, observations)
+pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations)

@@ -15,6 +15,7 @@ from astropy.coordinates import SkyCoord, EarthLocation
 import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import Polynomial, polyval
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
+from scipy.interpolate import interp1d
 
 
 # -----------------------------------------------------------------------------
@@ -540,6 +541,76 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
 
     return rvs, teffs, fit_quality
 
+
+def correct_rv(sci_spectra, bcor, rv, wl_new):
+    """Interpolate science spectrum onto new wavelength scale in the rest
+    frame. This uses the opposite sign convention of calc_rv_shift_residual.
+
+    Parameters
+    ----------
+    sci_spectra: float array
+        2D numpy array containing spectra of form [wl/spec/sigma, flux].
+    
+    bcor: float
+        Barycentric velocity in km/s
+
+    rv: float array
+        Fitted radial velocity in km/s
+
+    wl_new: float array
+        New wavelength scale to regrid the spectra onto once in the rest frame
+
+    Returns
+    -------
+    rest_frame_spec: float array
+        2D numpy array containing spectra of form [wl/spec/sigma, flux] now
+        in the rest frame
+    """
+    # Setup the interpolation
+    calc_spec = interp1d(sci_spectra[0,:], sci_spectra[1,:], kind="linear",
+                         bounds_error=False, assume_sorted=True)
+
+    # We're *undoing* the shift imparted by barycentric motion and radial
+    # velocity, so this relation will have an opposite sign to the one in
+    # calc_rv_shift_residual.
+    rest_frame_spec = calc_spec(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
+
+    rest_frame_spec = np.stack([wl_new, rest_frame_spec])
+
+    return rest_frame_spec
+
+
+def correct_all_rvs(sci_spectra, observations, wl_new):
+    """
+    Parameters
+    ----------
+    sci_spectra: float array
+        3D numpy array containing spectra of form [N_ob, wl/spec/sigma, flux].
+    
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    wl_new: float array
+        New wavelength scale to regrid the spectra onto once in the rest frame
+
+    Returns
+    -------
+    rest_frame_spectra: float array
+        3D numpy array containing spectra of form [star, wl/spec/sigma, flux] 
+        now in the rest frame
+    """
+    #Initialise
+    rest_frame_spectra = []
+
+    for star_i, sci_spec in enumerate(sci_spectra):
+        bcor = observations.iloc[star_i]["bcor"].value
+        rv = observations.iloc[star_i]["rv"]
+        
+        rest_frame_spectra.append(correct_rv(sci_spec, bcor, rv, wl_new))
+
+    rest_frame_spectra = np.stack(rest_frame_spectra)
+
+    return rest_frame_spectra
 
 
 
