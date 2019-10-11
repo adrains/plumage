@@ -1,0 +1,4 @@
+__pycache__
+*.cached
+data/
+*.tar.gz
