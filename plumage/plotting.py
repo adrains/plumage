@@ -7,7 +7,7 @@ import matplotlib.pylab as plt
 
 def plot_nightly_spectra(night_a="20190827", compare_spectra=False, 
                          night_b="20190827", plot_step_id="10", 
-                         snr_step_id="08", 
+                         snr_step_id="08", plot_only=None,
                          base_path="/priv/mulga2/arains/ys/wifes/reduced"):
     """Plots red and blue band spectra for each night, stacked and offset.
     """
@@ -20,7 +20,23 @@ def plot_nightly_spectra(night_a="20190827", compare_spectra=False,
     files_plt.sort()
     files_snr.sort()
 
-    assert len(files_plt) == len(files_snr)
+    # If plotting both arms, make sure we have an equal amount of spectra
+    if plot_only is None:
+        assert len(files_plt) == len(files_snr)
+        bands = ["b", "r"]
+        n_ax = 2
+
+    # if plotting only one arm, this doesn't matter
+    elif plot_only == "r":
+        bands = ["r"]
+        n_ax = 1
+
+    elif plot_only == "b":
+        bands = ["b"]
+        n_ax = 1
+
+    else:
+        raise Exception("Unknown arm")
     
     # Abort if still no files
     if len(files_plt) == 0:
@@ -28,8 +44,11 @@ def plot_nightly_spectra(night_a="20190827", compare_spectra=False,
         return
     
     plt.close("all")
-    fig, axes = plt.subplots(1, 2, sharey=True)
-    bands = ["b", "r"]
+    fig, axes = plt.subplots(1, n_ax, sharey=True)
+    #bands = ["b", "r"]
+
+    if plot_only is not None:
+        axes = [axes]
 
     snr_sort_i = None
 
@@ -44,7 +63,7 @@ def plot_nightly_spectra(night_a="20190827", compare_spectra=False,
         snrs = []
         for fsnr in fsnr_band:
             sp_snr = np.loadtxt(fsnr)
-            snrs.append(np.median(sp_snr[:,1])/np.sqrt(np.median(sp_snr[:,1])))
+            snrs.append(np.nanmedian(sp_snr[:,1])/np.sqrt(np.nanmedian(sp_snr[:,1])))
 
         snrs = np.array(snrs)
 
@@ -67,7 +86,11 @@ def plot_nightly_spectra(night_a="20190827", compare_spectra=False,
                     linewidth=0.1)
 
             # Plot label
-            label = "%s [%i]" % (fplt.split("/")[-1][9:-4], snr)
+            if np.isnan(snr):
+                label = "%s [%i]" % (fplt.split("/")[-1][9:-4], 0)
+            else:
+                label = "%s [%i]" % (fplt.split("/")[-1][9:-4], snr)
+            
             print(sp_i, label)
             axis.text(sp_plt[:,0].mean(), 2*sp_i, label, fontsize="x-small", 
                       ha="center")
@@ -101,7 +124,7 @@ def merge_spectra_pdfs():
     with open(fn, 'wb') as fout:
         merger.write(fout)
 
-def plot_teff_sorted_spectra(spectra, observations, catalogue=None):
+def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r"):
     """Plot all spectra, their IDs, RVs, and Teffs sorted by Teff.
     """
     plt.close("all")
@@ -134,6 +157,6 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None):
     plt.xlabel("Wavelength (A)")
     plt.ylabel("Flux (Normalised, offset)")
     plt.ylim([0,sp_i+2])
-    plt.gcf().set_size_inches(9, 32)
+    plt.gcf().set_size_inches(9, 64)
     plt.tight_layout()
-    plt.savefig("plots/teff_sorted_spectra.pdf") 
+    plt.savefig("plots/teff_sorted_spectra_%s.pdf" % arm) 

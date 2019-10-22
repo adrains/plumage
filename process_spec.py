@@ -7,9 +7,19 @@ import plumage.plotting as pplt
 import plumage.utils as utils
 from astropy.table import Table
 
-# Load in science spectra
-print("Importing science spectra...")
-observations, spectra_b, spectra_r = spec.load_pkl_spectra(159) 
+load_spectra = True
+n_spec = 253
+
+if load_spectra:
+    # Load in science spectra
+    print("Importing science spectra...")
+    observations, spectra_b, spectra_r = spec.load_pkl_spectra(n_spec) 
+
+else:
+    # Do initial import
+    print("Doing inital spectra import...")
+    observations, spectra_b, spectra_r = spec.load_all_spectra()
+    spec.save_pkl_spectra(observations, spectra_b, spectra_r)
 
 # Compute barycentric correction
 print("Compute barycentric corrections...")
@@ -20,8 +30,8 @@ observations["bcor"] = bcors
 
 # Normalise science spectra
 print("Normalise science spectra...")
-spectra_b_norm = spec.normalise_spectra(spectra_b)
-spectra_r_norm = spec.normalise_spectra(spectra_r)
+spectra_b_norm = spec.normalise_spectra(spectra_b, True)
+spectra_r_norm = spec.normalise_spectra(spectra_r, True)
 
 # Make synthetic templates [requires IDL]
 #ref_spec = synth.get_template_spectra(teffs, loggs, fehs)
@@ -81,4 +91,5 @@ catalogue["subset"] = [ss.decode().replace(" ", "")
 utils.do_id_crossmatch(observations, catalogue)
 
 # Plot the spectra sorted by temperature
-pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations, catalogue)
+pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations, catalogue, "r")
+pplt.plot_teff_sorted_spectra(spec_rvcor_b, observations, catalogue, "b")

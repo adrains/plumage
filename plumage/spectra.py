@@ -103,15 +103,27 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
             sig_r = np.median(fits_r[ext_snr].data["spectrum"])
             snrs_r.append(sig_r / sig_r**0.5)
 
+            # HACK. FIX THIS.
+            # Uncertainties on flux calibratated spectra don't currently 
+            # make sense, so get the uncertainties from the unfluxxed spectra
+            # in terms of fractions, then apply to the fluxed spectra 
+            sigma_b_pc = fits_b[ext_snr].data["sigma"] / fits_b[ext_snr].data["spectrum"]
+            sigma_r_pc = fits_r[ext_snr].data["sigma"] / fits_r[ext_snr].data["spectrum"]
+            
             # Get the flux and telluric corrected spectra
             spec_b = np.stack(fits_b[ext_sci].data)
+            spec_b[:,2] = spec_b[:,1] * sigma_b_pc
             spectra_b.append(spec_b.T)
+
             spec_r = np.stack(fits_r[ext_sci].data)
+            spec_r[:,2] = spec_r[:,1] * sigma_r_pc
             spectra_r.append(spec_r.T)
         
     # Now combine the arrays into our output structures
     spectra_b = np.stack(spectra_b)
     spectra_r = np.stack(spectra_r)
+
+    
 
     # Convert arrays
     snrs_b = np.array(snrs_b).astype(float).astype(int)
@@ -236,6 +248,7 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
     """
     # Fit to flux in log space
     spectrum_fit = np.log(spectrum)
+    #e_spectrum_fit = np.log(spectrum)
 
     # Red arm, R7000 grating
     if np.round(wl.mean()/100)*100 == 6200:
@@ -297,17 +310,25 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
         return spectrum_norm
 
 
-def normalise_spectra(spectra):
+def normalise_spectra(spectra, normalise_uncertainties=False):
     """
     """
     spectra_norm = spectra.copy()
 
     for spec_i in range(len(spectra_norm)):
         print("(%4i/%i) normalised" % (spec_i+1, len(spectra)))
-        spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
+        if normalise_uncertainties:
+            spec_norm, e_spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
+                                       spectra[spec_i][1,:], # flux
+                                       spectra[spec_i][2,:]) # uncertainty
+
+            spectra_norm[spec_i][1,:] = spec_norm
+            spectra_norm[spec_i][2,:] = e_spec_norm
+
+        else:
+            spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
                                        spectra[spec_i][1,:]) # flux
-                                       #spectra[spec_i][2,:]) # uncertainty
-        spectra_norm[spec_i][1,:] = spec_norm
+            spectra_norm[spec_i][1,:] = spec_norm
     
     return spectra_norm
 
@@ -386,7 +407,7 @@ def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
     ref_spec = ref_spec_interp(wave * (1-(rv[0]-bcor)/(const.c.si.value/1000)))
 
     # Return loss
-    return np.sum((ref_spec - spec)**2 / 2)
+    return np.sum((ref_spec - spec)**2 / 2)#e_spec)
 
 
 def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
@@ -569,13 +590,17 @@ def correct_rv(sci_spectra, bcor, rv, wl_new):
     # Setup the interpolation
     calc_spec = interp1d(sci_spectra[0,:], sci_spectra[1,:], kind="linear",
                          bounds_error=False, assume_sorted=True)
+    
+    calc_sigma = interp1d(sci_spectra[0,:], sci_spectra[2,:], kind="linear",
+                         bounds_error=False, assume_sorted=True)
 
     # We're *undoing* the shift imparted by barycentric motion and radial
     # velocity, so this relation will have an opposite sign to the one in
     # calc_rv_shift_residual.
     rest_frame_spec = calc_spec(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
+    rest_frame_sigma = calc_sigma(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
 
-    rest_frame_spec = np.stack([wl_new, rest_frame_spec])
+    rest_frame_spec = np.stack([wl_new, rest_frame_spec, rest_frame_sigma])
 
     return rest_frame_spec
 
