@@ -103,7 +103,7 @@ def plot_nightly_spectra(night_a="20190827", compare_spectra=False,
     plt.gcf().set_size_inches(9, 16)
     plt.savefig("/home/arains/code/plumage/plots/spectra_%s.pdf" % night_a)
 
-def merge_spectra_pdfs():
+def merge_spectra_pdfs(path=None):
     """Merge diagnostic pdfs together for easy checking.
     
     Code from:
@@ -111,7 +111,10 @@ def merge_spectra_pdfs():
     """
     from PyPDF2 import PdfFileMerger
 
-    pdfs = glob.glob("/home/arains/code/plumage/plots/spectra_br_2019*")
+    if path is None:
+        pdfs = glob.glob("/home/arains/code/plumage/plots/spectra_br_2019*")
+    else:
+        pdfs = glob.glob(path)
     pdfs.sort()
     
     merger = PdfFileMerger()
@@ -119,7 +122,7 @@ def merge_spectra_pdfs():
     for pdf in pdfs:
         merger.append(open(pdf, 'rb'))
 
-    fn = "/home/arains/code/plumage/plots/spectra_summary.pdf"
+    fn = "plots/spectra_summary.pdf"
 
     with open(fn, 'wb') as fout:
         merger.write(fout)
@@ -160,3 +163,34 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r"):
     plt.gcf().set_size_inches(9, 64)
     plt.tight_layout()
     plt.savefig("plots/teff_sorted_spectra_%s.pdf" % arm) 
+
+
+    def plot_normalised_spectra(spectra, observations, band="r"):
+        """
+        
+        for i in range(0,len(spec_rvcor_b)): 
+            if int(observations.iloc[i]["snr_b"]) > 20: 
+                plt.plot(spec_rvcor_b[i,0,:], spec_rvcor_b[i,1,:],linewidth=0.1) 
+        if band = "b":
+            plt.xlim([3600,5500]) 
+
+        plt.ylim([0,3])
+        plt.xlabel("Wavelength (A)") 
+        plt.ylabel("Flux (Normalised)")
+        """
+        pass
+    
+def plot_balmer_series():
+    """
+    """
+    balmer = {r"H$\alpha$":6564.5,
+                r"H$\beta$":4861.4,
+                r"H$\gamma$":4340.5,
+                r"H$\delta$":4101.7,
+                r"H$\epsilon$":3970.1,
+                r"H$\zeta$":3889.01,
+                r"H$\eta$":3835.4,}
+
+    for line in balmer.keys():
+        plt.vlines(balmer[line], 0.2, 10, color="grey", linestyles="dashed", linewidth=1)
+        plt.text(balmer[line], 0.1, line, fontsize="x-small", horizontalalignment='center')

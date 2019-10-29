@@ -264,7 +264,7 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
     elif np.round(wl.mean()/100)*100 == 4600:
         lambda_0 = 4600
         ca_hk = np.logical_and(wl > 3920, wl < 3980)
-        edges = np.logical_or(wl < 4000, wl > 4650)
+        edges = np.logical_or(wl < 3600, wl > 5400)
         nan = ~np.isfinite(spectrum_fit)
 
         ignore = np.logical_or.reduce((ca_hk, edges, nan))
@@ -550,7 +550,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     for star_i, sci_spec in enumerate(sci_spectra):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
-                 % (star_i+1, len(sci_spec), observations.iloc[star_i]["id"]))
+                 % (star_i+1, len(sci_spectra), observations.iloc[star_i]["id"]))
 
         bcor = observations.iloc[star_i]["bcor"]
         rv, teff, fit_qual = do_template_match(sci_spec, bcor, ref_params, 
