@@ -5,15 +5,35 @@ import numpy as np
 import glob
 import matplotlib.pylab as plt
 
-def plot_nightly_spectra(night_a="20190827", compare_spectra=False, 
-                         night_b="20190827", plot_step_id="10", 
-                         snr_step_id="08", plot_only=None,
-                         base_path="/priv/mulga2/arains/ys/wifes/reduced"):
-    """Plots red and blue band spectra for each night, stacked and offset.
+def plot_nightly_spectra(root, night, plot_step_id="10", 
+                         snr_step_id="08", plot_only=None):
+    """Plots red and blue band spectra for each night, stacked and offset, 
+    saved to plumage/plots.
+
+    Parameters
+    ----------
+    root: str
+        Base filepath where reductions are stored.
+
+    night: str
+        Night observations were taken, and name of folder they're stored in.
+        Of format YYYYMMDD.
+
+    plot_step_id: str
+        The data reduction step ID of pyWiFeS to use for plotting
+        (i.e. typically after flux and telluric correction)
+
+    snr_step_id: str
+        The data reduction step ID of pyWiFeS to use for calculation of SNR 
+        (i.e. before flux and telluric correction)
+
+    plot_only: str or None
+        If not none, provide either "r" or "b" to plot only that arm of the 
+        spectrograph. Useful if issues with other arm.
     """
     # Import 
-    path_plt = "%s/%s/ascii/*_%s_*"  % (base_path, night_a, plot_step_id)
-    path_snr = "%s/%s/ascii/*_%s_*"  % (base_path, night_a, snr_step_id)
+    path_plt = "%s/%s/ascii/*_%s_*"  % (root, night, plot_step_id)
+    path_snr = "%s/%s/ascii/*_%s_*"  % (root, night, snr_step_id)
     files_plt = glob.glob(path_plt)
     files_snr = glob.glob(path_snr)
 
@@ -96,12 +116,12 @@ def plot_nightly_spectra(night_a="20190827", compare_spectra=False,
                       ha="center")
     
     axis.set_ylim([-1,sp_i*2+4])
-    fig.suptitle(night_a)
+    fig.suptitle(night)
     fig.tight_layout()
     fig.text(0.5, 0.04, "Wavelength (A)", ha='center')
     fig.text(0.04, 0.5, "Flux (scaled)", va='center', rotation='vertical')
     plt.gcf().set_size_inches(9, 16)
-    plt.savefig("/home/arains/code/plumage/plots/spectra_%s.pdf" % night_a)
+    plt.savefig("plots/spectra_%s.pdf" % night)
 
 def merge_spectra_pdfs(path=None):
     """Merge diagnostic pdfs together for easy checking.
@@ -127,16 +147,23 @@ def merge_spectra_pdfs(path=None):
     with open(fn, 'wb') as fout:
         merger.write(fout)
 
-def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r"):
+def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
+                             mask=None, suffix=""):
     """Plot all spectra, their IDs, RVs, and Teffs sorted by Teff.
     """
+    if mask is None:
+        mask = np.ones(len(spectra)).astype(bool)
+
+    #import pdb
+    #pdb.set_trace()
+
     plt.close("all")
-    teff_order = np.argsort(observations["teff_fit"].values)
-    sorted_spec = spectra[teff_order]
-    ids = observations["id"].values[teff_order]
-    uids = observations["uid"].values[teff_order]
-    teffs = observations["teff_fit"].values[teff_order]
-    rvs = observations["rv"].values[teff_order]
+    teff_order = np.argsort(observations[mask]["teff_fit"].values)
+    sorted_spec = spectra[mask][teff_order]
+    ids = observations[mask]["id"].values[teff_order]
+    uids = observations[mask]["uid"].values[teff_order]
+    teffs = observations[mask]["teff_fit"].values[teff_order]
+    rvs = observations[mask]["rv"].values[teff_order]
 
     for sp_i, (spec, id, teff, rv) in enumerate(zip(sorted_spec, ids, teffs, rvs)): 
         plt.plot(spec[0,:], sp_i+spec[1,:], linewidth=0.1) 
@@ -148,7 +175,11 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r"):
                 program = "?"
                 subset = "?"
             else:
-                idx = int(np.argwhere(catalogue["source_id"].values==uid))  
+                try:
+                    idx = int(np.argwhere(catalogue["source_id"].values==uid))  
+                except:
+                    import pdb
+                    pdb.set_trace()
                 program = catalogue.iloc[idx]["program"]
                 subset = catalogue.iloc[idx]["subset"]
 
@@ -162,23 +193,41 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r"):
     plt.ylim([0,sp_i+2])
     plt.gcf().set_size_inches(9, 64)
     plt.tight_layout()
-    plt.savefig("plots/teff_sorted_spectra_%s.pdf" % arm) 
+
+    if suffix != "":
+        plt.savefig("plots/teff_sorted_spectra_%s_%s.pdf" % (arm, suffix))
+    else:
+        plt.savefig("plots/teff_sorted_spectra_%s.pdf" % arm)
 
 
-    def plot_normalised_spectra(spectra, observations, band="r"):
-        """
-        
-        for i in range(0,len(spec_rvcor_b)): 
-            if int(observations.iloc[i]["snr_b"]) > 20: 
-                plt.plot(spec_rvcor_b[i,0,:], spec_rvcor_b[i,1,:],linewidth=0.1) 
-        if band = "b":
-            plt.xlim([3600,5500]) 
+def plot_normalised_spectra(spectra, observations, band="r", snr=0, mask=None,
+                            plot_balmer=False):
+    """
+    """
+    if mask is None:
+        mask = np.ones(len(spectra)).astype(bool)
 
-        plt.ylim([0,3])
-        plt.xlabel("Wavelength (A)") 
-        plt.ylabel("Flux (Normalised)")
-        """
-        pass
+    plt.close("all")
+
+    for i in range(0,len(spectra[mask])): 
+        if int(observations[mask].iloc[i]["snr_%s" % band]) > snr: 
+            plt.plot(spectra[mask][i,0,:], spectra[mask][i,1,:],linewidth=0.1,)
+                     #alpha=0.5, color="black") 
+    
+    print("%i stars plotted" % (i+1))
+
+    if band == "b":
+        plt.xlim([3600,5500]) 
+    elif band == "r":
+        plt.xlim([5400,7000]) 
+
+    if plot_balmer:
+        plot_balmer_series()
+
+    plt.ylim([0,3])
+    plt.xlabel("Wavelength (A)") 
+    plt.ylabel("Flux (Normalised)")
+    
     
 def plot_balmer_series():
     """
@@ -194,3 +243,49 @@ def plot_balmer_series():
     for line in balmer.keys():
         plt.vlines(balmer[line], 0.2, 10, color="grey", linestyles="dashed", linewidth=1)
         plt.text(balmer[line], 0.1, line, fontsize="x-small", horizontalalignment='center')
+
+
+def plot_templates(ref_spec_norm, ref_params):
+    """
+    """
+    plt.close("all")
+    for sp_i, (spec, params) in enumerate(zip(ref_spec_norm[::-1], ref_params[::-1])):
+        plt.plot(spec[0,:], 2*sp_i+spec[1,:],linewidth=0.1)
+
+        label = (r"T$_{\rm eff}=%i\,$K, $\log g=%0.1f$, [Fe/H]$=%0.1f$"
+                 % (params[0], params[1], params[2]))
+        plt.text(spec[0,:].mean(), 2*sp_i, label, fontsize=4, 
+                        ha="center")
+
+    plt.xlabel("Wavelength (A)") 
+    plt.ylabel("Flux (Normalised)")
+    plt.gcf().set_size_inches(9, 20)
+    plt.tight_layout()
+    plt.savefig("plots/teff_sorted_ref_spectra.pdf") 
+    plt.savefig("plots/teff_sorted_ref_spectra.png") 
+    
+
+def plot_standards(spectra, observations, catalogue):
+    """
+    """
+    # Get the standards
+    is_standard = catalogue["program"] == "standard"
+
+    # Get only IDs that have been matched
+    #id_match_mask = [sid is not "" for sid in observations["uid"]]
+
+    # Now get the standards that have been observed
+    is_observed = [sid in observations["uid"].values 
+                            for sid in catalogue["source_id"].values]
+
+    # Final mask exludes those with empty souce ID
+    mask = is_standard * is_observed
+
+    plt.close("all")
+    plt.scatter(catalogue[mask]["teff_lit"], catalogue[mask]["logg_lit"],)
+                #catalogue[mask]["feh_lit"])
+
+    plt.xlim([6700, 3000])
+    plt.ylim([5.1, 1])
+
+    
