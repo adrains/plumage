@@ -58,9 +58,6 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
 
     else:
         raise Exception("Unknown arm")
-    
-    import pdb
-    pdb.set_trace()
 
     # Abort if still no files
     if len(files_plt) == 0:
