@@ -7,7 +7,8 @@ import glob
 import matplotlib.pylab as plt
 
 def plot_nightly_spectra(root, night, plot_step_id="10", 
-                         snr_step_id="08", plot_only=None):
+                         snr_step_id="08", plot_only=None, 
+                         plot_output_path=None):
     """Plots red and blue band spectra for each night, stacked and offset, 
     saved to plumage/plots.
 
@@ -31,6 +32,11 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
     plot_only: str or None
         If not none, provide either "r" or "b" to plot only that arm of the 
         spectrograph. Useful if issues with other arm.
+
+    plot_output_path: str or None
+        Directory to save the output plot to. If None, defaults to 
+        plumage/plots/.
+
     """
     # Import 
     path_plt = os.path.join(root, night, "ascii", "*_%s_*" % plot_step_id)
@@ -122,7 +128,12 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
     fig.text(0.5, 0.04, "Wavelength (A)", ha='center')
     fig.text(0.04, 0.5, "Flux (scaled)", va='center', rotation='vertical')
     plt.gcf().set_size_inches(9, 16)
-    plt.savefig("plots/spectra_%s.pdf" % night)
+
+    # Save plot
+    if plot_output_path is None:
+        plot_output_path = "plots"
+    
+    plt.savefig(os.path.join(plot_output_path, "spectra_%s.pdf" % night))
 
 def merge_spectra_pdfs(path=None):
     """Merge diagnostic pdfs together for easy checking.
