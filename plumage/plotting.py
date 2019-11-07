@@ -1,6 +1,7 @@
 """Various plotting functions"
 """
 from __future__ import print_function, division
+import os
 import numpy as np
 import glob
 import matplotlib.pylab as plt
@@ -32,8 +33,8 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
         spectrograph. Useful if issues with other arm.
     """
     # Import 
-    path_plt = "%s/%s/ascii/*_%s_*"  % (root, night, plot_step_id)
-    path_snr = "%s/%s/ascii/*_%s_*"  % (root, night, snr_step_id)
+    path_plt = os.path.join(root, night, "ascii", "*_%s_*" % plot_step_id)
+    path_snr = os.path.join(root, night, "ascii", "*_%s_*" % snr_step_id)
     files_plt = glob.glob(path_plt)
     files_snr = glob.glob(path_snr)
 
@@ -58,6 +59,9 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
     else:
         raise Exception("Unknown arm")
     
+    import pdb
+    pdb.set_trace()
+
     # Abort if still no files
     if len(files_plt) == 0:
         print("No fits files, aborting.")
