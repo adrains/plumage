@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import glob
 import pickle
+from tqdm import tqdm
 from scipy.optimize import leastsq
 from astropy.table import Table
 from astropy.io import fits
@@ -311,12 +312,12 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
 
 
 def normalise_spectra(spectra, normalise_uncertainties=False):
-    """
+    """Normalises all spectra
     """
     spectra_norm = spectra.copy()
 
-    for spec_i in range(len(spectra_norm)):
-        print("(%4i/%i) normalised" % (spec_i+1, len(spectra)))
+    for spec_i in tqdm(range(len(spectra_norm))):
+        #print("(%4i/%i) normalised" % (spec_i+1, len(spectra)))
         if normalise_uncertainties:
             spec_norm, e_spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
                                        spectra[spec_i][1,:], # flux
@@ -336,7 +337,8 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # -----------------------------------------------------------------------------
-def compute_barycentric_correction(ras, decs, times, site="SSO"):
+def compute_barycentric_correction(ras, decs, times, site="SSO", 
+                                   disable_auto_max_age=False):
     """Compute the barycentric corrections for a set of stars
 
     Parameters
@@ -364,8 +366,14 @@ def compute_barycentric_correction(ras, decs, times, site="SSO"):
     # Initialise barycentric correction array
     bcors = []
 
+    if disable_auto_max_age:
+        #from astropy.utils.iers import IERS_A_URL
+        IERS_A_URL = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals.all'
+        #from astropy.utils.iers import conf
+        #conf.auto_max_age = None
+
     # Calculate the barycentric correction for every star
-    for ra, dec, time in zip(ras, decs, times):
+    for ra, dec, time in zip(tqdm(ras), decs, times):
         sc = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
         time = Time(float(time), format="mjd")
         barycorr = sc.radial_velocity_correction(obstime=time, location=loc)  
@@ -406,8 +414,18 @@ def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
     # Shift the template spectrum
     ref_spec = ref_spec_interp(wave * (1-(rv[0]-bcor)/(const.c.si.value/1000)))
 
+    # Setup a mask to use. Ignore edges, and sigma clip *high* pixels to 
+    # remove emission features and cosmics
+    mask = np.ones_like(ref_spec).astype(bool)
+    mask[:10] = False
+    mask[-10:] = False
+    nsig = 4
+    #mask[spec > (np.nanmean(spec) + nsig*np.nanstd(spec))] = False
+
     # Return loss
-    return np.sum((ref_spec - spec)**2 / 2)#e_spec)
+    chi_sq = np.nansum(((spec[mask] - ref_spec[mask]) / e_spec[mask])**2)
+
+    return chi_sq
 
 
 def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
@@ -447,7 +465,15 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
     fit, cov, infodict, mesg, ier = leastsq(calc_rv_shift_residual, rv, 
                                             args=args, full_output=True)
 
-    return fit, cov, infodict, mesg, ier
+    # Work out the uncertainties
+    res = sci_spec - ref_spec_interp(sci_wl * (1-(fit[0]-bcor.value)
+                                       /(const.c.si.value/1000)))
+    if cov is None:
+        e_rv = np.nan
+    else:
+        e_rv = (cov * np.nanvar(res))**0.5
+
+    return fit[0], float(e_rv), infodict # cov, , mesg, ier
 
 
 def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
@@ -485,32 +511,34 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
     """
     # Fit each template to the science data to figure out the best match
     rvs = []
+    e_rvs = []
     fit_quality = []
 
     for params, ref_spec in zip(ref_params, ref_spectra):
-        fit, cov, infodict, _, _ = calc_rv_shift(ref_spec[0,:], ref_spec[1,:], 
-                                                 sci_spectra[0,:], 
-                                                 sci_spectra[1,:], 
-                                                 sci_spectra[2,:], bcor)
-        rvs.append(fit[0])
+        rv, e_rv, infodict = calc_rv_shift(ref_spec[0,:], ref_spec[1,:], 
+                                        sci_spectra[0,:], sci_spectra[1,:], 
+                                        sci_spectra[2,:], bcor)
+        rvs.append(rv)
+        e_rvs.append(e_rv)
         fit_quality.append(infodict["fvec"])
 
         if print_diagnostics:
             print("\tTeff = %i K, RV = %0.2f km/s, quality = %0.2f" 
-                  % (params[0], fit[0], infodict["fvec"]))
+                  % (params[0], rv, infodict["fvec"]))
 
     # Now figure out what best fit is
     fit_i = np.argmin(fit_quality)
 
     rv = rvs[fit_i]
+    e_rv = e_rvs[fit_i]
     teff = ref_params[fit_i][0]
-    quality = fit_quality[fit_i]
+    chi2 = fit_quality[fit_i]
 
-    return rv, teff, quality
+    return rv, e_rv, teff, chi2
 
 
 def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
-                            print_diagnostics=True):
+                            print_diagnostics=False):
     """Do template fitting on all stars for radial velocity and temperature.
 
     Parameters
@@ -543,24 +571,26 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     """
     # Initialise
     rvs = []
+    e_rvs = []
     teffs = []
     fit_quality = []
 
     # For every star, do template fitting
-    for star_i, sci_spec in enumerate(sci_spectra):
+    for star_i, sci_spec in enumerate(tqdm(sci_spectra)):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
                  % (star_i+1, len(sci_spectra), observations.iloc[star_i]["id"]))
 
         bcor = observations.iloc[star_i]["bcor"]
-        rv, teff, fit_qual = do_template_match(sci_spec, bcor, ref_params, 
+        rv, e_rv, teff, chi2 = do_template_match(sci_spec, bcor, ref_params, 
                                                ref_spectra, print_diagnostics)
         
         rvs.append(rv)
+        e_rvs.append(e_rv)
         teffs.append(teff)
-        fit_quality.append(fit_qual)
+        fit_quality.append(chi2)
 
-    return rvs, teffs, fit_quality
+    return rvs, e_rvs, teffs, fit_quality
 
 
 def correct_rv(sci_spectra, bcor, rv, wl_new):

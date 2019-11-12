@@ -176,8 +176,9 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
     uids = observations[mask]["uid"].values[teff_order]
     teffs = observations[mask]["teff_fit"].values[teff_order]
     rvs = observations[mask]["rv"].values[teff_order]
+    e_rvs = observations[mask]["e_rv"].values[teff_order]
 
-    for sp_i, (spec, id, teff, rv) in enumerate(zip(sorted_spec, ids, teffs, rvs)): 
+    for sp_i, (spec, id, teff, rv, e_rv) in enumerate(zip(sorted_spec, ids, teffs, rvs, e_rvs)): 
         plt.plot(spec[0,:], sp_i+spec[1,:], linewidth=0.1) 
         label = "%s [%i K, %0.2f km/s]" % (id, teff, rv)
 
@@ -195,7 +196,8 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
                 program = catalogue.iloc[idx]["program"]
                 subset = catalogue.iloc[idx]["subset"]
 
-            label = "%s [%s, %s, %i K, %0.2f km/s]" % (id, program, subset, teff, rv)
+            label = (r"%s [%s, %s, %i K, %0.2f$\pm$%0.2f km/s]"
+                     % (id, program, subset, teff, rv, e_rv))
         
         plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
                         ha="center")
@@ -203,7 +205,7 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
     plt.xlabel("Wavelength (A)")
     plt.ylabel("Flux (Normalised, offset)")
     plt.ylim([0,sp_i+2])
-    plt.gcf().set_size_inches(9, 64)
+    plt.gcf().set_size_inches(9, 80)
     plt.tight_layout()
 
     if suffix != "":

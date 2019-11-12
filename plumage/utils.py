@@ -21,7 +21,7 @@ def do_id_crossmatch(observations, catalogue):
             continue
 
         # 2MASS
-        idx = np.argwhere(catalogue["2MASS_Source_ID_1"].values==ob_id)
+        idx = np.argwhere(catalogue["2MASS_Source_ID"].values==ob_id)
 
         if len(idx) == 1:
             u_ids.append(catalogue.iloc[int(idx)]["source_id"])
