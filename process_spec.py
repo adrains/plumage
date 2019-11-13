@@ -14,9 +14,12 @@ from astropy.table import Table
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-load_spectra = True                    # Whether to load in pickle spectra
+load_spectra = False                    # Whether to load in pickle spectra
 n_spec = 516                            # If loading, which pickle of N spectra
 disable_auto_max_age = False            # Useful if IERS broken
+
+flux_corrected = True                   # If *all* data is fluxed
+telluric_corrected = True               # If *all* data is telluric corr
 
 cat_type="csv"                          # Crossmatch catalogue type
 cat_file="data/all_2m3_star_ids.csv"    # Crossmatch catalogue 
@@ -24,6 +27,20 @@ cat_file="data/all_2m3_star_ids.csv"    # Crossmatch catalogue
 # -----------------------------------------------------------------------------
 # Load in extracted 1D spectra from fits files or pickle
 # -----------------------------------------------------------------------------
+# 1D extracted spectra fits files have extensions as follows:
+#  1) uncalibrated
+#  2) fluxed
+#  3) telluric
+# Here is where we pick the extension for our science data
+if not flux_corrected and not telluric_corrected:
+    ext_sci = 1
+elif flux_corrected and not telluric_corrected:
+    ext_sci = 2
+elif flux_corrected and telluric_corrected:
+    ext_sci = 3
+else:
+    ext_sci = 1
+
 if load_spectra:
     # Load in science spectra
     print("Importing science spectra...")
@@ -32,7 +49,7 @@ if load_spectra:
 else:
     # Do initial import
     print("Doing inital spectra import...")
-    observations, spectra_b, spectra_r = spec.load_all_spectra()
+    observations, spectra_b, spectra_r = spec.load_all_spectra(ext_sci=ext_sci)
     spec.save_pkl_spectra(observations, spectra_b, spectra_r)
 
 # -----------------------------------------------------------------------------
