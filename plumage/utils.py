@@ -1,10 +1,21 @@
-"""
+"""Utilities functions to assist.
 """
 import numpy as np
 import pandas as pd
 
 def do_id_crossmatch(observations, catalogue):
-    """Do an ID crossmatch and add the Gaia DR2 ID to observations.
+    """Do an ID crossmatch and add the Gaia DR2 ID to observations
+
+    Note that this is a bit messy at present, consider placeholder.
+
+    Parameters
+    ----------
+    observations: pandas dataframe
+        Pandas dataframe logging details about each observation to match to.
+
+    catalogue: pandas dataframe
+        The imported catalogue of all potential observed stars and their 
+        science programs in the form of a pandas dataframe
     """
     # Get the IDs
     ob_ids = observations["id"].values
@@ -62,8 +73,62 @@ def do_id_crossmatch(observations, catalogue):
     observations["uid"] = u_ids
 
 
-def do_standard_crossmatch(catalogue):
+def load_crossmatch_catalogue(cat_type="csv", 
+                              cat_file="data/all_2m3_star_ids.csv"):
+    """Load in the catalogue of all stars observed. Currently the csv 
+    catalogue is complete, whereas the fits catalogue is meant to be a 
+    FunnelWeb input catalogue crossmatch which is broken/not complete.
+
+    Parameters
+    ----------
+    cat_type: string
+        Kind of catalogue to load in. Accepts either "csv" or "fits"
+    cat_file: string
+        Location of the catalogue to import
+
+    Returns
+    -------
+    catalogue: pandas dataframe
+        The imported catalogue of all potential observed stars and their 
+        science programs in the form of a pandas dataframe
     """
+    # Import catalogue
+    if cat_type == "csv":
+        catalogue_file = cat_file
+        catalogue = pd.read_csv(catalogue_file, sep=",", header=0, 
+                                dtype={"Gaia ID":str, "TOI":str, 
+                                "2MASS_Source_ID":str, "subset":str},
+                                na_values=[], keep_default_na=False)
+        catalogue.rename(columns={"Gaia ID":"source_id"}, inplace=True)
+
+        #catalogue["source_id"] = catalogue["source_id"].astype(str)
+        #catalogue["subset"] = catalogue["subset"].astype(str)
+
+        #catalogue["2MASS_Source_ID"] = [str(id).replace(" ", "") 
+        #                                for id in catalogue["2MASS_Source_ID"]]
+        #catalogue["program"] = [prog.replace(" ", "") 
+        #                        for prog in catalogue["program"]]
+        #catalogue["subset"] = [str(ss).replace(" ", "") 
+        #                        for ss in catalogue["subset"]]
+
+    elif cat_type == "fits":
+        catalogue_file = cat_file
+        catalogue = Table.read(catalogue_file).to_pandas() 
+        catalogue.rename(columns={"Gaia ID":"source_id"}, inplace=True)  
+        catalogue["source_id"] = catalogue["source_id"].astype(str)
+        catalogue["TOI"] = catalogue["TOI"].astype(str)
+        catalogue["2MASS_Source_ID_1"] = [id.decode().replace(" ", "") 
+                                        for id in catalogue["2MASS_Source_ID_1]"]]
+        catalogue["program"] = [prog.decode().replace(" ", "") 
+                                for prog in catalogue["program"]]
+        catalogue["subset"] = [ss.decode().replace(" ", "") 
+                                for ss in catalogue["subset"]]
+    
+    return catalogue
+
+def do_standard_crossmatch(catalogue):
+    """Crossmatch standards with the catalogue of all potential science
+    targets. Very TBD and TODO.
     """
     # Load in standards
     standards = load_standards()
@@ -84,8 +149,6 @@ def do_standard_crossmatch(catalogue):
         for std_i in range(len(std_cat)):
             gaia_id = std_cat.iloc[std_i].name
 
-
-
             idx = np.argwhere(catalogue["source_id"].values==gaia_id)
 
             if len(idx) == 1:
@@ -101,9 +164,8 @@ def do_standard_crossmatch(catalogue):
                     print("Gaia DR2 %s has duplicate values" % gaia_id)
                     continue
 
-
 def load_standards():
-    """
+    """Load in various standard catalogues. This should be cleaned.
     """
     royas = pd.read_csv("rojas-ayala_2012.tsv", sep="\t", header=1, 
                      skiprows=0, dtype={"source_id":str, "useful":bool})
@@ -133,4 +195,3 @@ def load_standards():
     standards = [royas, newton, mann, interferometry, herczeg]
 
     return standards
-

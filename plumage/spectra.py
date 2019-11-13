@@ -81,7 +81,7 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
 
     assert len(spectra_b_files) == len(spectra_r_files)
 
-    for fi, (file_b, file_r) in enumerate(zip(spectra_b_files, spectra_r_files)):
+    for fi, (file_b, file_r) in enumerate(zip(tqdm(spectra_b_files), spectra_r_files)):
         # Load in and extract required information from fits files
         with fits.open(file_b) as fits_b, fits.open(file_r) as fits_r:
             # Get object name and details of observation
@@ -94,8 +94,8 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
             dec.append(header["DEC"])
             airmass.append(header["AIRMASS"])
             
-            print("(%4i/%i) Importing %s on %s" 
-                  % (fi+1, len(spectra_b_files), ids[-1], obs_date[-1]))
+            #print("(%4i/%i) Importing %s on %s" 
+                  #% (fi+1, len(spectra_b_files), ids[-1], obs_date[-1]))
 
             # Get SNR measurements for each arm
             sig_b = np.median(fits_b[ext_snr].data["spectrum"])
@@ -123,9 +123,7 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
     # Now combine the arrays into our output structures
     spectra_b = np.stack(spectra_b)
     spectra_r = np.stack(spectra_r)
-
     
-
     # Convert arrays
     snrs_b = np.array(snrs_b).astype(float).astype(int)
     snrs_r = np.array(snrs_r).astype(float).astype(int)
@@ -141,7 +139,7 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
     return observations, spectra_b, spectra_r
 
 
-def save_pkl_spectra(observations, spectra_b, spectra_r):
+def save_pkl_spectra(observations, spectra_b, spectra_r, rv_corr=False):
     """Save the imported spectra and observation info into respective pickle
     files in spectra/.
 
@@ -158,29 +156,35 @@ def save_pkl_spectra(observations, spectra_b, spectra_r):
         3D numpy array containing red arm spectra of form 
         [N_ob, wl/spec/sigma, flux].
     """
+    # Distinguish whether these spectra are post normalisation and RV corr
+    if rv_corr:
+        ext = "_rv_corr"
+    else:
+        ext = ""
+
     # Get number of obs
     n_obs = len(observations)
 
     # Save observation log
-    ob_out = os.path.join("spectra", "saved_observations_%i.pkl" % n_obs)
+    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" % (n_obs, ext))
     pkl_obs = open(ob_out, "wb")
     pickle.dump(observations, pkl_obs)
     pkl_obs.close()
 
     # Save blue arm spectra
-    sb_out = os.path.join("spectra", "saved_spectra_b_%i.pkl" % n_obs)
+    sb_out = os.path.join("spectra", "saved_spectra_b_%i%s.pkl" % (n_obs, ext))
     pkl_sb = open(sb_out, "wb")
     pickle.dump(spectra_b, pkl_sb)
     pkl_sb.close()
 
     # Save red arm 
-    sr_out = os.path.join("spectra", "saved_spectra_r_%i.pkl" % n_obs)
+    sr_out = os.path.join("spectra", "saved_spectra_r_%i%s.pkl" % (n_obs, ext))
     pkl_sr = open(sr_out, "wb")
     pickle.dump(spectra_r, pkl_sr)
     pkl_sr.close()
 
 
-def load_pkl_spectra(n_obs):
+def load_pkl_spectra(n_obs, rv_corr=False):
     """Load the save spectra and observations from pickle files stored in
     spectra/.
 
@@ -202,20 +206,26 @@ def load_pkl_spectra(n_obs):
         3D numpy array containing red arm spectra of form 
         [N_ob, wl/spec/sigma, flux].
     """
+    # Distinguish whether these spectra are post normalisation and RV corr
+    if rv_corr:
+        ext = "_rv_corr"
+    else:
+        ext = ""
+
     # Load observation log
-    ob_out = os.path.join("spectra", "saved_observations_%i.pkl" % n_obs)
+    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" % (n_obs, ext))
     pkl_obs = open(ob_out, "rb")
     observations = pickle.load(pkl_obs)
     pkl_obs.close()
 
     # Load blue arm spectra
-    sb_out = os.path.join("spectra", "saved_spectra_b_%i.pkl" % n_obs)
+    sb_out = os.path.join("spectra", "saved_spectra_b_%i%s.pkl" % (n_obs, ext))
     pkl_sb = open(sb_out, "rb")
     spectra_b = pickle.load(pkl_sb)
     pkl_sb.close()
 
     # Load red arm spectra
-    sr_out = os.path.join("spectra", "saved_spectra_r_%i.pkl" % n_obs)
+    sr_out = os.path.join("spectra", "saved_spectra_r_%i%s.pkl" % (n_obs, ext))
     pkl_sr = open(sr_out, "rb")
     spectra_r = pickle.load(pkl_sr)
     pkl_sr.close()

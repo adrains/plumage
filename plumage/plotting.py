@@ -6,6 +6,13 @@ import numpy as np
 import glob
 import matplotlib.pylab as plt
 
+# Ensure the plotting folder exists to save to
+here_path = os.path.dirname(__file__)
+plot_dir = os.path.abspath(os.path.join(here_path, "..", "plots"))
+
+if not os.path.isdir(plot_dir):
+    os.mkdir(plot_dir)
+
 def plot_nightly_spectra(root, night, plot_step_id="10", 
                          snr_step_id="08", plot_only=None, 
                          plot_output_path=None):
