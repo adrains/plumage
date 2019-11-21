@@ -79,23 +79,24 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
     spectra_b_files.sort()
     spectra_r_files.sort()
 
+    bad_files = []
+
     assert len(spectra_b_files) == len(spectra_r_files)
 
     for fi, (file_b, file_r) in enumerate(zip(tqdm(spectra_b_files), spectra_r_files)):
         # Load in and extract required information from fits files
         with fits.open(file_b) as fits_b, fits.open(file_r) as fits_r:
-            # Get object name and details of observation
-            header = fits_b[0].header
-            ids.append(header["OBJNAME"])
-            exp_time.append(header["EXPTIME"])
-            obs_mjd.append(header["MJD-OBS"])
-            obs_date.append(header["DATE-OBS"])
-            ra.append(header["RA"])
-            dec.append(header["DEC"])
-            airmass.append(header["AIRMASS"])
-            
-            #print("(%4i/%i) Importing %s on %s" 
-                  #% (fi+1, len(spectra_b_files), ids[-1], obs_date[-1]))
+            # Get the flux and telluric corrected spectra
+            spec_b = np.stack(fits_b[ext_sci].data)
+            spec_r = np.stack(fits_r[ext_sci].data)
+
+            # Ensure that there is actually signal here. If not, flag the files
+            # as bad and skip processing them
+            if (len(spec_b[:,1][np.isfinite(spec_b[:,1])]) == 0
+                or len(spec_r[:,1][np.isfinite(spec_r[:,1])]) == 0):
+                bad_files.append(file_b)
+                bad_files.append(file_r)
+                continue
 
             # Get SNR measurements for each arm
             sig_b = np.median(fits_b[ext_snr].data["spectrum"])
@@ -108,22 +109,32 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
             # Uncertainties on flux calibratated spectra don't currently 
             # make sense, so get the uncertainties from the unfluxxed spectra
             # in terms of fractions, then apply to the fluxed spectra 
-            sigma_b_pc = fits_b[ext_snr].data["sigma"] / fits_b[ext_snr].data["spectrum"]
-            sigma_r_pc = fits_r[ext_snr].data["sigma"] / fits_r[ext_snr].data["spectrum"]
+            sigma_b_pc = (fits_b[ext_snr].data["sigma"] 
+                          / fits_b[ext_snr].data["spectrum"])
+            sigma_r_pc = (fits_r[ext_snr].data["sigma"]
+                          / fits_r[ext_snr].data["spectrum"])
             
-            # Get the flux and telluric corrected spectra
-            spec_b = np.stack(fits_b[ext_sci].data)
+            # Sort out the uncertainties
             spec_b[:,2] = spec_b[:,1] * sigma_b_pc
             spectra_b.append(spec_b.T)
 
-            spec_r = np.stack(fits_r[ext_sci].data)
             spec_r[:,2] = spec_r[:,1] * sigma_r_pc
             spectra_r.append(spec_r.T)
+
+            # Get object name and details of observation
+            header = fits_b[0].header
+            ids.append(header["OBJNAME"])
+            exp_time.append(header["EXPTIME"])
+            obs_mjd.append(header["MJD-OBS"])
+            obs_date.append(header["DATE-OBS"])
+            ra.append(header["RA"])
+            dec.append(header["DEC"])
+            airmass.append(header["AIRMASS"])
         
     # Now combine the arrays into our output structures
     spectra_b = np.stack(spectra_b)
     spectra_r = np.stack(spectra_r)
-    
+
     # Convert arrays
     snrs_b = np.array(snrs_b).astype(float).astype(int)
     snrs_r = np.array(snrs_r).astype(float).astype(int)
@@ -134,7 +145,12 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
     data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass]
     cols = ["id", "snr_b", "snr_r", "exp_time", "mjd", "date", "ra", 
             "dec", "airmass"]
+
     observations = pd.DataFrame(data=np.array(data).T, columns=cols)
+
+    # Print bad filenames
+    print("Excluded %i bad (i.e. all nan) files: %s" % 
+          (len(bad_files), bad_files))
 
     return observations, spectra_b, spectra_r
 
