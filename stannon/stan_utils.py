@@ -1,12 +1,17 @@
-
+"""Utilities for the Stan implementation of the Cannon. Developed from code
+originally written by Dr Andy Casey.
+"""
 import os
 import logging
 import pickle
 
+import numpy as np
 import pystan as stan
 import pystan.plots as plots
-
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 from tempfile import mkstemp
+from scipy.optimize import curve_fit
 
 __all__ = ["read", "sampling_kwds", "plots"]
 
@@ -136,3 +141,162 @@ class suppress_output(object):
 
                 os.close(fd)
                 os.unlink(p)
+
+
+def get_lvec(labels):
+    """
+    Constructs a label vector for an arbitrary number of labels
+    Assumes that our model is quadratic in the labels
+
+    Modified from: 
+    https://github.com/annayqho/TheCannon/blob/master/TheCannon/infer_labels.py
+
+    Parameters
+    ----------
+    labels: numpy ndarray
+        pivoted label values for one star
+    Returns
+    -------
+    lvec: numpy ndarray
+        label vector
+    """
+    nlabels = len(labels)
+    # specialized to second-order model
+    linear_terms = labels 
+    quadratic_terms = np.outer(linear_terms, 
+                               linear_terms)[np.triu_indices(nlabels)]
+    lvec = np.hstack(([1], linear_terms, quadratic_terms))
+    return lvec
+
+
+def multiply_coeff_label_vectors(coeffs, *labels):
+    """ Takes the dot product of coefficients vec & labels vector 
+    Modified from: 
+    https://github.com/annayqho/TheCannon/blob/master/TheCannon/infer_labels.py
+
+    Parameters
+    ----------
+    coeffs: numpy ndarray
+        the coefficients on each element of the label vector
+    *labels: numpy ndarray
+        label vector
+    Returns
+    -------
+    dot product of coeffs vec and labels vec
+    """
+    lvec = get_lvec(list(labels))
+    return np.dot(coeffs, lvec)
+
+
+def infer_labels(theta, scatter, fluxes, ivars, lbl_mean, lbl_std, n_labels=3):
+    """
+    Use coefficients and scatters from a trained Cannon model to infer the 
+    labels for a set of normalised spectra.
+
+    Modified from: 
+    https://github.com/annayqho/TheCannon/blob/master/TheCannon/infer_labels.py
+    
+    Parameters
+    ----------
+    theta: float array
+        Coefficients from the Stannon model, of shape [n_pixels, n_coeff] where
+        n_coeff corresponds to the number of labels and the polynomial order
+        of the model. n_coeff = 10 for a quadratic Stannon with 3 labels.
+
+    scatter: float array
+        Intrinsic scatter per pixel from the Stannon model, vector of length
+        n_pixels.
+
+    fluxes: float array
+        Science fluxes to infer labels for, of shape [n_spectra, n_pixels].
+        Must be normalised the same as training spectra.
+
+    ivars: float array
+        Science flux inverse variances, of shape [n_spectra, n_pixels]. Must be 
+        normalised the same as training spectra.
+
+    lbl_mean: float array
+        Mean of each label used to whiten. Vector of length [n_labels].
+
+    lbl_std: float array
+        Standard deviation of each label used to whiten. Vector of length 
+        [n_labels].
+
+    n_labels: int
+        Number of labels, defaults to 3.
+
+    Returns
+    -------
+    labels_all: float array
+        Cannon predicted labels (de-whitened), of shape [n_spectra, n_label].
+
+    errs_all: float array
+        ...
+
+    chi2_all: float array
+        Chi^2 fit for each star, vector of length [n_spectra].
+    """
+    # Initialise
+    errs_all = np.zeros((len(fluxes), n_labels))
+    chi2_all = np.zeros(len(fluxes))
+    labels_all = np.zeros((len(fluxes), n_labels))
+    starting_guess = np.ones(n_labels)
+
+    lbl = "Inferring labels"
+
+    for star_i, (flux, ivar) in enumerate(zip(tqdm(fluxes, desc=lbl), ivars)):
+        # Where the ivar == 0, set normalized flux to 1 and the sigma to 100
+        bad = ivar == 0
+        flux[bad] = 1.0
+        sigma = np.ones(ivar.shape) * 100.0
+        sigma[~bad] = np.sqrt(1.0 / ivar[~bad])
+
+        errbar = np.sqrt(sigma**2 + scatter**2)
+
+        try:
+            labels, cov = curve_fit(multiply_coeff_label_vectors, theta, flux, 
+                                    p0=starting_guess, sigma=errbar, 
+                                    absolute_sigma=True)
+        except:
+            labels = np.zeros(starting_guess.shape)*np.nan
+            cov = np.zeros((len(starting_guess),len(starting_guess)))*np.nan
+                    
+        chi2 = ((flux-multiply_coeff_label_vectors(theta, *labels))**2 
+                * ivar / (1 + ivar * scatter**2))
+        chi2_all[star_i] = sum(chi2)
+        labels_all[star_i,:] = labels * lbl_std + lbl_mean
+        errs_all[star_i,:] = np.sqrt(cov.diagonal()) 
+
+    return labels_all, errs_all, chi2_all
+
+
+def compare_labels(labels_real, labels_pred):
+    """
+    Compare Cannon predicted labels of the training set with the actual values,
+    and plot a comparison Teff-logg diagram.
+
+    Parameters
+    ----------
+    labels_real: 
+        Real labels of the training set  (de-whitened), of shape 
+        [n_spectra, n_label]. 
+
+    labels_pred: float array
+        Cannon predicted labels (de-whitened), of shape [n_spectra, n_label].
+    """
+    offsets = labels_real - labels_pred
+
+    mean_offsets = np.nanmean(np.abs(offsets), axis=0)
+
+    print("Mean errors:", mean_offsets)
+
+    plt.close("all")
+    plt.errorbar(labels_real[:,0], labels_real[:,1], fmt=".", 
+                 xerr=offsets[:,0], yerr=offsets[:,1], elinewidth=0.1, 
+                 ecolor="black")
+
+    plt.xlabel(r"T$_{\rm eff}$")
+    plt.ylabel(r"$\log g$")
+
+    plt.xlim([6000, 3500])
+    plt.ylim([5,-1])
