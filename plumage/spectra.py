@@ -360,6 +360,55 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
     return spectra_norm
 
 
+def make_wavelength_mask(wave_array, mask_emission=True):
+    """
+    """
+    # O2  bands are saturated - don't depend on airmass
+    # H2O bands DO depend on airmass!!
+    
+    O2_telluric_bands = [
+        [6856.0, 6956.0],
+        [7584.0, 7693.0]]
+        #[7547.0, 7693.0]]
+
+    H2O_telluric_bands = [
+        [6270.0, 6290.0],
+        [7154.0, 7332.0],
+        [8114.0, 8344.0],
+        [8937.0, 9194.0],
+        [9270.0, 9776.0]]
+
+    strong_H2O_telluric_bands = [
+        [6270.0, 6290.0],
+        [7154.0, 7332.0],
+        [8114.0, 8344.0],
+        [8937.0, 9194.0],
+        [9270.0, 9400.0]]
+
+    master_H2O_telluric_bands = [
+        [5870.0, 6000.0],
+        [6270.0, 6290.0],
+        [6459.0, 6598.0],
+        [7154.0, 7332.0],
+        [8114.0, 8344.0],
+        [8937.0, 9194.0],
+        [9270.0, 9776.0]]
+
+    band_list = O2_telluric_bands + strong_H2O_telluric_bands
+
+    # Mask out Balmer series
+    if mask_emission:
+        band_list.append([6550.0, 6575.0])
+
+    mask = np.ones(len(wave_array))
+
+    for band in band_list:
+        mask *= ((wave_array <= band[0])+
+                 (wave_array >= band[1]))
+    
+    return mask.astype(bool)
+
+
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # -----------------------------------------------------------------------------

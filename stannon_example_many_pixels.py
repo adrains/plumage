@@ -35,10 +35,11 @@ whitened_label_variances = 1e-3 * np.ones_like(whitened_label_means) # MAGIC HAC
 S, P = training_set_flux.shape
 L = len(label_names)
 
-# Generate a pixel mask for fun.
+# Generate a pixel mask for scaling/testing the training
+px_min = 200
+px_max = 300
 pixel_mask = np.zeros(P, dtype=bool)
-#pixel_mask[:] = True
-pixel_mask[:100] = True
+pixel_mask[px_min:px_max] = True
 
 training_set_flux = training_set_flux[:, pixel_mask]
 training_set_ivar = training_set_ivar[:, pixel_mask]

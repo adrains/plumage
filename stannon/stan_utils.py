@@ -287,8 +287,10 @@ def compare_labels(labels_real, labels_pred):
     offsets = labels_real - labels_pred
 
     mean_offsets = np.nanmean(np.abs(offsets), axis=0)
+    median_offsets = np.nanmedian(np.abs(offsets), axis=0)
 
     print("Mean errors:", mean_offsets)
+    print("Median errors:", median_offsets)
 
     plt.close("all")
     plt.errorbar(labels_real[:,0], labels_real[:,1], fmt=".", 
