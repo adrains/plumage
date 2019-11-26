@@ -22,7 +22,7 @@ print("Importing young star training set...")
 observations, spectra_b, spectra_r = spec.load_pkl_spectra(516, rv_corr=True)
 
 # Load in standards
-standards = utils.load_standards() 
+standards = utils.load_standards(remove_standards_with_nan_params=True)  
 
 # Get the parameters
 std_params_all = utils.consolidate_standards(
@@ -51,8 +51,12 @@ training_set_flux[~np.isfinite(training_set_flux)] = 1
 training_set_flux[~np.isfinite(training_set_ivar)] = 1
 training_set_ivar[~np.isfinite(training_set_ivar)] = 0
 
+# Edges of spectra appear to cause issues, let's just not consider them
+training_set_flux = training_set_flux[:,5:-5]
+training_set_ivar = training_set_ivar[:,5:-5]
+
 #------------------------------------------------------------------------------
-# Stannon stuff
+# Format the training data
 #------------------------------------------------------------------------------
 label_names = ["teff", "logg", "feh"]
 label_e_names = ["e_teff", "e_logg", "e_feh"]
@@ -70,7 +74,7 @@ whitened_label_variances = 1e-3 * np.ones_like(whitened_label_values)
 S, P = training_set_flux.shape
 L = len(label_names)
 
-# Generate a pixel mask for scaling the training
+# Generate a pixel mask for scaling/testing the training
 px_min = 1100
 px_max = 1150
 pixel_mask = np.zeros(P, dtype=bool)
@@ -85,6 +89,9 @@ model = sutils.read(os.path.join(here, "stannon/cannon-3L-O2-many-pixels.stan"))
 theta = np.nan * np.ones((P, 10))
 s2 = np.nan * np.ones(P)
 
+#------------------------------------------------------------------------------
+# Run the Cannon
+#------------------------------------------------------------------------------
 # Whether to train all at once, or one pixel at a time
 run_tqdm = False
 
@@ -135,7 +142,9 @@ else:
     theta = optim["theta"]
     s2 = optim["s2"]
 
-# Determine labels
+#------------------------------------------------------------------------------
+# Test the Cannon model
+#------------------------------------------------------------------------------
 labels_pred, errors, chi2 = sutils.infer_labels(theta, s2, training_set_flux, 
                                          training_set_ivar, ts_mean_labels, 
                                          ts_stdev_labels) 

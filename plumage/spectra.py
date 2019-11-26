@@ -360,7 +360,8 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
     return spectra_norm
 
 
-def make_wavelength_mask(wave_array, mask_emission=True):
+def make_wavelength_mask(wave_array, mask_emission=True, 
+    mask_blue_edges=False):
     """
     """
     # O2  bands are saturated - don't depend on airmass
@@ -394,11 +395,26 @@ def make_wavelength_mask(wave_array, mask_emission=True):
         [8937.0, 9194.0],
         [9270.0, 9776.0]]
 
+    balmer_series = [
+        [3825.0, 3845.0], # H Eta
+        [3880.0, 3900.0], # H Zeta
+        [3960.0, 3980.0], # H Epsilon
+        [4090.0, 4110.0], # H Delta
+        [4330.0, 4350.0], # H Gamma
+        [4850.0, 4870.0], # H Beta
+        [6550.0, 6575.0], # H Alpha
+    ]
+
+    calcium_hk = [
+        [3925.0, 3945.0], # H Eta
+        [3960.0, 3980.0], # H Zeta
+    ]
+
     band_list = O2_telluric_bands + strong_H2O_telluric_bands
 
     # Mask out Balmer series
     if mask_emission:
-        band_list.append([6550.0, 6575.0])
+        band_list += balmer_series + calcium_hk
 
     mask = np.ones(len(wave_array))
 
@@ -406,6 +422,11 @@ def make_wavelength_mask(wave_array, mask_emission=True):
         mask *= ((wave_array <= band[0])+
                  (wave_array >= band[1]))
     
+    # Mask out blue edges and red overlap region
+    if mask_blue_edges:
+        mask *= ((wave_array >= 3600)+
+                 (wave_array <= 5400))
+
     return mask.astype(bool)
 
 

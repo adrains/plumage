@@ -220,8 +220,15 @@ def load_standards():
     return standards
 
 
-def consolidate_standards(standards, force_unique=False, 
-    assign_default_uncertainties=False):
+def consolidate_standards(
+    standards, 
+    force_unique=False, 
+    remove_standards_with_nan_params=False,
+    teff_lims=None,
+    logg_lims=None, 
+    feh_lims=None,
+    assign_default_uncertainties=False,
+    ):
     """WARNING: force_unique is a temporary HACK
     """
     ids = []
@@ -280,6 +287,26 @@ def consolidate_standards(standards, force_unique=False,
     if force_unique:
         std_params_all.drop_duplicates(subset="source_id", inplace=True)
 
+    if remove_standards_with_nan_params:
+        std_params_all = std_params_all[np.isfinite(std_params_all["teff"])]
+        std_params_all = std_params_all[np.isfinite(std_params_all["logg"])]
+        std_params_all = std_params_all[np.isfinite(std_params_all["feh"])]
+
+    if teff_lims is not None:
+        mask = np.logical_and(std_params_all["teff"] > teff_lims[0],
+                              std_params_all["teff"] < teff_lims[1])
+        std_params_all = std_params_all[mask]
+
+    if logg_lims is not None:
+        mask = np.logical_and(std_params_all["logg"] > logg_lims[0],
+                              std_params_all["logg"] < logg_lims[1])
+        std_params_all = std_params_all[mask]
+
+    if feh_lims is not None:
+        mask = np.logical_and(std_params_all["feh"] > feh_lims[0],
+                              std_params_all["feh"] < feh_lims[1])
+        std_params_all = std_params_all[mask]
+
     if assign_default_uncertainties:
         std_params_all.loc[~np.isfinite(std_params_all["e_teff"]), "e_teff"] = 100
         std_params_all.loc[~np.isfinite(std_params_all["e_logg"]), "e_logg"] = 0.1
@@ -287,7 +314,8 @@ def consolidate_standards(standards, force_unique=False,
 
     return std_params_all
 
-def prepare_training_set(observations, spectra_r, std_params_all, 
+
+def prepare_training_set(observations, spectra_b, spectra_r, std_params_all, 
     do_wavelength_masking=True):
     """Need to prepare a list of labels corresponding to our science 
     observations. Easiest thing to do now is to just construct a new label
@@ -299,10 +327,21 @@ def prepare_training_set(observations, spectra_r, std_params_all,
     # First thing to do is to select all the observations that are standards
     is_std_mask = np.isin(observations["uid"], std_params_all["source_id"])
     std_observations = observations.copy().iloc[is_std_mask]
+    std_spectra_b = spectra_b[is_std_mask]
     std_spectra_r = spectra_r[is_std_mask]
 
     # Mask wavelengths
     if do_wavelength_masking:
+        # Mask blue
+        wl_mask = spec.make_wavelength_mask(std_spectra_b[0,0])
+        dims = std_spectra_b.shape
+        wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
+        
+        std_spectra_b = std_spectra_b[wl_mask]
+        std_spectra_b = std_spectra_b.reshape(
+            [dims[0], dims[1], int(len(std_spectra_b)/np.prod(dims[:2]))])
+
+        # Mask red
         wl_mask = spec.make_wavelength_mask(std_spectra_r[0,0])
         dims = std_spectra_r.shape
         wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
@@ -325,4 +364,4 @@ def prepare_training_set(observations, spectra_r, std_params_all,
         idx = std_params_all[std_params_all["source_id"]==source_id].index[0]
         std_params = std_params.append(std_params_all.loc[idx])
 
-    return std_observations, std_spectra_r, std_params
+    return std_observations, std_spectra_b, std_spectra_r, std_params
