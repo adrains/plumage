@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from astropy import constants as const
 import pidly
 import pandas as pd
+from tqdm import tqdm
 
 
 class ParameterOutOfBoundsException(Exception):
@@ -189,8 +190,8 @@ def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
 
 # -----------------------------------------------------------------------------
 # Template spectra
-# -----------------------------------------------------------------------------\
-def get_template_spectra(teffs, loggs, fehs, setting="R7000"):
+# -----------------------------------------------------------------------------
+def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
     """Creates synthetic spectra in a given grating format to serve as RV
     templates.
 
@@ -230,6 +231,18 @@ def get_template_spectra(teffs, loggs, fehs, setting="R7000"):
 
     else:
         raise Exception("Unknown grating setting.")
+    
+    # Determine the effective resolution based on vsini
+    eff_rs = []
+
+    for vsini in vsinis:
+        eff_r = const.c.to("km/s").value / vsini
+
+        # Take whichever the lower resolution is for the band in question
+        if eff_r < resolution:
+            eff_rs.append(eff_r)
+        else:
+            eff_rs.append(resolution)
 
     # Calculate the wavelength spacing
     wl_per_pixel = (wl_max - wl_min) / n_px 
@@ -242,17 +255,26 @@ def get_template_spectra(teffs, loggs, fehs, setting="R7000"):
     for teff in teffs:
         for logg in loggs:
             for feh in fehs:
-                wave, spec = get_idl_spectrum(idl, teff, logg, feh, wl_min, 
-                                              wl_max, resolution, norm=0,
-                                              do_resample=True, 
-                                              wl_per_pixel=wl_per_pixel)
+                for eff_r in eff_rs:
+                    wave, spec = get_idl_spectrum(
+                        idl, 
+                        teff, 
+                        logg, 
+                        feh, 
+                        wl_min, 
+                        wl_max, 
+                        eff_r, 
+                        norm=0,
+                        do_resample=True, 
+                        wl_per_pixel=wl_per_pixel)
                 
-                spectra.append((wave,spec))
+                    spectra.append((wave,spec))
     
     return np.stack(spectra)
 
 
-def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
+def save_synthetic_templates(spectra, teffs, loggs, fehs, vsinis, 
+    setting="R7000"):
     """Save the generated synthetic templates in templates/.
 
     Parameters
@@ -280,21 +302,22 @@ def save_synthetic_templates(spectra, teffs, loggs, fehs, setting="R7000"):
     for teff in teffs:
         for logg in loggs:
             for feh in fehs:
-                fname = "template_%s_%i_%0.2f_%0.2f.csv" % (setting, teff, 
-                                                            logg, feh)
-                path = os.path.join("templates", fname)
+                for vsini in vsinis:
+                    fname = ("template_%s_%i_%0.2f_%0.2f_%i.csv" 
+                            % (setting, teff, logg, feh, vsini))
+                    path = os.path.join("templates", fname)
 
-                np.savetxt(path, spectra[spec_i,:,:].T)
+                    np.savetxt(path, spectra[spec_i,:,:].T)
 
-                params.append([teff, logg, feh])
+                    params.append([teff, logg, feh, vsini])
 
-                spec_i += 1
+                    spec_i += 1
 
     # Now save a file keeping track of the params of each star
     params_file = "template_%s_params.csv" % setting
     params_path = os.path.join("templates", params_file)
 
-    np.savetxt(params_path, params, fmt=["%i", "%0.1f", "%0.1f"])
+    np.savetxt(params_path, params, fmt=["%i", "%0.2f", "%0.2f", "%i"])
 
 
 def load_synthetic_templates(setting="R7000"):
@@ -320,9 +343,10 @@ def load_synthetic_templates(setting="R7000"):
 
     templates = []
 
-    for param in params:
-        tfile = os.path.join("templates", "template_%s_%i_%0.2f_%0.2f.csv"
-                             % (setting, param[0], param[1], param[2]))
+    for param in tqdm(params):
+        tfile = os.path.join("templates", "template_%s_%i_%0.2f_%0.2f_%i.csv"
+                             % (setting, param[0], param[1], param[2], 
+                                param[3]))
         spec = np.loadtxt(tfile)
         templates.append(spec.T)
 

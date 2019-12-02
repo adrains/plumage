@@ -14,7 +14,7 @@ from astropy.table import Table
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-load_spectra = False                    # Whether to load in pickle spectra
+load_spectra = True                    # Whether to load in pickle spectra
 n_spec = 516                            # If loading, which pickle of N spectra
 disable_auto_max_age = False            # Useful if IERS broken
 
@@ -94,11 +94,16 @@ observations["bcor"] = bcors
 # Calculate RVs and RV correct
 # -----------------------------------------------------------------------------
 print("Compute RVs...")
-rvs, e_rvs, teffs, chi2 = spec.do_all_template_matches(spectra_r_norm, 
-                                        observations, ref_params, 
-                                        ref_spec_norm,)# print_diagnostics=True)
+rvs, e_rvs, params, chi2, grid_chi2 = spec.do_all_template_matches(
+    spectra_r_norm, 
+    observations, 
+    ref_params, 
+    ref_spec_norm,)# print_diagnostics=True)
 
-observations["teff_fit"] = teffs
+observations["teff_fit"] = params[:,0]
+observations["logg_fit"] = params[:,1]
+observations["feh_fit"] = params[:,2]
+observations["vsini_fit"] = params[:,3]
 observations["rv"] = rvs
 observations["e_rv"] = e_rvs
 observations["chi2"] = chi2
@@ -123,16 +128,35 @@ wl_new_r = np.arange(wl_min_r, wl_max_r, wl_per_pixel_r)
 spec_rvcor_b = spec.correct_all_rvs(spectra_b_norm, observations, wl_new_b)
 spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)
 
-# Save RV corrected spectra
-spec.save_pkl_spectra(observations, spec_rvcor_b, spec_rvcor_r, rv_corr=True)
-
 # -----------------------------------------------------------------------------
-# Crossmatch for science program and plot
+# Crossmatch for science program, activity, and chi^2 standard fit params 
 # -----------------------------------------------------------------------------
 catalogue = utils.load_crossmatch_catalogue(cat_type, cat_file)
 
 # Find Gaia IDs
 utils.do_id_crossmatch(observations, catalogue)
+
+# Do activity match
+activity = fits.open("data/activity.fits")   
+utils.do_activity_crossmatch(observations, activity[1].data)   
+
+# Load in standards
+standards = utils.load_standards() 
+std_params_all = utils.consolidate_standards(standards, force_unique=True)
+
+# Isolate the standards
+std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
+    observations, 
+    spec_rvcor_b,
+    spec_rvcor_r, 
+    std_params_all, 
+    do_wavelength_masking=False)
+
+# -----------------------------------------------------------------------------
+# Plot and save
+# -----------------------------------------------------------------------------
+# Save RV corrected spectra
+spec.save_pkl_spectra(observations, spec_rvcor_b, spec_rvcor_r, rv_corr=True)
 
 # Plot the spectra sorted by temperature
 print("Plot Teff sorted summaries....")

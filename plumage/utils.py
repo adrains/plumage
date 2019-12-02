@@ -23,55 +23,87 @@ def do_id_crossmatch(observations, catalogue):
     
     # Initialise array of unique IDs
     u_ids = []
+    program = []
+
+    id_cols = ["source_id", "2MASS_Source_ID", "HD", "TOI", "bayer", "other"]
+
+    for ob_id_i, ob_id in enumerate(ob_ids):
+        id_found = False
+
+        for id_col in id_cols:
+            if id_col == "HD":
+                idx = np.argwhere(catalogue[id_col].values==ob_id.replace(" ",""))
+            elif id_col == "TOI":
+                idx = np.argwhere(catalogue[id_col].values==ob_id.replace("TOI ", ""))
+            else:
+                idx = np.argwhere(catalogue[id_col].values==ob_id)
+
+            if len(idx) == 1:
+                u_ids.append(catalogue.iloc[int(idx)]["source_id"])
+                program.append(catalogue.iloc[int(idx)]["program"])
+                id_found = True
+                break
+        
+        
+        # If get to this point and no ID/program, put placeholder and print
+        if not id_found:
+            print("No ID match for #%i: %s" % (ob_id_i, ob_id))
+            u_ids.append("")
+            program.append("")
+
+    observations["uid"] = u_ids
+    observations["program"] = program
+
+
+def do_activity_crossmatch(observations, activity):
+    """
+
+    Parameters
+    ----------
+    observations: pandas dataframe
+        Pandas dataframe logging details about each observation to match to.
+
+    activity: 
+        
+    """
+    # Observation IDs
+    ob_ids = observations["uid"].values
+
+    # Activity IDs
+    activity_ids = activity["Gaia_ID"].astype(str)
+    
+    # Initialise arrays
+    ew_li = []
+    ew_ha = []
+    ew_ca_hk = []
+    ew_ca_h = []
+    ew_ca_k = []
 
     for ob_id_i, ob_id in enumerate(ob_ids):
         # Gaia DR2
-        idx = np.argwhere(catalogue["source_id"].values==ob_id)
+        idx = np.argwhere(activity_ids==ob_id)
 
         if len(idx) == 1:
-            u_ids.append(catalogue.iloc[int(idx)]["source_id"])
+            ew_li.append(activity['EW(Li)'][int(idx)])
+            ew_ha.append(activity['EW(Ha)'][int(idx)])
+            ew_ca_hk.append(activity['EW(HK)'][int(idx)])
+            ew_ca_h.append(activity['EW(H)'][int(idx)])
+            ew_ca_k.append(activity['EW(K)'][int(idx)])
             continue
+        else:
+            ew_li.append(np.nan)
+            ew_ha.append(np.nan)
+            ew_ca_hk.append(np.nan)
+            ew_ca_h.append(np.nan)
+            ew_ca_k.append(np.nan)
 
-        # 2MASS
-        idx = np.argwhere(catalogue["2MASS_Source_ID"].values==ob_id)
-
-        if len(idx) == 1:
-            u_ids.append(catalogue.iloc[int(idx)]["source_id"])
-            continue
-
-        # HD
-        idx = np.argwhere(catalogue["HD"].values==ob_id.replace(" ",""))
-
-        if len(idx) == 1:
-            u_ids.append(catalogue.iloc[int(idx)]["source_id"])
-            continue
-
-        # TOI
-        idx = np.argwhere(catalogue["TOI"].values==ob_id.replace("TOI ", ""))
-
-        if len(idx) == 1:
-            u_ids.append(catalogue.iloc[int(idx)]["source_id"])
-            continue
-
-        # Bayer
-        idx = np.argwhere(catalogue["bayer"].values==ob_id)
-
-        if len(idx) == 1:
-            u_ids.append(catalogue.iloc[int(idx)]["source_id"])
-            continue
-
-        # other
-        idx = np.argwhere(catalogue["other"].values==ob_id)
-
-        if len(idx) == 1:
-            u_ids.append(catalogue.iloc[int(idx)]["source_id"])
-            continue
         
-        # If get to this point and no ID, put placeholder and print
-        print("No ID match for #%i: %s" % (ob_id_i, ob_id))
-        u_ids.append("")
 
-    observations["uid"] = u_ids
+    observations["ew_li"] = ew_li
+    observations["ew_ha"] = ew_ha
+    observations["ew_ca_hk"] = ew_ca_hk
+    observations["ew_ca_h"] = ew_ca_h
+    observations["ew_ca_k"] = ew_ca_k
 
 
 def load_crossmatch_catalogue(cat_type="csv", 
@@ -171,6 +203,14 @@ def load_standards():
     curr_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", 
                                              "standards"))
 
+    # Import Mann et al. 2015 Teff standards catalogue                    
+    mann = pd.read_csv(os.path.join(curr_path, "mann_constrain_2015.tsv"), 
+                       sep="\t", header=1, skiprows=0, 
+                       dtype={"source_id":str, "useful":bool})
+    mann.set_index("source_id", inplace=True)
+    mann = mann[[type(ii) == str for ii in mann.index.values]] 
+    mann = mann[mann["useful"]]
+
     # Import Royas-Ayala et al. 2012 [Fe/H] standards catalogue
     royas = pd.read_csv(os.path.join(curr_path, "rojas-ayala_2012.tsv"), 
                         sep="\t", header=1, skiprows=0, 
@@ -187,14 +227,6 @@ def load_standards():
     newton.set_index("source_id", inplace=True)
     newton = newton[[type(ii) == str for ii in newton.index.values]]
     newton = newton[newton["useful"]]
-
-    # Import Mann et al. 2015 Teff standards catalogue                    
-    mann = pd.read_csv(os.path.join(curr_path, "mann_constrain_2015.tsv"), 
-                       sep="\t", header=1, skiprows=0, 
-                       dtype={"source_id":str, "useful":bool})
-    mann.set_index("source_id", inplace=True)
-    mann = mann[[type(ii) == str for ii in mann.index.values]] 
-    mann = mann[mann["useful"]]
 
     # Import interferometry standards (various sources)
     interferometry = pd.read_csv(os.path.join(curr_path, "interferometry.tsv"), 
@@ -228,6 +260,7 @@ def consolidate_standards(
     logg_lims=None, 
     feh_lims=None,
     assign_default_uncertainties=False,
+    force_solar_missing_feh=False,
     ):
     """WARNING: force_unique is a temporary HACK
     """
@@ -287,6 +320,9 @@ def consolidate_standards(
     if force_unique:
         std_params_all.drop_duplicates(subset="source_id", inplace=True)
 
+    if force_solar_missing_feh:
+        std_params_all.loc[~np.isfinite(std_params_all["feh"]), "feh"] = 0.0
+
     if remove_standards_with_nan_params:
         std_params_all = std_params_all[np.isfinite(std_params_all["teff"])]
         std_params_all = std_params_all[np.isfinite(std_params_all["logg"])]
@@ -315,6 +351,39 @@ def consolidate_standards(
     return std_params_all
 
 
+def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
+    """
+    """
+    import plumage.spectra as spec
+    if ob_mask is None:
+        ob_mask = np.ones(len(spectra_b)).astype(bool)
+    
+    spec_b_subset = spectra_b[ob_mask]
+    spec_r_subset = spectra_r[ob_mask]
+
+    # Mask blue
+    wl_mask = spec.make_wavelength_mask(spec_b_subset[0,0], 
+                                        mask_blue_edges=True)
+    dims = spec_b_subset.shape
+    wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
+    
+    spec_b_subset = spec_b_subset[wl_mask]
+    spec_b_subset = spec_b_subset.reshape(
+        [dims[0], dims[1], int(len(spec_b_subset)/np.prod(dims[:2]))])
+
+    # Mask red
+    wl_mask = spec.make_wavelength_mask(spec_r_subset[0,0])
+    dims = spec_r_subset.shape
+    wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
+    
+    spec_r_subset = spec_r_subset[wl_mask]
+    spec_r_subset = spec_r_subset.reshape(
+        [dims[0], dims[1], int(len(spec_r_subset)/np.prod(dims[:2]))])
+
+    return spec_b_subset, spec_r_subset
+
+
+
 def prepare_training_set(observations, spectra_b, spectra_r, std_params_all, 
     do_wavelength_masking=True):
     """Need to prepare a list of labels corresponding to our science 
@@ -333,7 +402,8 @@ def prepare_training_set(observations, spectra_b, spectra_r, std_params_all,
     # Mask wavelengths
     if do_wavelength_masking:
         # Mask blue
-        wl_mask = spec.make_wavelength_mask(std_spectra_b[0,0])
+        wl_mask = spec.make_wavelength_mask(std_spectra_b[0,0], 
+                                            mask_blue_edges=True)
         dims = std_spectra_b.shape
         wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
         
@@ -365,3 +435,27 @@ def prepare_training_set(observations, spectra_b, spectra_r, std_params_all,
         std_params = std_params.append(std_params_all.loc[idx])
 
     return std_observations, std_spectra_b, std_spectra_r, std_params
+
+
+def prepare_fluxes(spec_b, spec_r, use_both_arms):
+
+    # Separate out the spectra
+    if use_both_arms:
+        training_set_flux = np.concatenate((spec_b[:,1,:], spec_r[:,1,:]), 
+                                        axis=1)
+        training_set_ivar = np.concatenate((1/spec_b[:,2,:]**2, 
+                                        1/spec_r[:,2,:]**2), axis=1)
+    else:
+        training_set_flux = spec_r[:,1,:]
+        training_set_ivar = 1/spec_r[:,2,:]**2
+    #training_set_ivar = 1e5 * np.ones_like(std_spectra_r[:,2,:]) # TEMPORARY
+
+    # If flux is nan, set to 1 and give high variance (inverse variance of 0)
+    training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
+    training_set_flux[~np.isfinite(training_set_flux)] = 1
+
+    # If the inverse variance is nan, do the same
+    training_set_flux[~np.isfinite(training_set_ivar)] = 1
+    training_set_ivar[~np.isfinite(training_set_ivar)] = 1e-8
+
+    return training_set_flux, training_set_ivar

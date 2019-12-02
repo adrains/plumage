@@ -281,27 +281,30 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
     if np.round(wl.mean()/100)*100 == 6200:
         lambda_0 = 6200
 
-        h_alpha = np.logical_and(wl > 6540, wl < 6580)
-        edges = np.logical_or(wl < 5450, wl > 6950)
+        #h_alpha = np.logical_and(wl > 6540, wl < 6580)
+        edges = np.logical_or(wl < 5420, wl > 6980)
         nan = ~np.isfinite(spectrum_fit)
 
-        ignore = np.logical_or.reduce((h_alpha, edges, nan))
+        #ignore = np.logical_or.reduce((h_alpha, edges, nan))
+        ignore = np.logical_or.reduce((edges, nan))
     
     # Blue arm, B3000 grating
     elif np.round(wl.mean()/100)*100 == 4600:
         lambda_0 = 4600
-        ca_hk = np.logical_and(wl > 3920, wl < 3980)
+        #ca_hk = np.logical_and(wl > 3920, wl < 3980)
         edges = np.logical_or(wl < 3600, wl > 5400)
         nan = ~np.isfinite(spectrum_fit)
 
-        ignore = np.logical_or.reduce((ca_hk, edges, nan))
+        #ignore = np.logical_or.reduce((ca_hk, edges, nan))
+        ignore = np.logical_or.reduce((edges, nan))
 
     else:
         raise Exception("Grating not recognised or implemented. Must be"
                         " either B3000 or R7000.")
 
     # Make the mask
-    mask = np.ones_like(spectrum).astype(bool)
+    #mask = np.ones_like(spectrum).astype(bool)
+    mask = make_wavelength_mask(wl, mask_emission=True)
     mask[ignore] = False
 
     # Normalise wavelength scale (pivot about 0)
@@ -361,7 +364,7 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
 
 
 def make_wavelength_mask(wave_array, mask_emission=True, 
-    mask_blue_edges=False):
+    mask_blue_edges=False, mask_sky_emission=False):
     """
     """
     # O2  bands are saturated - don't depend on airmass
@@ -410,11 +413,23 @@ def make_wavelength_mask(wave_array, mask_emission=True,
         [3960.0, 3980.0], # H Zeta
     ]
 
+    sky_emission = [
+        [5575.0, 5585.0],
+        [5885.0, 5900.0],
+        [6295.0, 6305.0],
+        [6360.0, 6370.0],
+        [6580.0, 6585.0]
+    ]
+
     band_list = O2_telluric_bands + strong_H2O_telluric_bands
 
     # Mask out Balmer series
     if mask_emission:
         band_list += balmer_series + calcium_hk
+
+    # In cases of poor sky subtraction, get rid of sky emission
+    if mask_sky_emission:
+        band_list += sky_emission
 
     mask = np.ones(len(wave_array))
 
@@ -512,10 +527,12 @@ def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
 
     # Setup a mask to use. Ignore edges, and sigma clip *high* pixels to 
     # remove emission features and cosmics
-    mask = np.ones_like(ref_spec).astype(bool)
+    mask = make_wavelength_mask(wave, mask_emission=True)
+
+    #mask = np.ones_like(ref_spec).astype(bool)
     mask[:10] = False
     mask[-10:] = False
-    nsig = 4
+    #nsig = 4
     #mask[spec > (np.nanmean(spec) + nsig*np.nanstd(spec))] = False
 
     # Return loss
@@ -608,7 +625,7 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
     # Fit each template to the science data to figure out the best match
     rvs = []
     e_rvs = []
-    fit_quality = []
+    grid_chi2 = []
 
     for params, ref_spec in zip(ref_params, ref_spectra):
         rv, e_rv, infodict = calc_rv_shift(ref_spec[0,:], ref_spec[1,:], 
@@ -616,21 +633,21 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
                                         sci_spectra[2,:], bcor)
         rvs.append(rv)
         e_rvs.append(e_rv)
-        fit_quality.append(infodict["fvec"])
+        grid_chi2.append(infodict["fvec"])
 
         if print_diagnostics:
             print("\tTeff = %i K, RV = %0.2f km/s, quality = %0.2f" 
                   % (params[0], rv, infodict["fvec"]))
 
     # Now figure out what best fit is
-    fit_i = np.argmin(fit_quality)
+    fit_i = np.argmin(grid_chi2)
 
-    rv = rvs[fit_i]
-    e_rv = e_rvs[fit_i]
-    teff = ref_params[fit_i][0]
-    chi2 = fit_quality[fit_i]
+    rv = np.array(rvs[fit_i])
+    e_rv = np.array(e_rvs[fit_i])
+    params = np.array(ref_params[fit_i])
+    chi2 = np.array(grid_chi2[fit_i])
 
-    return rv, e_rv, teff, chi2
+    return rv, e_rv, params, chi2, grid_chi2
 
 
 def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
@@ -666,10 +683,11 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
         Quality of the fit
     """
     # Initialise
-    rvs = []
-    e_rvs = []
-    teffs = []
-    fit_quality = []
+    all_rvs = []
+    all_e_rvs = []
+    all_params = []
+    all_chi2 = []
+    all_chi2_grid = []
 
     # For every star, do template fitting
     for star_i, sci_spec in enumerate(tqdm(sci_spectra)):
@@ -678,15 +696,20 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
                  % (star_i+1, len(sci_spectra), observations.iloc[star_i]["id"]))
 
         bcor = observations.iloc[star_i]["bcor"]
-        rv, e_rv, teff, chi2 = do_template_match(sci_spec, bcor, ref_params, 
-                                               ref_spectra, print_diagnostics)
+        rv, e_rv, params, chi2, grid_chi2 = do_template_match(
+            sci_spec, 
+            bcor, 
+            ref_params, 
+            ref_spectra, 
+            print_diagnostics)
         
-        rvs.append(rv)
-        e_rvs.append(e_rv)
-        teffs.append(teff)
-        fit_quality.append(chi2)
+        all_rvs.append(rv)
+        all_e_rvs.append(e_rv)
+        all_params.append(params)
+        all_chi2.append(chi2)
+        all_chi2_grid.append(grid_chi2)
 
-    return rvs, e_rvs, teffs, fit_quality
+    return all_rvs, all_e_rvs, all_params, all_chi2, all_chi2_grid
 
 
 def correct_rv(sci_spectra, bcor, rv, wl_new):

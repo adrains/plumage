@@ -41,7 +41,8 @@ std_params_all = utils.consolidate_standards(
     teff_lims=teff_lims,
     logg_lims=logg_lims, 
     feh_lims=feh_lims,
-    assign_default_uncertainties=True)
+    assign_default_uncertainties=True,
+    force_solar_missing_feh=True)
 
 # Prepare the training set
 std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
@@ -52,24 +53,10 @@ std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
     do_wavelength_masking=True
     )   
 
-# Separate out the spectra
-if use_both_arms:
-    training_set_flux = np.concatenate((std_spec_b[:,1,:], std_spec_r[:,1,:]), 
-                                       axis=1)
-    training_set_ivar = np.concatenate((1/std_spec_b[:,2,:]**2, 
-                                       1/std_spec_r[:,2,:]**2), axis=1)
-else:
-    training_set_flux = std_spec_r[:,1,:]
-    training_set_ivar = 1/std_spec_r[:,2,:]**2
-#training_set_ivar = 1e5 * np.ones_like(std_spectra_r[:,2,:]) # TEMPORARY
-
-# If flux is nan, set to 1 and give high variance (inverse variance of 0)
-training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
-training_set_flux[~np.isfinite(training_set_flux)] = 1
-
-# If the inverse variance is nan, do the same
-training_set_flux[~np.isfinite(training_set_ivar)] = 1
-training_set_ivar[~np.isfinite(training_set_ivar)] = 1e-8
+training_set_flux, training_set_ivar = utils.prepare_fluxes(
+    std_spec_b, 
+    std_spec_r, 
+    use_both_arms)  
 
 # Edges of spectra appear to cause issues, let's just not consider them
 #min_px = 6
@@ -94,15 +81,14 @@ S, P = training_set_flux.shape
 L = len(label_names)
 
 # Generate a pixel mask for scaling/testing the training
-px_min = 3700
-px_max = 3850
+px_min = 0
+px_max = P
 pixel_mask = np.zeros(P, dtype=bool)
 pixel_mask[px_min:px_max] = True
 
 training_set_flux = training_set_flux[:, pixel_mask]
 training_set_ivar = training_set_ivar[:, pixel_mask]
 P = sum(pixel_mask)
-
 
 #------------------------------------------------------------------------------
 # Run the Cannon
@@ -157,3 +143,46 @@ labels_pred, errors, chi2 = sutils.infer_labels(theta, s2, training_set_flux,
                                          training_set_ivar, ts_mean_labels, 
                                          ts_stdev_labels) 
 sutils.compare_labels(label_values, labels_pred)
+
+#------------------------------------------------------------------------------
+# Test against TOIs
+#------------------------------------------------------------------------------
+"""
+toi_obs, toi_spec_b, toi_spec_r, toi_cat = utils.prepare_training_set(
+    observations, 
+    spectra_b,
+    spectra_r, 
+    toi_cat, 
+    do_wavelength_masking=True
+    )
+
+toi_flux, toi_ivar = utils.prepare_fluxes(toi_spec_b, toi_spec_r, True)
+
+toi_flux = toi_flux[:, pixel_mask]
+toi_ivar = toi_ivar[:, pixel_mask]
+
+toi_labels_pred, toi_errors, toi_chi2 = sutils.infer_labels(theta, s2, toi_flux, 
+                                         toi_ivar, ts_mean_labels, 
+                                         ts_stdev_labels)
+
+toi_obs["teff_cannon"] = toi_labels_pred[:,0]
+toi_obs["logg_cannon"] = toi_labels_pred[:,1]
+toi_obs["feh_cannon"] = toi_labels_pred[:,2]
+
+# Check uncertainties
+toi_e_teff = np.abs(toi_obs["teff_cannon"] - toi_obs["teff_fit"])
+print("Mean Teff error:", toi_e_teff.mean())
+print("Mean Teff error:", toi_e_teff.median())
+
+# plotting 
+plt.scatter(toi_obs["teff_cannon"], toi_obs["logg_cannon"], c=toi_obs["feh_cannon"])
+cb = plt.colorbar()
+cb.set_label(r"[Fe/H]")
+plt.xlim([5250,2900])
+plt.ylim([5.1,4])
+plt.xlabel(r"T$_{\rm eff}$")
+plt.ylabel(r"$\log g$")
+plt.scatter(std_params["teff"], std_params["logg"], c="white", marker="*", edgecolors="black")
+plt.tight_layout()
+plt.savefig("plots/presentations/toi_cannon.png",fpi=300)
+"""

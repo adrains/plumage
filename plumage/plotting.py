@@ -173,21 +173,21 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
     if mask is None:
         mask = np.ones(len(spectra)).astype(bool)
 
-    #import pdb
-    #pdb.set_trace()
-
     plt.close("all")
     teff_order = np.argsort(observations[mask]["teff_fit"].values)
     sorted_spec = spectra[mask][teff_order]
     ids = observations[mask]["id"].values[teff_order]
     uids = observations[mask]["uid"].values[teff_order]
     teffs = observations[mask]["teff_fit"].values[teff_order]
+    loggs = observations[mask]["logg_fit"].values[teff_order]
+    fehs = observations[mask]["feh_fit"].values[teff_order]
     rvs = observations[mask]["rv"].values[teff_order]
     e_rvs = observations[mask]["e_rv"].values[teff_order]
 
-    for sp_i, (spec, id, teff, rv, e_rv) in enumerate(zip(sorted_spec, ids, teffs, rvs, e_rvs)): 
+    for sp_i, (spec, id, teff, logg, feh, rv, e_rv) in enumerate(
+        zip(sorted_spec, ids, teffs, loggs, fehs, rvs, e_rvs)): 
         plt.plot(spec[0,:], sp_i+spec[1,:], linewidth=0.1) 
-        label = "%s [%i K, %0.2f km/s]" % (id, teff, rv)
+        #label = "%s [%i K, %0.2f km/s]" % (id, teff, rv)
 
         if catalogue is not None:
             uid = uids[sp_i]
@@ -203,8 +203,8 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
                 program = catalogue.iloc[idx]["program"]
                 subset = catalogue.iloc[idx]["subset"]
 
-            label = (r"%s [%s, %s, %i K, %0.2f$\pm$%0.2f km/s]"
-                     % (id, program, subset, teff, rv, e_rv))
+            label = (r"%s [%s, %s, %i K, %0.1f, %0.2f, %0.2f$\pm$%0.2f km/s]"
+                    % (id, program, subset, teff, logg, feh, rv, e_rv))
         
         plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
                         ha="center")
