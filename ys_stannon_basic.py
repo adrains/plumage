@@ -53,6 +53,8 @@ std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
     do_wavelength_masking=True
     )   
 
+wls = np.concatenate((std_spec_b[0,0,:],std_spec_r[0,0,:]))
+
 training_set_flux, training_set_ivar = utils.prepare_fluxes(
     std_spec_b, 
     std_spec_r, 
@@ -81,14 +83,15 @@ S, P = training_set_flux.shape
 L = len(label_names)
 
 # Generate a pixel mask for scaling/testing the training
-px_min = 0
-px_max = P
+px_min = 0#P-300
+px_max = P#P
 pixel_mask = np.zeros(P, dtype=bool)
 pixel_mask[px_min:px_max] = True
 
 training_set_flux = training_set_flux[:, pixel_mask]
 training_set_ivar = training_set_ivar[:, pixel_mask]
 P = sum(pixel_mask)
+
 
 #------------------------------------------------------------------------------
 # Run the Cannon
@@ -143,6 +146,66 @@ labels_pred, errors, chi2 = sutils.infer_labels(theta, s2, training_set_flux,
                                          training_set_ivar, ts_mean_labels, 
                                          ts_stdev_labels) 
 sutils.compare_labels(label_values, labels_pred)
+
+#------------------------------------------------------------------------------
+# Make diagnostic plots
+#------------------------------------------------------------------------------
+# Plot Teff comparison
+plt.figure()
+plt.scatter(label_values[:,0],labels_pred[:,0], c=label_values[:,2],marker="o")
+plt.plot(np.arange(2500,5500),np.arange(2500,5500),"-",color="black")
+plt.xlabel(r"T$_{\rm eff}$ (Lit)")
+plt.ylabel(r"T$_{\rm eff}$ (Cannon)")
+cb = plt.colorbar()
+cb.set_label(r"[Fe/H]")
+plt.xlim([2800,5100])
+plt.ylim([2800,5100])
+plt.savefig("plots/presentations/ms_teff_vs_teff.png",fpi=300)
+
+# Plot logg comparison
+plt.figure()
+plt.scatter(label_values[:,1],labels_pred[:,1], c=label_values[:,0],marker="o")
+plt.plot(np.arange(3.5,5.5,0.1),np.arange(3.5,5.5,0.1),"-",color="black")
+plt.xlim([4.0,5.1])
+plt.ylim([4.0,5.1])
+plt.ylabel(r"$\log g$ (Cannon)")
+plt.xlabel(r"$\log g$ (Lit)")
+cb = plt.colorbar()
+cb.set_label(r"[Fe/H]")
+plt.savefig("plots/presentations/ms_logg_vs_logg.png",fpi=300)
+
+# Plot Fe/H comparison
+plt.figure()
+plt.scatter(label_values[:,2],labels_pred[:,2], c=label_values[:,0],marker="o",
+            cmap="magma") 
+plt.plot(np.arange(-0.6,0.5,0.05),np.arange(-0.6,0.5,0.05),"-",color="black")
+plt.xlabel(r"[Fe/H] (Lit)")
+plt.ylabel(r"[Fe/H] (Cannon)") 
+cb = plt.colorbar() 
+cb.set_label(r"T$_{\rm eff}$")
+plt.savefig("plots/presentations/ms_feh_vs_feh.png",fpi=300)
+
+# Plot of theta coefficients
+fig, axes = plt.subplots(4, 1, sharex=True)
+axes = axes.flatten()
+
+for star in training_set_flux:
+    axes[0].plot(wls, star, linewidth=0.2)
+
+axes[1].plot(wls, theta[:,1], linewidth=0.5)
+axes[2].plot(wls, theta[:,2], linewidth=0.5)
+axes[3].plot(wls, theta[:,3], linewidth=0.5)
+
+axes[0].set_ylim([0,3])
+axes[1].set_ylim([-0.5,0.5])
+axes[2].set_ylim([-0.5,0.5])
+axes[3].set_ylim([-0.1,0.1])
+
+axes[0].set_ylabel(r"Flux")
+axes[1].set_ylabel(r"$\theta$ T$_{\rm eff}$")
+axes[2].set_ylabel(r"$\theta$ $\log g$")
+axes[3].set_ylabel(r"$\theta$ $[Fe/H]$")
+plt.xlabel("Wavelength (A)")
 
 #------------------------------------------------------------------------------
 # Test against TOIs
