@@ -2,6 +2,7 @@
 """
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 import stannon.stan_utils as sutils
 from scipy.optimize import curve_fit
@@ -16,7 +17,7 @@ class Stannon(object):
     SUPPORTED_N_LABELS = (3,)
 
     def __init__(self, training_data, training_data_ivar, training_labels, 
-                 label_names, model_type, training_variances=None, 
+                 label_names, wavelengths, model_type, training_variances=None, 
                  pixel_mask=None):
         """Stannon class to encapsulate Cannon functionality.
 
@@ -35,6 +36,8 @@ class Stannon(object):
             1D array of label/column names corresponding to training_labels. Of
             length L.
 
+        wavelengths:
+
         model_type: string
             The kind of Cannon model to construct. Allowable values are 'basic'
             and 'label_uncertainties'.
@@ -47,6 +50,7 @@ class Stannon(object):
         self.training_data_ivar = training_data_ivar
         self.training_labels = training_labels
         self.label_names = label_names
+        self.wavelengths = wavelengths
         self.model_type = model_type
         self.training_variances = training_variances
         self.pixel_mask = pixel_mask
@@ -86,6 +90,19 @@ class Stannon(object):
                              "Stannon.SUPPORTED_N_LABELS for allowed values")
         else:
             self._training_labels = value
+
+    @property
+    def wavelengths(self):
+        return self._wavelengths
+
+    @wavelengths.setter
+    def wavelengths(self, value):
+        # Check dimensions
+        if len(value) != self.training_data.shape[1]:
+            raise ValueError("Length of wavelength scale does not match axis 2"
+                             " of training data.")
+        else:
+            self._wavelengths = value
 
     @property
     def label_names(self):
@@ -191,6 +208,11 @@ class Stannon(object):
             self.whitened_label_vars = (self.training_variances 
                                         - self.mean_labels) / self.std_labels
 
+    def initialise_pixel_mask(self, px_min, px_max):
+        """
+        """
+        self.pixel_mask = np.zeros(self.P, dtype=bool)
+        self.pixel_mask[px_min:px_max] = True
 
     def train_cannon_model(self, suppress_output=True):
         """Train the Cannon model, with training per the model specified
@@ -226,6 +248,7 @@ class Stannon(object):
         # Mask data
         self.masked_data = self.training_data[:, self.pixel_mask]
         self.masked_data_ivar = self.training_data_ivar[:, self.pixel_mask]
+        self.masked_wl = self.wavelengths[self.pixel_mask]
 
         # Use local pixel count accounting for masking
         P = self.masked_data.shape[1]
@@ -349,7 +372,7 @@ class Stannon(object):
 
         return labels_all, errs_all, chi2_all
 
-
+    
     def _train_cannon_model_label_uncertainties(self):
         """
         """
@@ -359,6 +382,70 @@ class Stannon(object):
         """
         """
         pass
+
+
+    def plot_label_comparison(self, label_values, labels_pred):
+        """
+        """
+        plt.close("all")
+        # Plot Teff comparison
+        plt.figure()
+        plt.scatter(label_values[:,0],labels_pred[:,0], c=label_values[:,2],marker="o")
+        plt.plot(np.arange(2500,5500),np.arange(2500,5500),"-",color="black")
+        plt.xlabel(r"T$_{\rm eff}$ (Lit)")
+        plt.ylabel(r"T$_{\rm eff}$ (Cannon)")
+        cb = plt.colorbar()
+        cb.set_label(r"[Fe/H]")
+        plt.xlim([2800,5100])
+        plt.ylim([2800,5100])
+        plt.savefig("plots/presentations/ms_teff_vs_teff.png",fpi=300)
+
+        # Plot logg comparison
+        plt.figure()
+        plt.scatter(label_values[:,1],labels_pred[:,1], c=label_values[:,0],marker="o")
+        plt.plot(np.arange(2.5,5.5,0.1),np.arange(2.5,5.5,0.1),"-",color="black")
+        plt.xlim([2.5,5.1])
+        plt.ylim([2.5,5.1])
+        plt.ylabel(r"$\log g$ (Cannon)")
+        plt.xlabel(r"$\log g$ (Lit)")
+        cb = plt.colorbar()
+        cb.set_label(r"[Fe/H]")
+        plt.savefig("plots/presentations/ms_logg_vs_logg.png",fpi=300)
+
+        # Plot Fe/H comparison
+        plt.figure()
+        plt.scatter(label_values[:,2],labels_pred[:,2], c=label_values[:,0],marker="o",
+                    cmap="magma") 
+        plt.plot(np.arange(-0.6,0.5,0.05),np.arange(-0.6,0.5,0.05),"-",color="black")
+        plt.xlabel(r"[Fe/H] (Lit)")
+        plt.ylabel(r"[Fe/H] (Cannon)") 
+        cb = plt.colorbar() 
+        cb.set_label(r"T$_{\rm eff}$")
+        plt.savefig("plots/presentations/ms_feh_vs_feh.png",fpi=300)
+
+
+    def plot_theta_coefficients(self):
+        # Plot of theta coefficients
+        fig, axes = plt.subplots(4, 1, sharex=True)
+        axes = axes.flatten()
+
+        for star in self.masked_data:
+            axes[0].plot(self.masked_wl, star, linewidth=0.2)
+
+        axes[1].plot(self.masked_wl, self.theta[:,1], linewidth=0.5)
+        axes[2].plot(self.masked_wl, self.theta[:,2], linewidth=0.5)
+        axes[3].plot(self.masked_wl, self.theta[:,3], linewidth=0.5)
+
+        axes[0].set_ylim([0,3])
+        axes[1].set_ylim([-0.5,0.5])
+        axes[2].set_ylim([-0.5,0.5])
+        axes[3].set_ylim([-0.1,0.1])
+
+        axes[0].set_ylabel(r"Flux")
+        axes[1].set_ylabel(r"$\theta$ T$_{\rm eff}$")
+        axes[2].set_ylabel(r"$\theta$ $\log g$")
+        axes[3].set_ylabel(r"$\theta$ $[Fe/H]$")
+        plt.xlabel("Wavelength (A)")
 
 #------------------------------------------------------------------------------
 # Module Functions
@@ -406,3 +493,42 @@ def multiply_coeff_label_vectors(coeffs, *labels):
     """
     lvec = get_lvec(list(labels))
     return np.dot(coeffs, lvec)
+
+
+def prepare_synth_training_set(
+    ref_spec, ref_params, sigma_pc=0.01,
+    param_lims={"teff":None, "logg":None, "feh":None, "vsini":None},
+    drop_vsini=True):
+    """
+    """
+    PARAM_Is = {"teff":0, "logg":1, "feh":2, "vsini":3}
+
+    # Make parameter cuts
+    final_mask = np.full(len(ref_params), True)
+
+    for param in param_lims:
+        print(param)
+        if param_lims[param] is not None:
+            param_i = PARAM_Is[param]
+            mask = np.logical_and(ref_params[:,param_i] >= param_lims[param][0],
+                                ref_params[:,param_i] <= param_lims[param][1])
+            final_mask = np.logical_and(final_mask, mask)
+    
+    ref_spec = ref_spec[final_mask]
+    ref_params = ref_params[final_mask]
+
+    if drop_vsini:
+        ref_params = ref_params[:,:3]
+
+    # Create artifical 'uncertainties' using a flat percentage
+    sigma = ref_spec[:,1,:] * np.ones_like(ref_spec[:,0,:])*sigma_pc
+    #sigma = np.swapaxes(np.atleast_3d(sigma), 1, 2)
+    
+    # Return params
+    ref_wl = ref_spec[0,0,:]
+    ref_fluxes = ref_spec[:,1]
+    ref_ivar = 1/sigma**2
+    #ref_spec = np.concatenate((ref_spec, sigma), axis=1)
+
+    return ref_wl, ref_fluxes, ref_ivar, ref_params
+

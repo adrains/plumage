@@ -445,6 +445,25 @@ def make_wavelength_mask(wave_array, mask_emission=True,
     return mask.astype(bool)
 
 
+def mask_wavelengths(spectra, mask_emission=True, mask_blue_edges=False, 
+                     mask_sky_emission=False):
+    """
+    """
+    wl_mask = make_wavelength_mask(
+        spectra[0,0], 
+        mask_emission=mask_emission,
+        mask_blue_edges=mask_blue_edges,
+        mask_sky_emission=mask_sky_emission,)
+
+    dims = spectra.shape
+    wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
+    
+    spectra = spectra[wl_mask]
+    spectra = spectra.reshape(
+        [dims[0], dims[1], int(len(spectra)/np.prod(dims[:2]))])
+
+    return spectra
+
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # -----------------------------------------------------------------------------

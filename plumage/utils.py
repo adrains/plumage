@@ -399,6 +399,8 @@ def prepare_training_set(observations, spectra_b, spectra_r, std_params_all,
     std_spectra_b = spectra_b[is_std_mask]
     std_spectra_r = spectra_r[is_std_mask]
 
+    # TODO: Move this to Stannon, use spec.mask_wavelengths()
+
     # Mask wavelengths
     if do_wavelength_masking:
         # Mask blue
