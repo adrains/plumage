@@ -10,6 +10,7 @@ import plumage.spectra as spec
 import plumage.plotting as pplt
 import plumage.utils as utils
 from astropy.table import Table
+from astropy.io import fits
 
 # -----------------------------------------------------------------------------
 # Setup
@@ -65,7 +66,7 @@ spectra_r_norm = spec.normalise_spectra(spectra_r, True)
 
 # Load in template spectra
 print("Load in synthetic templates...")
-ref_params, ref_spec = synth.load_synthetic_templates(setting="R7000")  
+ref_params, ref_spec = synth.load_synthetic_templates(setting="R7000")
 
 # Normalise template spectra
 print("Normalise synthetic templates...")
@@ -94,7 +95,7 @@ observations["bcor"] = bcors
 # Calculate RVs and RV correct
 # -----------------------------------------------------------------------------
 print("Compute RVs...")
-rvs, e_rvs, params, chi2, grid_chi2 = spec.do_all_template_matches(
+rvs, e_rvs, rchi2, all_nres, params, grid_rchi2 = spec.do_all_template_matches(
     spectra_r_norm, 
     observations, 
     ref_params, 
@@ -106,7 +107,7 @@ observations["feh_fit"] = params[:,2]
 observations["vsini_fit"] = params[:,3]
 observations["rv"] = rvs
 observations["e_rv"] = e_rvs
-observations["chi2"] = chi2
+observations["rchi2"] = rchi2
 
 # Create a new wl scale for each arm
 
