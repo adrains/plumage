@@ -84,10 +84,11 @@ L = len(label_names)
 
 # Generate a pixel mask for scaling/testing the training
 px_min = 0#P-300
-px_max = P#P
+px_max = 100#P
 pixel_mask = np.zeros(P, dtype=bool)
 pixel_mask[px_min:px_max] = True
 
+wls = wls[pixel_mask]
 training_set_flux = training_set_flux[:, pixel_mask]
 training_set_ivar = training_set_ivar[:, pixel_mask]
 P = sum(pixel_mask)

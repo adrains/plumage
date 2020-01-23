@@ -251,6 +251,7 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
     idl = idl_init()
 
     spectra = []
+    params = []
 
     for teff in teffs:
         for logg in loggs:
@@ -268,13 +269,14 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
                         do_resample=True, 
                         wl_per_pixel=wl_per_pixel)
                 
-                    spectra.append((wave,spec))
+                    spectra.append((spec))
+
+                    params.append([teff, logg, feh, vsini])
     
-    return np.stack(spectra)
+    return wave, np.stack(spectra), np.stack(params)
 
 
-def save_synthetic_templates(spectra, teffs, loggs, fehs, vsinis, 
-    setting="R7000"):
+def save_synthetic_templates(wave, spectra, params, label):
     """Save the generated synthetic templates in templates/.
 
     Parameters
@@ -295,37 +297,30 @@ def save_synthetic_templates(spectra, teffs, loggs, fehs, vsinis,
     setting: string
         The grating format of the spectra.
     """
-    spec_i = 0
-    params = []
+    n_spec = len(params)
 
-    # For all params, save a CSV file
-    for teff in teffs:
-        for logg in loggs:
-            for feh in fehs:
-                for vsini in vsinis:
-                    fname = ("template_%s_%i_%0.2f_%0.2f_%i.csv" 
-                            % (setting, teff, logg, feh, vsini))
-                    path = os.path.join("templates", fname)
-
-                    np.savetxt(path, spectra[spec_i,:,:].T)
-
-                    params.append([teff, logg, feh, vsini])
-
-                    spec_i += 1
+    # Save a csv for wavelength scale
+    wave_file = "template_wave_%i_%s.csv" % (n_spec, label)
+    wave_path = os.path.join("templates", wave_file)
+    np.savetxt(wave_path, wave)
+    
+    # Save a csv for the spectra
+    spec_file = "template_spectra_%i_%s.csv" % (n_spec, label)
+    spec_path = os.path.join("templates", spec_file)
+    np.savetxt(spec_path, spectra)
 
     # Now save a file keeping track of the params of each star
-    params_file = "template_%s_params.csv" % setting
+    params_file = "template_params_%i_%s.csv" % (n_spec, label)
     params_path = os.path.join("templates", params_file)
-
     np.savetxt(params_path, params, fmt=["%i", "%0.2f", "%0.2f", "%i"])
 
 
-def load_synthetic_templates(setting="R7000"):
+def load_synthetic_templates(n_spec, label):
     """Load in the saved synthetic templates
 
     Parameters
     ----------
-    setting: string
+    label: string
         The grating setting determining which templatesd to import.
 
     Returns
@@ -336,18 +331,19 @@ def load_synthetic_templates(setting="R7000"):
     templates: float array
         Array of imported template spectra of form [star, wl/spec, flux]
     """
-    # Load in the synthetic star params
-    params_file = os.path.join("templates", "template_%s_params.csv" % setting)
+    # Load wavelength scale
+    wave_file = "template_wave_%i_%s.csv" % (n_spec, label)
+    wave_path = os.path.join("templates", wave_file)
+    wave = params = np.loadtxt(wave_path)
+    
+    # Load spectra
+    spec_file = "template_spectra_%i_%s.csv" % (n_spec, label)
+    spec_path = os.path.join("templates", spec_file)
+    spectra = params = np.loadtxt(spec_path)
 
-    params = np.loadtxt(params_file)
+    # Load params of each star
+    params_file = "template_params_%i_%s.csv" % (n_spec, label)
+    params_path = os.path.join("templates", params_file)
+    params = np.loadtxt(params_path)
 
-    templates = []
-
-    for param in tqdm(params):
-        tfile = os.path.join("templates", "template_%s_%i_%0.2f_%0.2f_%i.csv"
-                             % (setting, param[0], param[1], param[2], 
-                                param[3]))
-        spec = np.loadtxt(tfile)
-        templates.append(spec.T)
-
-    return params, np.stack(templates)
+    return wave, spectra, params

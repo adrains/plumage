@@ -298,6 +298,16 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
         #ignore = np.logical_or.reduce((ca_hk, edges, nan))
         ignore = np.logical_or.reduce((edges, nan))
 
+    # B3000+R7000 for synthetic testing
+    elif np.round(wl.mean()/100)*100 == 5500:
+        lambda_0 = 5500
+        #ca_hk = np.logical_and(wl > 3920, wl < 3980)
+        edges = np.logical_or(wl < 3500, wl > 7000)
+        nan = ~np.isfinite(spectrum_fit)
+
+        #ignore = np.logical_or.reduce((ca_hk, edges, nan))
+        ignore = np.logical_or.reduce((edges, nan))
+
     else:
         raise Exception("Grating not recognised or implemented. Must be"
                         " either B3000 or R7000.")
@@ -312,6 +322,7 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
 
     # Fit 2nd order polynomial to get coefficients
     poly = Polynomial.fit(wl_norm[mask], spectrum_fit[mask], 2)
+
 
     # Calculate the normalising function and normalise
     norm = poly(wl_norm)

@@ -366,9 +366,9 @@ class Stannon(object):
             chi2 = ((flux-multiply_coeff_label_vectors(self.theta, *labels))**2 
                     * ivar / (1 + ivar * self.s2**2))
             chi2_all[star_i] = sum(chi2)
-            labels_all[star_i,:] = labels * self.mean_labels + self.std_labels
-            errs_all[star_i,:] = (np.sqrt(cov.diagonal()) * self.mean_labels
-                                  + self.std_labels)
+            labels_all[star_i,:] = labels * self.std_labels + self.mean_labels
+            errs_all[star_i,:] = (np.sqrt(cov.diagonal()) * self.std_labels
+                                  + self.mean_labels)
 
         return labels_all, errs_all, chi2_all
 
@@ -507,7 +507,6 @@ def prepare_synth_training_set(
     final_mask = np.full(len(ref_params), True)
 
     for param in param_lims:
-        print(param)
         if param_lims[param] is not None:
             param_i = PARAM_Is[param]
             mask = np.logical_and(ref_params[:,param_i] >= param_lims[param][0],

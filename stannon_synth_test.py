@@ -6,11 +6,21 @@ import plumage.synthetic as synth
 import stannon.stannon as stannon
 
 label_names = ["teff", "logg", "feh"]
-px_min = 0
-px_max = 100
+
+
+n_ref = 156
+label = "BR_synth_test"
 
 # Import template spectra
-ref_params_all, ref_spec_all = synth.load_synthetic_templates(setting="R7000")
+ref_wl_all, ref_spec, ref_params_all = synth.load_synthetic_templates(
+    n_ref,
+    label)
+
+wl_2d = np.tile(ref_wl_all, n_ref).reshape((n_ref,len(ref_wl_all))) 
+ref_spec_all = np.stack((wl_2d, ref_spec),axis=2).swapaxes(1,2)
+
+px_min = 0
+px_max = len(ref_wl_all)
 
 # Normalise template spectra
 ref_spec_norm = spec.normalise_spectra(ref_spec_all)
@@ -19,7 +29,7 @@ ref_spec_norm = spec.normalise_spectra(ref_spec_all)
 ref_spec_masked = spec.mask_wavelengths(ref_spec_norm)
 
 # Add "uncertainties", enforce limits
-param_lims = {"teff":(3000,4000),"logg":None,"feh":None,"vsini":(0,1)}
+param_lims = {"teff":None,"logg":None,"feh":None,"vsini":(0,1)}
 ref_wl, ref_fluxes, ref_ivar, ref_params  = stannon.prepare_synth_training_set(
     ref_spec_masked,
     ref_params_all,
