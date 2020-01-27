@@ -3,6 +3,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as plticker
 from tqdm import tqdm
 import stannon.stan_utils as sutils
 from scipy.optimize import curve_fit
@@ -245,6 +246,9 @@ class Stannon(object):
             If yes, output is suppressed and a progress bar is displayed. Set 
             to false for debugging purposes.
         """
+        # Whiten labels
+        self.whiten_labels()
+
         # Mask data
         self.masked_data = self.training_data[:, self.pixel_mask]
         self.masked_data_ivar = self.training_data_ivar[:, self.pixel_mask]
@@ -385,46 +389,78 @@ class Stannon(object):
 
 
     def plot_label_comparison(self, label_values, labels_pred):
-        """
+        """Plot comparison between actual labels and predicted labels for 
+        Teff, logg, and [Fe/H].
+
+        Parameters
+        ----------
+        label_values: 2D numpy array
+            Label array with columns [teff, logg, feh]
+        
+        labels_pred: 2D numpy array
+            Predicted label array with columns [teff, logg, feh]
         """
         plt.close("all")
+        fig, (ax_teff, ax_logg, ax_feh) = plt.subplots(1, 3, figsize=(12, 4)) 
+        fig.subplots_adjust(left=0.1, bottom=0.2, right=0.9, top=0.95, 
+                            wspace=0.5)
+
         # Plot Teff comparison
-        plt.figure()
-        plt.scatter(label_values[:,0],labels_pred[:,0], c=label_values[:,2],marker="o")
-        plt.plot(np.arange(2500,5500),np.arange(2500,5500),"-",color="black")
-        plt.xlabel(r"T$_{\rm eff}$ (Lit)")
-        plt.ylabel(r"T$_{\rm eff}$ (Cannon)")
-        cb = plt.colorbar()
-        cb.set_label(r"[Fe/H]")
-        plt.xlim([2800,5100])
-        plt.ylim([2800,5100])
-        plt.savefig("plots/presentations/ms_teff_vs_teff.png",fpi=300)
+        sc_teff = ax_teff.scatter(label_values[:,0],labels_pred[:,0], 
+                                  c=label_values[:,2], marker="o")
+        ax_teff.plot(np.arange(2500,5800), np.arange(2500,5800), "-",
+                              color="black")
+        ax_teff.set_xlabel(r"T$_{\rm eff}$ (Lit)")
+        ax_teff.set_ylabel(r"T$_{\rm eff}$ (Cannon)")
+        cb_teff = fig.colorbar(sc_teff, ax=ax_teff)
+        cb_teff.set_label(r"[Fe/H]")
+        ax_teff.set_xlim([2800,5800])
+        ax_teff.set_ylim([2800,5800])
+        loc_teff = plticker.MultipleLocator(base=500)
+        ax_teff.xaxis.set_major_locator(loc_teff)
+        plt.setp(ax_teff.get_xticklabels(), rotation="vertical")
+        #ax_teff.set_aspect("equal")
 
         # Plot logg comparison
-        plt.figure()
-        plt.scatter(label_values[:,1],labels_pred[:,1], c=label_values[:,0],marker="o")
-        plt.plot(np.arange(2.5,5.5,0.1),np.arange(2.5,5.5,0.1),"-",color="black")
-        plt.xlim([2.5,5.1])
-        plt.ylim([2.5,5.1])
-        plt.ylabel(r"$\log g$ (Cannon)")
-        plt.xlabel(r"$\log g$ (Lit)")
-        cb = plt.colorbar()
-        cb.set_label(r"[Fe/H]")
-        plt.savefig("plots/presentations/ms_logg_vs_logg.png",fpi=300)
+        sc_logg = ax_logg.scatter(label_values[:,1],labels_pred[:,1], 
+                                  c=label_values[:,0], marker="o", 
+                                  cmap="magma")
+        ax_logg.plot(np.arange(0.5,6.0,0.1), np.arange(0.5,6.0,0.1), "-",
+                     color="black")
+        ax_logg.set_xlim([0.5,6.0])
+        ax_logg.set_ylim([0.5,6.0])
+        ax_logg.set_ylabel(r"$\log g$ (Cannon)")
+        ax_logg.set_xlabel(r"$\log g$ (Lit)")
+        cb_logg = fig.colorbar(sc_logg, ax=ax_logg)
+        cb_logg.set_label(r"T$_{\rm eff}$")
+        loc_logg = plticker.MultipleLocator(base=1)
+        ax_logg.xaxis.set_major_locator(loc_logg)
+        #plt.setp(ax_logg.get_xticklabels(), rotation="vertical")
+        #ax_logg.set_aspect("equal")
 
         # Plot Fe/H comparison
-        plt.figure()
-        plt.scatter(label_values[:,2],labels_pred[:,2], c=label_values[:,0],marker="o",
-                    cmap="magma") 
-        plt.plot(np.arange(-0.6,0.5,0.05),np.arange(-0.6,0.5,0.05),"-",color="black")
-        plt.xlabel(r"[Fe/H] (Lit)")
-        plt.ylabel(r"[Fe/H] (Cannon)") 
-        cb = plt.colorbar() 
-        cb.set_label(r"T$_{\rm eff}$")
-        plt.savefig("plots/presentations/ms_feh_vs_feh.png",fpi=300)
+        sc_feh = ax_feh.scatter(label_values[:,2],labels_pred[:,2], 
+                                c=label_values[:,0], marker="o", cmap="magma") 
+        ax_feh.plot(np.arange(-2.0,0.75,0.05), np.arange(-2.0,0.75,0.05), "-",
+                    color="black")
+        ax_feh.set_xlabel(r"[Fe/H] (Lit)")
+        ax_feh.set_ylabel(r"[Fe/H] (Cannon)") 
+        cb_feh = fig.colorbar(sc_feh, ax=ax_feh) 
+        cb_feh.set_label(r"T$_{\rm eff}$")
+        loc_feh = plticker.MultipleLocator(base=0.5)
+        ax_feh.xaxis.set_major_locator(loc_feh)
+        plt.setp(ax_feh.get_xticklabels(), rotation="vertical")
+        #ax_feh.set_aspect("equal")
+
+        plt.setp(ax_feh.get_xticklabels(), rotation="vertical")
+
+        plt.savefig("plots/label_comp.pdf")
 
 
     def plot_theta_coefficients(self):
+        """Plot values of theta coefficients against wavelength for Teff, logg,
+        and [Fe/H], plus fluxes.
+        """
         # Plot of theta coefficients
         fig, axes = plt.subplots(4, 1, sharex=True)
         axes = axes.flatten()
