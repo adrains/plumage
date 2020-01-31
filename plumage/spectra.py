@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import glob
 import pickle
+import warnings
 from tqdm import tqdm
 from scipy.optimize import leastsq
 from astropy.table import Table
@@ -83,7 +84,8 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
 
     assert len(spectra_b_files) == len(spectra_r_files)
 
-    for fi, (file_b, file_r) in enumerate(zip(tqdm(spectra_b_files), spectra_r_files)):
+    for fi, (file_b, file_r) in enumerate(
+        zip(tqdm(spectra_b_files), spectra_r_files)):
         # Load in and extract required information from fits files
         with fits.open(file_b) as fits_b, fits.open(file_r) as fits_r:
             # Get the flux and telluric corrected spectra
@@ -171,6 +173,9 @@ def save_pkl_spectra(observations, spectra_b, spectra_r, rv_corr=False):
     spectra_r: float array
         3D numpy array containing red arm spectra of form 
         [N_ob, wl/spec/sigma, flux].
+
+    rv_corr: boolean
+        Boolean flag for whether spectra have been RV corrected
     """
     # Distinguish whether these spectra are post normalisation and RV corr
     if rv_corr:
@@ -182,7 +187,8 @@ def save_pkl_spectra(observations, spectra_b, spectra_r, rv_corr=False):
     n_obs = len(observations)
 
     # Save observation log
-    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" % (n_obs, ext))
+    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" 
+                          % (n_obs, ext))
     pkl_obs = open(ob_out, "wb")
     pickle.dump(observations, pkl_obs)
     pkl_obs.close()
@@ -209,6 +215,9 @@ def load_pkl_spectra(n_obs, rv_corr=False):
     n_obs: int
         The number of observations, tells you which pickles to select.
 
+    rv_corr: boolean
+        Boolean flag for whether spectra have been RV corrected.
+
     Returns
     -------
     observations: pandas dataframe
@@ -216,11 +225,11 @@ def load_pkl_spectra(n_obs, rv_corr=False):
 
     spectra_b: float array
         3D numpy array containing blue arm spectra of form 
-        [N_ob, wl/spec/sigma, flux].
+        [N_ob, wl/spec/sigma, value].
 
     spectra_r: float array
         3D numpy array containing red arm spectra of form 
-        [N_ob, wl/spec/sigma, flux].
+        [N_ob, wl/spec/sigma, value].
     """
     # Distinguish whether these spectra are post normalisation and RV corr
     if rv_corr:
@@ -229,7 +238,8 @@ def load_pkl_spectra(n_obs, rv_corr=False):
         ext = ""
 
     # Load observation log
-    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" % (n_obs, ext))
+    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" 
+                          % (n_obs, ext))
     pkl_obs = open(ob_out, "rb")
     observations = pickle.load(pkl_obs)
     pkl_obs.close()
@@ -252,7 +262,29 @@ def load_pkl_spectra(n_obs, rv_corr=False):
 # -----------------------------------------------------------------------------
 # Processing spectra
 # -----------------------------------------------------------------------------
-def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
+def clean_spectra(spectra):
+    """Clean non-realistic spectral pixels
+
+    Parameters
+    ----------
+    spectra: float array
+        3D numpy array containing blue arm spectra of form 
+        [N_ob, wl/spec/sigma, value].
+
+    """
+    # Suppress warnings so that the comparison operators don't trigger invalid
+    # value warnings due to nans being in the array
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning) 
+
+        # Set any spectra with negative or zero flux values to np.nan, along
+        # with the associated error
+        spectra[:,2] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,2])
+        spectra[:,1] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,1])
+
+
+def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False, 
+                       plot_norm=False):
     """Normalise a single spectrum by a 2nd order polynomial in log space. 
     Automatically detects which WiFeS arm and grating is being used and masks 
     out regions accordingly. Currently only implemented for B3000 and R7000.
@@ -265,7 +297,11 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
     spectrum: float array
         The spectrum corresponding to wl, units irrelevant.
 
-    show_fit: boolean
+    e_spectrum: float array or None
+        Errors (if available) on fluxes. None if not available or relevant
+        (e.g. for synthetic spectra)
+
+    plot_fit, plot_norm: boolean
         Whether to plot the normalised spectrum, or show the polynomial fit.
 
     Returns
@@ -280,32 +316,22 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
     # Red arm, R7000 grating
     if np.round(wl.mean()/100)*100 == 6200:
         lambda_0 = 6200
-
-        #h_alpha = np.logical_and(wl > 6540, wl < 6580)
         edges = np.logical_or(wl < 5420, wl > 6980)
         nan = ~np.isfinite(spectrum_fit)
-
-        #ignore = np.logical_or.reduce((h_alpha, edges, nan))
         ignore = np.logical_or.reduce((edges, nan))
     
     # Blue arm, B3000 grating
     elif np.round(wl.mean()/100)*100 == 4600:
         lambda_0 = 4600
-        #ca_hk = np.logical_and(wl > 3920, wl < 3980)
         edges = np.logical_or(wl < 3600, wl > 5400)
         nan = ~np.isfinite(spectrum_fit)
-
-        #ignore = np.logical_or.reduce((ca_hk, edges, nan))
         ignore = np.logical_or.reduce((edges, nan))
 
     # B3000+R7000 for synthetic testing
     elif np.round(wl.mean()/100)*100 == 5500:
         lambda_0 = 5500
-        #ca_hk = np.logical_and(wl > 3920, wl < 3980)
-        edges = np.logical_or(wl < 3500, wl > 7000)
+        edges = np.logical_or(wl < 3500, wl > 7000) # This is everything
         nan = ~np.isfinite(spectrum_fit)
-
-        #ignore = np.logical_or.reduce((ca_hk, edges, nan))
         ignore = np.logical_or.reduce((edges, nan))
 
     else:
@@ -323,23 +349,24 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
     # Fit 2nd order polynomial to get coefficients
     poly = Polynomial.fit(wl_norm[mask], spectrum_fit[mask], 2)
 
-
     # Calculate the normalising function and normalise
     norm = poly(wl_norm)
 
     spectrum_norm = spectrum / np.exp(norm)
 
     # Plot
-    #plt.close("all")
-    if show_fit:
+    if plot_fit:
+        plt.figure()
         plt.plot(wl[:-1], spectrum_fit[:-1], label="flux")
         plt.plot(wl, norm, label="fit")
-    else:
-        plt.plot(wl, spectrum_norm, label="Normalised flux")
+        plt.xlabel("Wavelength (A)")
+        plt.ylabel("Flux (Normalised)")
 
-    plt.xlabel("Wavelength (A)")
-    plt.ylabel("Flux (Normalised)")
-    #plt.ylim([-1, 10])
+    elif plot_norm:
+        plt.figure()
+        plt.plot(wl, spectrum_norm, label="Normalised flux")
+        plt.xlabel("Wavelength (A)")
+        plt.ylabel("Flux (Normalised)")
 
     # Normalise the uncertainties too if we have been given them
     if e_spectrum is not None:
@@ -353,30 +380,62 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, show_fit=False):
 
 def normalise_spectra(spectra, normalise_uncertainties=False):
     """Normalises all spectra
+
+    Parameters
+    ----------
+    spectra: float array
+        3D numpy array containing red arm spectra of form 
+        [N_ob, wl/spec/sigma, value].
+
+    normalise_uncertainties: boolean
+        Whether to normalise uncertainties (use False if no uncertainties).
     """
     spectra_norm = spectra.copy()
 
     for spec_i in tqdm(range(len(spectra_norm))):
-        #print("(%4i/%i) normalised" % (spec_i+1, len(spectra)))
         if normalise_uncertainties:
-            spec_norm, e_spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
-                                       spectra[spec_i][1,:], # flux
-                                       spectra[spec_i][2,:]) # uncertainty
+            spec_norm, e_spec_norm = normalise_spectrum(spectra[spec_i][0,:],
+                                       spectra[spec_i][1,:],
+                                       spectra[spec_i][2,:]) 
 
             spectra_norm[spec_i][1,:] = spec_norm
             spectra_norm[spec_i][2,:] = e_spec_norm
 
         else:
-            spec_norm = normalise_spectrum(spectra[spec_i][0,:], # wl
-                                       spectra[spec_i][1,:]) # flux
+            spec_norm = normalise_spectrum(spectra[spec_i][0,:],
+                                       spectra[spec_i][1,:])
             spectra_norm[spec_i][1,:] = spec_norm
     
     return spectra_norm
 
 
 def make_wavelength_mask(wave_array, mask_emission=True, 
-    mask_blue_edges=False, mask_sky_emission=False):
-    """
+    mask_blue_edges=False, mask_sky_emission=False, mask_edges=False):
+    """Make a wavelength mask for the provided wave array, masking out the 
+    regions specified.
+
+    Parameters
+    ----------
+    wave_array: float array
+        Wavelength scale to be masked.
+
+    mask_emission: boolean
+        Whether to mask stellar activity based emission.
+
+    mask_blue_edges: boolean
+        Whether to mask B3000 spectra to match the R7000 wavelength range.
+
+    mask_sky_emission: boolean
+        Whether to mask regions prone to sky emission.
+
+    mask_edges: boolean
+        Whether to mask edges of wavelength scale to avoid edge effects when
+        fitting.
+
+    Returns
+    -------
+    mask: boolean array
+        Boolean mask for wavelength scale.
     """
     # O2  bands are saturated - don't depend on airmass
     # H2O bands DO depend on airmass!!
@@ -420,8 +479,8 @@ def make_wavelength_mask(wave_array, mask_emission=True,
     ]
 
     calcium_hk = [
-        [3925.0, 3945.0], # H Eta
-        [3960.0, 3980.0], # H Zeta
+        #[3925.0, 3945.0], # H Eta
+        #[3960.0, 3980.0], # H Zeta
     ]
 
     sky_emission = [
@@ -453,6 +512,11 @@ def make_wavelength_mask(wave_array, mask_emission=True,
         mask *= ((wave_array >= 3600)+
                  (wave_array <= 5400))
 
+    # Mask out the edges to avoid edge effects
+    if mask_edges:
+        mask[:10] = False
+        mask[-10:] = False
+
     return mask.astype(bool)
 
 
@@ -475,6 +539,39 @@ def mask_wavelengths(spectra, mask_emission=True, mask_blue_edges=False,
 
     return spectra
 
+
+def reformat_spectra(wl, spec):
+    """Take a single wavelength vector plus a 2D set of spectra and combine
+    them into a single array.
+    """
+    wl_2d = np.tile(wl, len(spec)).reshape((len(spec),len(wl))) 
+    spec_all = np.stack((wl_2d, spec),axis=2).swapaxes(1,2)
+
+    return spec_all
+
+
+def make_wl_scale(wl_min, wl_max, n_px):
+    """Make a new wavelength scale given min and max wavelengths, plus number
+    of pixels.
+
+    Parameters
+    ----------
+    wl_min, wl_max: float
+        Minimum and maximum wavelength values respectively.
+
+    n_px: int
+        Number of pixels to have in the wavelength scale.
+
+    Returns
+    -------
+    wl_scale: float array
+        New wavelength scale.
+    """
+    wl_per_px = (wl_max - wl_min) / n_px
+    wl_scale = np.arange(wl_min, wl_max, wl_per_px)
+
+    return wl_scale
+
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # -----------------------------------------------------------------------------
@@ -496,9 +593,12 @@ def compute_barycentric_correction(ras, decs, times, site="SSO",
     site: string
         The site name to look up its coordinates.
 
+    disable_auto_max_age: boolean, defaults to False
+        Useful only when IERS server is not working.
+
     Returns
     -------
-    bcors: astropy.units.quantity.Quantity array
+    bcors: float array
         Array of barycentric corrections in km/s.
     """
     # Get the location
@@ -518,7 +618,7 @@ def compute_barycentric_correction(ras, decs, times, site="SSO",
         sc = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
         time = Time(float(time), format="mjd")
         barycorr = sc.radial_velocity_correction(obstime=time, location=loc)  
-        bcors.append(barycorr.to(u.km/u.s))
+        bcors.append(barycorr.to(u.km/u.s).value)
 
     return bcors
 
@@ -549,26 +649,16 @@ def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
 
     Returns
     -------
-    loss: float
-        The goodness of fit.
+    resid_vect: float array
+        Error weighted loss.
     """
     # Shift the template spectrum
     ref_spec = ref_spec_interp(wave * (1-(rv[0]-bcor)/(const.c.si.value/1000)))
 
-    # Setup a mask to use. Ignore edges, and sigma clip *high* pixels to 
-    # remove emission features and cosmics
-    #mask = make_wavelength_mask(wave, mask_emission=True)
-
-    #mask = np.ones_like(ref_spec).astype(bool)
-    mask = np.full(len(spec), True)
-    mask[:10] = False
-    mask[-10:] = False
-    #nsig = 4
-    #mask[spec > (np.nanmean(spec) + nsig*np.nanstd(spec))] = False
-
     # Return loss
-    resid_vect = (spec[mask] - ref_spec[mask]) / e_spec[mask]
-    chi_sq = np.nansum(resid_vect**2)
+    resid_vect = (spec - ref_spec) / e_spec
+
+    #chi_sq = np.nansum(resid_vect**2)
 
     return resid_vect
 
@@ -598,34 +688,34 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
 
     Returns
     -------
-    fit, cov, infodict, mesg, ief: various
+    rv_fit, e_rv, rchi2: float
+        Best fit RV (km/s), RV uncertainty, and corresponding reduced chi^2.
+    
+    infodict: dictionary
         Outputs of scipy.optimize.leastsq()
     """
     # Make interpolation function
     ref_spec_interp = ius(ref_wl, ref_spec)
 
+    # Mask the science data for tellurics and emission
+    mask = make_wavelength_mask(sci_wl, mask_emission=True, mask_edges=True)
+    sci_wl = sci_wl[mask]
+    sci_spec = sci_spec[mask]
+    e_sci_spec = e_sci_spec[mask]
+
     # Do fit, have initial RV guess be 0 km/s
     rv = 0
-    args = (sci_wl, sci_spec, e_sci_spec, ref_spec_interp, bcor.value)
+    args = (sci_wl, sci_spec, e_sci_spec, ref_spec_interp, bcor)
     rv_fit, cov, infodict, mesg, ier = leastsq(calc_rv_shift_residual, rv, 
                                             args=args, full_output=True)
 
-    # Work out the uncertainties
-    #model = ref_spec_interp(sci_wl * (1-(fit[0]-bcor.value)
-    #                                     /(const.c.si.value/1000)))
-    #res = (sci_spec - model) / e_sci_spec # / (len(sci_spec)-len(fit))
-    #res = calc_rv_shift_residual(fit, *args)
-    #res = infodict["fvec"]
-
+    # Scale the covariance matrix, calculate RV uncertainty
+    # docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.leastsq.html
     if cov is None:
         e_rv = np.nan
     else:
         cov *= np.nanvar(infodict["fvec"])
         e_rv = cov**0.5
-
-        #rchi2 = np.sum((sci_spec - model) / e_sci_spec)**2 / (len(sci_spec)-len(fit))
-
-        #print(rchi2)
 
     # Add extra parameters to infodict
     infodict["cov"] = cov
@@ -662,14 +752,17 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
 
     Returns
     -------
-    rv: float
-        Fitted radial velocity in km/s
+    rv_fit, e_rv, rchi2: float
+        Best fit RV (km/s), RV uncertainty, and corresponding reduced chi^2.
 
-    teff: float
-        Fitted effective temperature in K
+    nres: float array
+        Fit residuals.
 
-    quality: float
-        Quality of the fit
+    params: float
+        Fitted stellar parameters vector
+
+    rchi2_grid: float array
+        Grid of reduced chi^2 values corresponding to all template spectra.
     """
     # Fit each template to the science data to figure out the best match
     rvs = []
@@ -704,7 +797,8 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
 
 def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
                             print_diagnostics=False):
-    """Do template fitting on all stars for radial velocity and temperature.
+    """Do template fitting on all stars for radial velocity and temperature, 
+    and save the results to observations.
 
     Parameters
     ----------
@@ -725,14 +819,12 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
 
     Returns
     -------
-    rvs: float array
-        Fitted radial velocity in km/s
+    nres: float array
+        Fit residuals for all science spectra.
 
-    teffs: float array
-        Fitted effective temperature in K
-
-    fit_quality: float array
-        Quality of the fit
+    rchi2_grid: float array
+        Grid of reduced chi^2 values corresponding to all template spectra for
+        all science spectra.
     """
     # Initialise
     all_rvs = []
@@ -746,7 +838,8 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     for star_i, sci_spec in enumerate(tqdm(sci_spectra)):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
-                 % (star_i+1, len(sci_spectra), observations.iloc[star_i]["id"]))
+                 % (star_i+1, len(sci_spectra), 
+                    observations.iloc[star_i]["id"]))
 
         bcor = observations.iloc[star_i]["bcor"]
         rv, e_rv, rchi2, nres, params, rchi2_grid = do_template_match(
@@ -763,14 +856,21 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
         all_params.append(params)
         all_rchi2_grid.append(rchi2_grid)
 
-    all_rvs = np.array(all_rvs)
-    all_e_rvs = np.array(all_e_rvs)
+    # Convert to numpy arrays
     all_params = np.array(all_params)
-    all_rchi2 = np.array(all_rchi2)
     all_nres = np.array(all_nres)
     all_rchi2_grid = np.array(all_rchi2_grid)
 
-    return all_rvs, all_e_rvs, all_rchi2, all_nres, all_params, all_rchi2_grid
+    # Add to observations
+    observations["teff_fit"] = all_params[:,0]
+    observations["logg_fit"] = all_params[:,1]
+    observations["feh_fit"] = all_params[:,2]
+    observations["vsini_fit"] = all_params[:,3]
+    observations["rv"] = np.array(all_rvs)
+    observations["e_rv"] = np.array(all_e_rvs)
+    observations["rchi2"] = np.array(all_rchi2)
+
+    return all_nres, all_rchi2_grid
 
 
 def correct_rv(sci_spectra, bcor, rv, wl_new):
@@ -838,7 +938,7 @@ def correct_all_rvs(sci_spectra, observations, wl_new):
     rest_frame_spectra = []
 
     for star_i, sci_spec in enumerate(sci_spectra):
-        bcor = observations.iloc[star_i]["bcor"].value
+        bcor = observations.iloc[star_i]["bcor"]
         rv = observations.iloc[star_i]["rv"]
         
         rest_frame_spectra.append(correct_rv(sci_spec, bcor, rv, wl_new))
@@ -846,6 +946,3 @@ def correct_all_rvs(sci_spectra, observations, wl_new):
     rest_frame_spectra = np.stack(rest_frame_spectra)
 
     return rest_frame_spectra
-
-
-

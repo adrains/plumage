@@ -26,6 +26,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 # Setup + Import
 # -----------------------------------------------------------------------------
 n_spec = 516                            # If loading, which pickle of N spectra
+ref_label = "51_teff_only_R7000_rv_grid"
 
 cat_type="csv"                          # Crossmatch catalogue type
 cat_file="data/all_2m3_star_ids.csv"    # Crossmatch catalogue 
@@ -50,11 +51,13 @@ spectra_r_norm = spec.normalise_spectra(spectra_r, True)
 
 # Load in template spectra
 print("Load in synthetic templates...")
-ref_params, ref_spec = synth.load_synthetic_templates(setting="R7000")
+ref_wave, ref_flux, ref_params = synth.load_synthetic_templates(ref_label)
+
+ref_spec = spec.reformat_spectra(ref_wave, ref_flux)
 
 # Normalise template spectra
 print("Normalise synthetic templates...")
-ref_spec_norm = spec.normalise_spectra(ref_spec)  
+ref_spec_norm = spec.normalise_spectra(ref_spec)
 
 # -----------------------------------------------------------------------------
 # Compute barycentric correction
@@ -74,12 +77,6 @@ hd260655_i = 1
 # Calculate RVs and RV correct
 # -----------------------------------------------------------------------------
 print("Compute RVs...")
-rvs, e_rvs, rchi2, all_nres, params, grid_rchi2 = spec.do_all_template_matches(
-    spectra_r_norm, 
-    observations, 
-    ref_params, 
-    ref_spec_norm,)# print_diagnostics=True)
-
 # Tau Cet
 rv_tc, e_rv_tc, rchi2_tc, infodict_tc = spec.calc_rv_shift(
     ref_spec_norm[1,0], 
@@ -101,12 +98,7 @@ rv_hd, e_rv_hd, rchi2_hd, infodict_hd = spec.calc_rv_shift(
 observations["rv"] = [rv_tc, rv_hd]
 observations["e_rv"] = [e_rv_tc, e_rv_hd]
 
-# Red arm
-wl_min_r = 5400
-wl_max_r = 7000
-n_px_r = 3637
-wl_per_pixel_r = (wl_max_r - wl_min_r) / n_px_r 
-wl_new_r = np.arange(wl_min_r, wl_max_r, wl_per_pixel_r) 
+wl_new_r = spec.make_wl_scale(5400, 7000, 3637)
 
 # RV correct the spectra
 spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)

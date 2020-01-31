@@ -1,6 +1,39 @@
-"""Script to process science spectra
+"""Script to process 1D extracted/reduced science spectra, normalise, calculate
+RVs for, and shift to rest frame. Note that whilst the normalisation code will
+accept non-fluxed spectra, it has not been vetted and results cannot currently
+be guaranteed. All spectra should be in the same format (e.g. fluxed), and
+checked ahead of time for "bad" extractions without spectra present.
 
-Link if the IERS is iffy: https://github.com/astropy/astropy/issues/8981
+Data structure:
+ - Science spectra stored in plumage/*/*.fits
+ - Science spectra pickle files stored in plumage/*.pkl
+ - Template spectra stored in plumage/templates/*.csv
+ - Catalogue of observed stars stored in data/all_2m3_star_ids.csv
+ - Catalogue of measured activity stored in data/activity.fits
+
+ The specific template and catalogue files to load can be specified below.
+
+ Template catalogues now have three files, where * is the unique label 
+ associated with the tempalte grid:
+  1 - template_params*.csv
+  2 - template_spectra*.csv
+  3 - template_wave*.csv
+
+Standard catalogues are stored in plumage/catalogues/*.tsv. These have 
+literature stellar parameters and can be crossmatched with the observational
+data. Currently these are:
+ - herczeg_2014_standards_gaia.tsv
+ - interferometry.tsv
+ - mann_constrain_2015.tsv
+ - newton_cpm_2014.tsv
+ - rojas-ayala_2012.tsv
+The exact implementation of the import may end up changing in future versions.
+
+In late 2019 issues were encountered accessing online files related to the
+International Earth Rotation and Reference Systems Service. This is required to
+calculate barycentric corrections for the data. This astopy issue may prove a
+usefule resource again if the issue reoccurs:
+ - https://github.com/astropy/astropy/issues/8981
 """
 from tqdm import tqdm
 import pandas as pd
@@ -15,15 +48,22 @@ from astropy.io import fits
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-load_spectra = True                    # Whether to load in pickle spectra
+load_spectra = True                     # Whether to load in pickle spectra
 n_spec = 516                            # If loading, which pickle of N spectra
 disable_auto_max_age = False            # Useful if IERS broken
 
 flux_corrected = True                   # If *all* data is fluxed
 telluric_corrected = True               # If *all* data is telluric corr
 
-cat_type="csv"                          # Crossmatch catalogue type
-cat_file="data/all_2m3_star_ids.csv"    # Crossmatch catalogue 
+cat_type = "csv"                        # Crossmatch catalogue type
+cat_file = "data/all_2m3_star_ids.csv"  # Crossmatch catalogue 
+
+do_standard_crossmatch = True           # Whether to crossmatch lit standards
+do_activity_crossmatch = True           # Whether to crossmatch activty cat
+activity_file = "data/activity.fits"    # Catalogue of measured activity
+
+ref_label = "795_full_R7000_rv_grid"    # The grid of reference spectra to use
+ref_label = "51_teff_only_R7000_rv_grid"
 
 # -----------------------------------------------------------------------------
 # Load in extracted 1D spectra from fits files or pickle
@@ -53,20 +93,24 @@ else:
     observations, spectra_b, spectra_r = spec.load_all_spectra(ext_sci=ext_sci)
     spec.save_pkl_spectra(observations, spectra_b, spectra_r)
 
+# Clean spectra
+spec.clean_spectra(spectra_b)
+spec.clean_spectra(spectra_r)
+
 # -----------------------------------------------------------------------------
 # Normalise science and template spectra
 # -----------------------------------------------------------------------------
+# Note that the spectra are masked for telluric and emission regions before
+# being normalised
 print("Normalise blue science spectra...")
 spectra_b_norm = spec.normalise_spectra(spectra_b, True)
 print("Normalise red science spectra...")
 spectra_r_norm = spec.normalise_spectra(spectra_r, True)
 
-# Make synthetic templates [requires IDL]
-#ref_spec = synth.get_template_spectra(teffs, loggs, fehs)
-
 # Load in template spectra
 print("Load in synthetic templates...")
-ref_params, ref_spec = synth.load_synthetic_templates(setting="R7000")
+ref_wave, ref_flux, ref_params = synth.load_synthetic_templates(ref_label)
+ref_spec = spec.reformat_spectra(ref_wave, ref_flux)
 
 # Normalise template spectra
 print("Normalise synthetic templates...")
@@ -95,35 +139,15 @@ observations["bcor"] = bcors
 # Calculate RVs and RV correct
 # -----------------------------------------------------------------------------
 print("Compute RVs...")
-rvs, e_rvs, rchi2, all_nres, params, grid_rchi2 = spec.do_all_template_matches(
+all_nres, grid_rchi2 = spec.do_all_template_matches(
     spectra_r_norm, 
     observations, 
     ref_params, 
-    ref_spec_norm,)# print_diagnostics=True)
-
-observations["teff_fit"] = params[:,0]
-observations["logg_fit"] = params[:,1]
-observations["feh_fit"] = params[:,2]
-observations["vsini_fit"] = params[:,3]
-observations["rv"] = rvs
-observations["e_rv"] = e_rvs
-observations["rchi2"] = rchi2
+    ref_spec_norm,)
 
 # Create a new wl scale for each arm
-
-# Blue arm
-wl_min_b = 3500
-wl_max_b = 5700
-n_px_b = 2858
-wl_per_pixel_b = (wl_max_b - wl_min_b) / n_px_b
-wl_new_b = np.arange(wl_min_b, wl_max_b, wl_per_pixel_b)
-
-# Red arm
-wl_min_r = 5400
-wl_max_r = 7000
-n_px_r = 3637
-wl_per_pixel_r = (wl_max_r - wl_min_r) / n_px_r 
-wl_new_r = np.arange(wl_min_r, wl_max_r, wl_per_pixel_r) 
+wl_new_b = spec.make_wl_scale(3500, 5700, 2858)
+wl_new_r = spec.make_wl_scale(5400, 7000, 3637)
 
 # RV correct the spectra
 spec_rvcor_b = spec.correct_all_rvs(spectra_b_norm, observations, wl_new_b)
@@ -132,26 +156,30 @@ spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)
 # -----------------------------------------------------------------------------
 # Crossmatch for science program, activity, and chi^2 standard fit params 
 # -----------------------------------------------------------------------------
+# Crossmatch with observed catalogue for Gaia IDs
 catalogue = utils.load_crossmatch_catalogue(cat_type, cat_file)
-
-# Find Gaia IDs
 utils.do_id_crossmatch(observations, catalogue)
 
 # Do activity match
-activity = fits.open("data/activity.fits")   
-utils.do_activity_crossmatch(observations, activity[1].data)   
+if do_activity_crossmatch:
+    activity = fits.open(activity_file)
+    utils.do_activity_crossmatch(observations, activity[1].data)   
 
 # Load in standards
-standards = utils.load_standards() 
-std_params_all = utils.consolidate_standards(standards, force_unique=True)
+if do_standard_crossmatch:
+    standards = utils.load_standards() 
+    std_params_all = utils.consolidate_standards(standards, force_unique=True)
 
-# Isolate the standards
-std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
-    observations, 
-    spec_rvcor_b,
-    spec_rvcor_r, 
-    std_params_all, 
-    do_wavelength_masking=False)
+    # Isolate the standards
+    std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
+        observations, 
+        spec_rvcor_b,
+        spec_rvcor_r, 
+        std_params_all, 
+        do_wavelength_masking=False)
+
+# Save the observation data
+utils.save_observations_fits(observations, n_spec)
 
 # -----------------------------------------------------------------------------
 # Plot and save

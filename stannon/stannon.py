@@ -408,14 +408,14 @@ class Stannon(object):
         # Plot Teff comparison
         sc_teff = ax_teff.scatter(label_values[:,0],labels_pred[:,0], 
                                   c=label_values[:,2], marker="o")
-        ax_teff.plot(np.arange(2500,5800), np.arange(2500,5800), "-",
+        ax_teff.plot(np.arange(2500,8800), np.arange(2500,8800), "-",
                               color="black")
         ax_teff.set_xlabel(r"T$_{\rm eff}$ (Lit)")
         ax_teff.set_ylabel(r"T$_{\rm eff}$ (Cannon)")
         cb_teff = fig.colorbar(sc_teff, ax=ax_teff)
         cb_teff.set_label(r"[Fe/H]")
-        ax_teff.set_xlim([2800,5800])
-        ax_teff.set_ylim([2800,5800])
+        ax_teff.set_xlim([2800,8000])
+        ax_teff.set_ylim([2800,8000])
         loc_teff = plticker.MultipleLocator(base=500)
         ax_teff.xaxis.set_major_locator(loc_teff)
         plt.setp(ax_teff.get_xticklabels(), rotation="vertical")

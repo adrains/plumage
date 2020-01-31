@@ -3,6 +3,7 @@
 import os
 import numpy as np
 import pandas as pd
+from astropy.table import Table
 
 def do_id_crossmatch(observations, catalogue):
     """Do an ID crossmatch and add the Gaia DR2 ID to observations
@@ -263,6 +264,8 @@ def consolidate_standards(
     force_solar_missing_feh=False,
     ):
     """WARNING: force_unique is a temporary HACK
+
+    TODO: this can be simplified using a dictionary and looping over the keys
     """
     ids = []
     teffs = []
@@ -352,7 +355,7 @@ def consolidate_standards(
 
 
 def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
-    """
+    """TODO: This shouldn't be here
     """
     import plumage.spectra as spec
     if ob_mask is None:
@@ -382,6 +385,13 @@ def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
 
     return spec_b_subset, spec_r_subset
 
+
+def save_observations_fits(observations, label=""):
+    """Save observations table
+    """
+    save_path = os.path.join("spectra", "observations_{}.fits".format(label))
+    obs_table = Table.from_pandas(observations)
+    obs_table.write(save_path, format="fits", overwrite=True)
 
 
 def prepare_training_set(observations, spectra_b, spectra_r, std_params_all, 

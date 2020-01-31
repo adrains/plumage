@@ -58,7 +58,7 @@ wls = np.concatenate((std_spec_b[0,0,:],std_spec_r[0,0,:]))
 training_set_flux, training_set_ivar = utils.prepare_fluxes(
     std_spec_b, 
     std_spec_r, 
-    use_both_arms)  
+    use_both_arms)
 
 # Edges of spectra appear to cause issues, let's just not consider them
 #min_px = 6
@@ -84,7 +84,7 @@ L = len(label_names)
 
 # Generate a pixel mask for scaling/testing the training
 px_min = 0#P-300
-px_max = 100#P
+px_max = 500#P
 pixel_mask = np.zeros(P, dtype=bool)
 pixel_mask[px_min:px_max] = True
 

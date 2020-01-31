@@ -9,40 +9,9 @@ import pidly
 import pandas as pd
 from tqdm import tqdm
 
-
-class ParameterOutOfBoundsException(Exception):
-    pass
-
-#------------------------------------------------------------------------------
-# Properties
-#------------------------------------------------------------------------------
-using_echelle = False
-norm = 1
-
-# Echelle dispersers:
-# - 300/300nm --> 300-500nm
-# - 316/750nm --> 500-1,000nm
-if using_echelle:
-    resolution = 24000
-    wl_min = 3800
-    wl_max = 6800
-    
-    n_pixels = 40000
-    wl_per_pixel = (wl_max - wl_min) / 40000
-    
-# Using WiFeS
-else:
-    # Red
-    resolution = 24000
-    wl_min = 5000
-    wl_max = 10000
-    
-    # Blue
-    resolution = 24000
-    wl_min = 5000
-    wl_max = 10000
 #------------------------------------------------------------------------------    
 # Setup IDL
+#------------------------------------------------------------------------------
 def idl_init():
     """Initialise IDL by setting paths and compiling relevant files.
     """
@@ -54,8 +23,8 @@ def idl_init():
     
     return idl
     
-def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution, norm=1,
-                     do_resample=False, wl_per_pixel=None):
+def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution, 
+                     norm="abs", do_resample=False, wl_per_pixel=None):
     """
     Parameters
     ----------
@@ -73,40 +42,54 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution, norm=1,
         Maximum wavelenth in Angstroms.
     resolution: int
         Spectral resolution.
-    norm: int 
-        0: absolute flux, i.e. the normalised flux is multiplied by the 
+    norm: str 
+        'abs': absolute flux, i.e. the normalised flux is multiplied by the 
            absolute continuum flux
-        1: normalised flux only
-        2: continuum flux only
-        -1: absolute flux, normalised to the central-wavelength absolute flux
-        large values: absolute flux, normalised to the wavelength "norm"
+        'norm': normalised flux only
+        'cont': continuum flux only
+        'abs_norm': absolute flux, normalised to the central-wavelength 
+            absolute flux large values: absolute flux, normalised to the  
+            wavelength "norm"
         
     Returns
     -------
-    
+    wave: 1D float array
+        The wavelength scale for the synthetic spectra
+
+    spectra: 1D float array
+        Fluxes for the synthetic spectra.
+
     """
+    NORM_VALS = {"abs":0, "norm":1, "cont":2, "abs_norm":-1}
+
+    # Checks
     if teff > 8000 or teff < 2500:
-        raise ParameterOutOfBoundsException("Temperature must be 2500 <="
+        raise ValueError("Temperature must be 2500 <="
                                             " Teff (K) <= 8000")
-    elif logg > 5.5 or logg < -1:
-        raise ParameterOutOfBoundsException("Surface gravity must be -1 <="
+    if logg > 5.5 or logg < -1:
+        raise ValueError("Surface gravity must be -1 <="
                                             " logg (cgs) <= 5.5")
-    elif feh > 1.0 or feh < -5:
-        raise ParameterOutOfBoundsException("Metallicity must be -5 <="
+    if feh > 1.0 or feh < -5:
+        raise ValueError("Metallicity must be -5 <="
                                             " [Fe/H] (dex) <= 1")
-    elif wl_min > wl_max or wl_max > 200000 or wl_min < 2000:
-        raise ParameterOutOfBoundsException("Wavelengths must be 2,000 <="
+    if wl_min > wl_max or wl_max > 200000 or wl_min < 2000:
+        raise ValueError("Wavelengths must be 2,000 <="
                                             " lambda (A) <= 60,000")                
+    if norm not in NORM_VALS:
+        raise ValueError("Invalid normalisation value, see NORM_VALS.")
     
+    norm_val = NORM_VALS[norm]
+
     idl("CFe = 0. ;")
     cmd = ("spectrum = get_spec(%d, %f, %f, !null, CFe, %i, %i, ipres=%i, "
            "norm=%i, grid=grid, wave=wave)" % (teff, logg, feh, wl_min, wl_max, 
-                                               resolution, norm))
+                                               resolution, norm_val))
     
     idl(cmd)
     
     if do_resample:
-        idl("waveout = [%i+%f:%i-2*%f:%f]" % (wl_min, wl_per_pixel, wl_max, wl_per_pixel, wl_per_pixel))
+        idl("waveout = [%i+%f:%i-2*%f:%f]" 
+            % (wl_min, wl_per_pixel, wl_max, wl_per_pixel, wl_per_pixel))
         idl("spectrum = resamp(double(wave), double(spectrum), double(waveout))")
         idl("wave = waveout")
     
@@ -191,7 +174,8 @@ def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
 # -----------------------------------------------------------------------------
 # Template spectra
 # -----------------------------------------------------------------------------
-def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
+def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
+                         norm="abs"):
     """Creates synthetic spectra in a given grating format to serve as RV
     templates.
 
@@ -206,15 +190,34 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
     fehs: float array
         Stellar metallicities relative to Solar.
 
+    vsinis: float array
+        Stellar vsini in km/s. Defaults to [1], which means the rotational
+        velocity is unresolved.
+
     setting: string
         The grating setting to generate the spectra for. Currently only R7000
         and B3000 are supported.
 
+    norm: str 
+        'abs': absolute flux, i.e. the normalised flux is multiplied by the 
+           absolute continuum flux
+        'norm': normalised flux only
+        'cont': continuum flux only
+        'abs_norm': absolute flux, normalised to the central-wavelength 
+            absolute flux large values: absolute flux, normalised to the  
+            wavelength "norm"
+
     Returns
     -------
+    wave: 1D float array
+        The wavelength scale for the synthetic spectra
+
     spectra: 3D float array
         The synthetic spectra in the form [N_star, wl/flux, pixel]. The stars
         are ordered by teff, then logg, then [Fe/H].
+
+    params: 3D float array
+        Corresponding stellar parameters for the synthetic spectra.
     """
     # Get the spectrograph settings
     if setting == "R7000":
@@ -230,7 +233,7 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
         n_px = 2858
 
     else:
-        raise Exception("Unknown grating setting.")
+        raise ValueError("Unknown grating - choose either B3000 or R7000")
     
     # Determine the effective resolution based on vsini
     eff_rs = []
@@ -265,7 +268,7 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
                         wl_min, 
                         wl_max, 
                         eff_r, 
-                        norm=0,
+                        norm=norm,
                         do_resample=True, 
                         wl_per_pixel=wl_per_pixel)
                 
@@ -273,7 +276,57 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000"):
 
                     params.append([teff, logg, feh, vsini])
     
-    return wave, np.stack(spectra), np.stack(params)
+    spectra = np.stack(spectra)
+    params = np.stack(params)
+
+    # Only return spectra from valid regions of the parameter space
+    valid_i = np.sum(spectra, axis=1) != 0
+
+    return wave, spectra[valid_i], params[valid_i]
+
+
+def make_BR_WiFeS_synthetic_spectra(teffs, loggs, fehs, vsinis=[1], 
+                                    norm="abs"):
+    """Wrapper function around get_template_spectra() to simulate the full
+    WiFeS B3000 and R7000 wavelength range. Independently gets both bands,
+    then stitches together at 5400 A.
+
+    Parameters
+    ----------
+        teffs: float array
+        Stellar temperatures in Kelvin.
+    
+    loggs: float array
+        Stellar surface gravities in cgs units.
+
+    fehs: float array
+        Stellar metallicities relative to Solar.
+
+    vsinis: float array
+        Stellar vsini in km/s. Defaults to [1], which means the rotational
+        velocity is unresolved.
+
+    norm: str 
+        'abs': absolute flux, i.e. the normalised flux is multiplied by the 
+           absolute continuum flux
+        'norm': normalised flux only
+        'cont': continuum flux only
+        'abs_norm': absolute flux, normalised to the central-wavelength 
+            absolute flux large values: absolute flux, normalised to the  
+            wavelength "norm"
+    """
+    n_spec = len(teffs) * len(loggs) * len(fehs) * len(vsinis)
+    print("Getting %i B3000 spectra..." % n_spec)
+    wl_b, spec_b, params = get_template_spectra(teffs, loggs, fehs, 
+                                                vsinis, "B3000", norm)
+    print("\nGetting %i R7000 spectra..." % n_spec)
+    wl_r, spec_r, params = get_template_spectra(teffs, loggs, fehs, 
+                                                vsinis, "R7000", norm)
+    blue_mask = wl_b < 5400
+    wl_br = np.concatenate((wl_b[blue_mask], wl_r))
+    spec_br = np.concatenate((spec_b[:,blue_mask], spec_r), axis=1)
+
+    return wl_br, spec_br, params
 
 
 def save_synthetic_templates(wave, spectra, params, label):
@@ -315,7 +368,7 @@ def save_synthetic_templates(wave, spectra, params, label):
     np.savetxt(params_path, params, fmt=["%i", "%0.2f", "%0.2f", "%i"])
 
 
-def load_synthetic_templates(n_spec, label):
+def load_synthetic_templates(label):
     """Load in the saved synthetic templates
 
     Parameters
@@ -332,18 +385,50 @@ def load_synthetic_templates(n_spec, label):
         Array of imported template spectra of form [star, wl/spec, flux]
     """
     # Load wavelength scale
-    wave_file = "template_wave_%i_%s.csv" % (n_spec, label)
+    wave_file = "template_wave_%s.csv" % label
     wave_path = os.path.join("templates", wave_file)
     wave = params = np.loadtxt(wave_path)
     
     # Load spectra
-    spec_file = "template_spectra_%i_%s.csv" % (n_spec, label)
+    spec_file = "template_spectra_%s.csv" % label
     spec_path = os.path.join("templates", spec_file)
     spectra = params = np.loadtxt(spec_path)
 
     # Load params of each star
-    params_file = "template_params_%i_%s.csv" % (n_spec, label)
+    params_file = "template_params_%s.csv" % label
     params_path = os.path.join("templates", params_file)
     params = np.loadtxt(params_path)
 
     return wave, spectra, params
+
+def load_synthetic_templates_legacy(path, setting="R7000"):
+    """Load in the saved synthetic templates, but in the old case where the
+    synthetic spectra are in individual csvs. 
+
+    Parameters
+    ----------
+    setting: string
+        The grating setting determining which templatesd to import.
+    Returns
+    -------
+    params: float array
+        Array of stellar parameters of form [teff, logg, feh]
+    
+    templates: float array
+        Array of imported template spectra of form [star, wl/spec, flux]
+    """
+    # Load in the synthetic star params
+    params_file = os.path.join(path, "template_%s_params.csv" % setting)
+
+    params = np.loadtxt(params_file)
+
+    templates = []
+
+    for param in tqdm(params):
+        tfile = os.path.join(path, "template_%s_%i_%0.2f_%0.2f_%i.csv"
+                             % (setting, param[0], param[1], param[2], 
+                                param[3]))
+        spec = np.loadtxt(tfile)
+        templates.append(spec.T)
+
+    return params, np.stack(templates)
