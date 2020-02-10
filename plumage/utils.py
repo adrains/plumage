@@ -33,9 +33,11 @@ def do_id_crossmatch(observations, catalogue):
 
         for id_col in id_cols:
             if id_col == "HD":
-                idx = np.argwhere(catalogue[id_col].values==ob_id.replace(" ",""))
+                trunc_id = ob_id.replace(" ","")
+                idx = np.argwhere(catalogue[id_col].values == trunc_id)
             elif id_col == "TOI":
-                idx = np.argwhere(catalogue[id_col].values==ob_id.replace("TOI ", ""))
+                trunc_id = ob_id.replace("TOI", "").strip()
+                idx = np.argwhere(catalogue[id_col].values == trunc_id)
             else:
                 idx = np.argwhere(catalogue[id_col].values==ob_id)
 
@@ -247,8 +249,16 @@ def load_standards():
     herczeg = herczeg[[type(ii) == str for ii in herczeg.index.values]]
     herczeg = herczeg[herczeg["useful"]]
 
+    # Miscellaneous SpT standards
+    spt = pd.read_csv(os.path.join(curr_path, "spt_standards.tsv"), 
+                          sep="\t", header=0, comment="#",
+                          dtype={"source_id":str})#, "useful":bool})
+    spt.set_index("source_id", inplace=True)
+    spt = spt[[type(ii) == str for ii in spt.index.values]]
+    #herczeg = herczeg[herczeg["useful"]]
+
     standards = {"royas":royas, "newton":newton, "mann":mann, 
-                 "interferometry":interferometry, "herczeg":herczeg}
+                 "interferometry":interferometry, "herczeg":herczeg, "spt":spt}
 
     return standards
 
@@ -415,7 +425,8 @@ def prepare_training_set(observations, spectra_b, spectra_r, std_params_all,
     if do_wavelength_masking:
         # Mask blue
         wl_mask = spec.make_wavelength_mask(std_spectra_b[0,0], 
-                                            mask_blue_edges=True)
+                                            mask_blue_edges=True,
+                                            mask_emission=True)
         dims = std_spectra_b.shape
         wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
         

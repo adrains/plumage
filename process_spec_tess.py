@@ -19,16 +19,6 @@ Data structure:
   2 - template_spectra*.csv
   3 - template_wave*.csv
 
-Standard catalogues are stored in plumage/catalogues/*.tsv. These have 
-literature stellar parameters and can be crossmatched with the observational
-data. Currently these are:
- - herczeg_2014_standards_gaia.tsv
- - interferometry.tsv
- - mann_constrain_2015.tsv
- - newton_cpm_2014.tsv
- - rojas-ayala_2012.tsv
-The exact implementation of the import may end up changing in future versions.
-
 In late 2019 issues were encountered accessing online files related to the
 International Earth Rotation and Reference Systems Service. This is required to
 calculate barycentric corrections for the data. This astopy issue may prove a
@@ -48,12 +38,14 @@ from astropy.io import fits
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-load_spectra = True                     # Whether to load in pickle spectra
-pkl_label = "516"                       # If loading, which pickle of N spectra
+load_spectra = False                    # Whether to load in pickle spectra
+pkl_label = "tess"                      # If loading, which pickle of N spectra
 disable_auto_max_age = False            # Useful if IERS broken
 
 flux_corrected = True                   # If *all* data is fluxed
 telluric_corrected = True               # If *all* data is telluric corr
+
+spec_folder = "spectra/tess"
 
 cat_type = "csv"                        # Crossmatch catalogue type
 cat_file = "data/all_2m3_star_ids.csv"  # Crossmatch catalogue 
@@ -62,8 +54,8 @@ do_standard_crossmatch = True           # Whether to crossmatch lit standards
 do_activity_crossmatch = True           # Whether to crossmatch activty cat
 activity_file = "data/activity.fits"    # Catalogue of measured activity
 
-ref_label = "795_full_R7000_rv_grid"    # The grid of reference spectra to use
-ref_label = "51_teff_only_R7000_rv_grid"
+ref_label = "576_tess_R7000_grid"       # The grid of reference spectra to use
+#ref_label = "51_teff_only_R7000_rv_grid"
 
 # -----------------------------------------------------------------------------
 # Load in extracted 1D spectra from fits files or pickle
@@ -90,7 +82,8 @@ if load_spectra:
 else:
     # Do initial import
     print("Doing inital spectra import...")
-    observations, spectra_b, spectra_r = spec.load_all_spectra(ext_sci=ext_sci)
+    observations, spectra_b, spectra_r = spec.load_all_spectra(
+        spec_folder, ext_sci=ext_sci)
     spec.save_pkl_spectra(observations, spectra_b, spectra_r, pkl_label)
 
 # Clean spectra
@@ -160,35 +153,19 @@ spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)
 catalogue = utils.load_crossmatch_catalogue(cat_type, cat_file)
 utils.do_id_crossmatch(observations, catalogue)
 
-# Do activity match
-if do_activity_crossmatch:
-    activity = fits.open(activity_file)
-    utils.do_activity_crossmatch(observations, activity[1].data)   
-
-# Load in standards
-if do_standard_crossmatch:
-    standards = utils.load_standards() 
-    std_params_all = utils.consolidate_standards(standards, force_unique=True)
-
-    # Isolate the standards
-    std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
-        observations, 
-        spec_rvcor_b,
-        spec_rvcor_r, 
-        std_params_all, 
-        do_wavelength_masking=False)
-
 # Save the observation data
-utils.save_observations_fits(observations, n_spec)
+utils.save_observations_fits(observations, pkl_label)
 
 # -----------------------------------------------------------------------------
 # Plot and save
 # -----------------------------------------------------------------------------
 # Save RV corrected spectra
-spec.save_pkl_spectra(observations, spec_rvcor_b, spec_rvcor_r, pkl_label,
+spec.save_pkl_spectra(observations, spec_rvcor_b, spec_rvcor_r, pkl_label, 
                       rv_corr=True)
 
 # Plot the spectra sorted by temperature
 print("Plot Teff sorted summaries....")
-pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations, catalogue, "r")
-pplt.plot_teff_sorted_spectra(spec_rvcor_b, observations, catalogue, "b")
+pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations, catalogue, "r",
+                              suffix="TESS")
+pplt.plot_teff_sorted_spectra(spec_rvcor_b, observations, catalogue, "b",
+                              suffix="TESS")

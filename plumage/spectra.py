@@ -33,7 +33,8 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
     return catalogue
 
 
-def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
+def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3
+                    include_subfolders=False):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations.
 
@@ -74,8 +75,15 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
     dec = []
     airmass = []
 
-    spectra_b_files = glob.glob(os.path.join(spectra_folder, "*", "*_b.fits"))
-    spectra_r_files = glob.glob(os.path.join(spectra_folder, "*", "*_r.fits"))
+    if not include_subfolders:
+        spectra_b_path = os.path.join(spectra_folder, "*_b.fits")
+        spectra_r_path = os.path.join(spectra_folder, "*_r.fits")
+    else:
+        spectra_b_path = os.path.join(spectra_folder, "*", "*_b.fits")
+        spectra_r_path = os.path.join(spectra_folder, "*", "*_r.fits")
+    
+    spectra_b_files = glob.glob(spectra_b_path)
+    spectra_r_files = glob.glob(spectra_r_path)
 
     spectra_b_files.sort()
     spectra_r_files.sort()
@@ -157,7 +165,8 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3):
     return observations, spectra_b, spectra_r
 
 
-def save_pkl_spectra(observations, spectra_b, spectra_r, rv_corr=False):
+def save_pkl_spectra(observations, spectra_b, spectra_r, label="", 
+                     rv_corr=False):
     """Save the imported spectra and observation info into respective pickle
     files in spectra/.
 
@@ -174,6 +183,9 @@ def save_pkl_spectra(observations, spectra_b, spectra_r, rv_corr=False):
         3D numpy array containing red arm spectra of form 
         [N_ob, wl/spec/sigma, flux].
 
+    label: string
+        Unique component of the pickle filename.
+
     rv_corr: boolean
         Boolean flag for whether spectra have been RV corrected
     """
@@ -183,37 +195,34 @@ def save_pkl_spectra(observations, spectra_b, spectra_r, rv_corr=False):
     else:
         ext = ""
 
-    # Get number of obs
-    n_obs = len(observations)
-
     # Save observation log
-    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" 
-                          % (n_obs, ext))
+    ob_out = os.path.join("spectra", "saved_observations_%s%s.pkl" 
+                          % (label, ext))
     pkl_obs = open(ob_out, "wb")
     pickle.dump(observations, pkl_obs)
     pkl_obs.close()
 
     # Save blue arm spectra
-    sb_out = os.path.join("spectra", "saved_spectra_b_%i%s.pkl" % (n_obs, ext))
+    sb_out = os.path.join("spectra", "saved_spectra_b_%s%s.pkl" % (label, ext))
     pkl_sb = open(sb_out, "wb")
     pickle.dump(spectra_b, pkl_sb)
     pkl_sb.close()
 
     # Save red arm 
-    sr_out = os.path.join("spectra", "saved_spectra_r_%i%s.pkl" % (n_obs, ext))
+    sr_out = os.path.join("spectra", "saved_spectra_r_%s%s.pkl" % (label, ext))
     pkl_sr = open(sr_out, "wb")
     pickle.dump(spectra_r, pkl_sr)
     pkl_sr.close()
 
 
-def load_pkl_spectra(n_obs, rv_corr=False):
+def load_pkl_spectra(label, rv_corr=False):
     """Load the save spectra and observations from pickle files stored in
     spectra/.
 
     Parameters
     ----------
-    n_obs: int
-        The number of observations, tells you which pickles to select.
+    label: string
+        Unique component of the pickle filename.
 
     rv_corr: boolean
         Boolean flag for whether spectra have been RV corrected.
@@ -238,20 +247,20 @@ def load_pkl_spectra(n_obs, rv_corr=False):
         ext = ""
 
     # Load observation log
-    ob_out = os.path.join("spectra", "saved_observations_%i%s.pkl" 
-                          % (n_obs, ext))
+    ob_out = os.path.join("spectra", "saved_observations_%s%s.pkl" 
+                          % (label, ext))
     pkl_obs = open(ob_out, "rb")
     observations = pickle.load(pkl_obs)
     pkl_obs.close()
 
     # Load blue arm spectra
-    sb_out = os.path.join("spectra", "saved_spectra_b_%i%s.pkl" % (n_obs, ext))
+    sb_out = os.path.join("spectra", "saved_spectra_b_%s%s.pkl" % (label, ext))
     pkl_sb = open(sb_out, "rb")
     spectra_b = pickle.load(pkl_sb)
     pkl_sb.close()
 
     # Load red arm spectra
-    sr_out = os.path.join("spectra", "saved_spectra_r_%i%s.pkl" % (n_obs, ext))
+    sr_out = os.path.join("spectra", "saved_spectra_r_%s%s.pkl" % (label, ext))
     pkl_sr = open(sr_out, "rb")
     spectra_r = pickle.load(pkl_sr)
     pkl_sr.close()
