@@ -33,7 +33,7 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
     return catalogue
 
 
-def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3
+def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
                     include_subfolders=False):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations.
@@ -580,6 +580,42 @@ def make_wl_scale(wl_min, wl_max, n_px):
     wl_scale = np.arange(wl_min, wl_max, wl_per_px)
 
     return wl_scale
+
+
+def prepare_spectra(spec_b, spec_r, use_both_arms):
+    """
+    """
+    # Mask wavelengths
+    wl_mask = make_wavelength_mask(spec_b[0,0], mask_blue_edges=True,
+                                   mask_emission=True)
+    spec_b_m = spec_b[:, :, wl_mask]
+
+    wl_mask = make_wavelength_mask(spec_r[0,0], mask_emission=True)
+    spec_r_m = spec_r[:, :, wl_mask]
+    
+    # Separate out the spectra
+    if use_both_arms:
+        wls = np.concatenate((spec_b_m[0,0,:], spec_r_m[0,0,:]))
+
+        training_set_flux = np.concatenate((spec_b_m[:,1,:], spec_r_m[:,1,:]), 
+                                        axis=1)
+        training_set_ivar = np.concatenate((1/spec_b_m[:,2,:]**2, 
+                                        1/spec_r_m[:,2,:]**2), axis=1)
+    else:
+        wls = spec_r_m[0,0,:]
+        training_set_flux = spec_r_m[:,1,:]
+        training_set_ivar = 1/spec_r_m[:,2,:]**2
+    #training_set_ivar = 1e5 * np.ones_like(std_spectra_r[:,2,:]) # TEMPORARY
+
+    # If flux is nan, set to 1 and give high variance (inverse variance of 0)
+    training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
+    training_set_flux[~np.isfinite(training_set_flux)] = 1
+
+    # If the inverse variance is nan, do the same
+    training_set_flux[~np.isfinite(training_set_ivar)] = 1
+    training_set_ivar[~np.isfinite(training_set_ivar)] = 1e-8
+
+    return wls, training_set_flux, training_set_ivar
 
 # -----------------------------------------------------------------------------
 # Radial Velocities

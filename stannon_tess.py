@@ -5,6 +5,7 @@ import plumage.utils as utils
 import plumage.spectra as spec
 import plumage.synthetic as synth
 import stannon.stannon as stannon
+import matplotlib.pyplot as plt 
 
 label_names = ["teff", "logg", "feh"]
 
@@ -13,10 +14,12 @@ use_br_combined = False
 normalise_spectra = True
 
 px_min = 0
-px_max = -1#len(ref_wl_all)
+px_max = None
 
 # Import standard spectra
-obs_std, spec_std_b, spec_std_r = spec.load_pkl_spectra("standard", rv_corr=True)
+obs_std_all, spec_std_b_all, spec_std_r_all = spec.load_pkl_spectra(
+    "standard", 
+    rv_corr=True)
 obs_tess, spec_tess_b, spec_tess_r = spec.load_pkl_spectra("tess", rv_corr=True)
 
 # Load in standards
@@ -43,25 +46,26 @@ std_params_all = utils.consolidate_standards(
     force_solar_missing_feh=True)
 
 # Prepare the training set
-std_obs, std_spec_b, std_spec_r, std_params = utils.prepare_training_set(
-    obs_std, 
-    spec_std_b,
-    spec_std_r, 
+obs_std, spec_std_b, spec_std_r, std_params = stannon.prepare_training_set(
+    obs_std_all, 
+    spec_std_b_all,
+    spec_std_r_all, 
     std_params_all, 
-    do_wavelength_masking=True
-    )   
+    )
 
 label_values = std_params[label_names].values
-wls = np.concatenate((std_spec_b[0,0,:],std_spec_r[0,0,:]))
 
-training_set_flux, training_set_ivar = utils.prepare_fluxes(
-    std_spec_b, 
-    std_spec_r, 
+wls, training_set_flux, training_set_ivar = spec.prepare_spectra(
+    spec_std_b, 
+    spec_std_r, 
     use_both_arms=True)
 
+#------------------------------------------------------------------------------
+# Make and Train model
+#------------------------------------------------------------------------------
 # Make model
-sm = stannon.Stannon(training_set_flux, training_set_ivar, label_values, label_names, wls, 
-                     "basic")
+sm = stannon.Stannon(training_set_flux, training_set_ivar, label_values, 
+                     label_names, wls, "basic")
 # Setup model, train
 sm.initialise_pixel_mask(px_min, px_max)
 sm.train_cannon_model(suppress_output=suppress_output)
@@ -69,5 +73,27 @@ sm.train_cannon_model(suppress_output=suppress_output)
 # Predict and plot
 labels_pred, errs_all, chi2_all = sm.infer_labels(sm.masked_data, 
                                                   sm.masked_data_ivar)
-sm.plot_label_comparison(sm.training_labels, labels_pred)
+sm.plot_label_comparison(sm.training_labels, labels_pred, teff_lims, (4,5.5), (-1,1))
 sm.plot_theta_coefficients() 
+
+#------------------------------------------------------------------------------
+# Predict labels for TESS targets
+#------------------------------------------------------------------------------
+tess_wls, tess_flux, tess_ivar = spec.prepare_spectra(spec_tess_b, spec_tess_r, True)
+
+tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
+    tess_flux[:,sm.pixel_mask],
+    tess_ivar[:,sm.pixel_mask])
+
+plt.figure()
+plt.scatter(tess_labels_pred[:,0], 
+            tess_labels_pred[:,1], 
+            c=tess_labels_pred[:,2])
+cb = plt.colorbar()
+cb.set_label(r"[Fe/H]")
+plt.xlim([4500,2900])
+plt.ylim([5.5,4])
+plt.xlabel(r"T$_{\rm eff}$")
+plt.ylabel(r"$\log g$")
+plt.tight_layout()
+plt.show()

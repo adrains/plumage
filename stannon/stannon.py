@@ -209,11 +209,15 @@ class Stannon(object):
             self.whitened_label_vars = (self.training_variances 
                                         - self.mean_labels) / self.std_labels
 
-    def initialise_pixel_mask(self, px_min, px_max):
+    def initialise_pixel_mask(self, px_min, px_max=None):
         """
         """
         self.pixel_mask = np.zeros(self.P, dtype=bool)
-        self.pixel_mask[px_min:px_max] = True
+
+        if px_max is None:
+            self.pixel_mask[px_min:] = True
+        else:
+            self.pixel_mask[px_min:px_max] = True
 
     def train_cannon_model(self, suppress_output=True):
         """Train the Cannon model, with training per the model specified
@@ -388,7 +392,12 @@ class Stannon(object):
         pass
 
 
-    def plot_label_comparison(self, label_values, labels_pred):
+    def plot_label_comparison(self, 
+        label_values, 
+        labels_pred, 
+        teff_lims=(2800,8000),
+        logg_lims=(0.5,6.0),
+        feh_lims=(-2,0.75)):
         """Plot comparison between actual labels and predicted labels for 
         Teff, logg, and [Fe/H].
 
@@ -408,15 +417,15 @@ class Stannon(object):
         # Plot Teff comparison
         sc_teff = ax_teff.scatter(label_values[:,0],labels_pred[:,0], 
                                   c=label_values[:,2], marker="o")
-        ax_teff.plot(np.arange(2500,8800), np.arange(2500,8800), "-",
-                              color="black")
+        xy = np.arange(teff_lims[0]-500,teff_lims[1]+500)
+        ax_teff.plot(xy, xy, "-", color="black")
         ax_teff.set_xlabel(r"T$_{\rm eff}$ (Lit)")
         ax_teff.set_ylabel(r"T$_{\rm eff}$ (Cannon)")
         cb_teff = fig.colorbar(sc_teff, ax=ax_teff)
         cb_teff.set_label(r"[Fe/H]")
-        ax_teff.set_xlim([2800,8000])
-        ax_teff.set_ylim([2800,8000])
-        loc_teff = plticker.MultipleLocator(base=500)
+        ax_teff.set_xlim(teff_lims)
+        ax_teff.set_ylim(teff_lims)
+        loc_teff = plticker.MultipleLocator(base=200)
         ax_teff.xaxis.set_major_locator(loc_teff)
         plt.setp(ax_teff.get_xticklabels(), rotation="vertical")
         #ax_teff.set_aspect("equal")
@@ -425,15 +434,15 @@ class Stannon(object):
         sc_logg = ax_logg.scatter(label_values[:,1],labels_pred[:,1], 
                                   c=label_values[:,0], marker="o", 
                                   cmap="magma")
-        ax_logg.plot(np.arange(0.5,6.0,0.1), np.arange(0.5,6.0,0.1), "-",
-                     color="black")
-        ax_logg.set_xlim([0.5,6.0])
-        ax_logg.set_ylim([0.5,6.0])
+        xy = np.arange(logg_lims[0]-1,logg_lims[1]+1, 0.1)
+        ax_logg.plot(xy, xy, "-", color="black")
+        ax_logg.set_xlim(logg_lims)
+        ax_logg.set_ylim(logg_lims)
         ax_logg.set_ylabel(r"$\log g$ (Cannon)")
         ax_logg.set_xlabel(r"$\log g$ (Lit)")
         cb_logg = fig.colorbar(sc_logg, ax=ax_logg)
         cb_logg.set_label(r"T$_{\rm eff}$")
-        loc_logg = plticker.MultipleLocator(base=1)
+        loc_logg = plticker.MultipleLocator(base=0.5)
         ax_logg.xaxis.set_major_locator(loc_logg)
         #plt.setp(ax_logg.get_xticklabels(), rotation="vertical")
         #ax_logg.set_aspect("equal")
@@ -441,8 +450,10 @@ class Stannon(object):
         # Plot Fe/H comparison
         sc_feh = ax_feh.scatter(label_values[:,2],labels_pred[:,2], 
                                 c=label_values[:,0], marker="o", cmap="magma") 
-        ax_feh.plot(np.arange(-2.0,0.75,0.05), np.arange(-2.0,0.75,0.05), "-",
-                    color="black")
+        xy = np.arange(feh_lims[0]-1,feh_lims[1]+1, 0.05)
+        ax_feh.plot(xy, xy, "-", color="black")
+        ax_feh.set_xlim(feh_lims)
+        ax_feh.set_ylim(feh_lims)
         ax_feh.set_xlabel(r"[Fe/H] (Lit)")
         ax_feh.set_ylabel(r"[Fe/H] (Cannon)") 
         cb_feh = fig.colorbar(sc_feh, ax=ax_feh) 
@@ -482,6 +493,35 @@ class Stannon(object):
         axes[2].set_ylabel(r"$\theta$ $\log g$")
         axes[3].set_ylabel(r"$\theta$ $[Fe/H]$")
         plt.xlabel("Wavelength (A)")
+
+    def run_cross_validation(self):
+        """
+        """
+        # Make a copy of the data
+        all_training_labels = self.training_labels.copy()
+        all_training_data = self.training_data.copy()
+        all_training_data_ivar = self.training_data_ivar.copy()
+
+        label_uncertainties = []
+
+        for std_i in range(self.S):
+            # Make a mask
+            std_mask = np.full(self.S, True)
+
+            # Mask out the standard to be left out
+            std_mask[std_i] = False
+
+            # Apply masking
+            self.standard_mask = std_mask
+
+            # Run fitting
+            self.train_cannon_model(suppress_output=True)
+
+            # Predict the missing label
+            labels_pred, _, _ = self.infer_labels(self.masked_data,
+                                                  self.masked_data_ivar)
+
+            label_uncertainties.append(labels_pred)
 
 #------------------------------------------------------------------------------
 # Module Functions
@@ -567,3 +607,31 @@ def prepare_synth_training_set(
 
     return ref_wl, ref_fluxes, ref_ivar, ref_params
 
+
+def prepare_training_set(observations, spectra_b, spectra_r, std_params_all):
+    """Need to prepare a list of labels corresponding to our science 
+    observations. Easiest thing to do now is to just construct a new label
+    dataframe with the same order as the observations. Then we won'd have any
+    issues doing crossmatches, and we can worry about duplicates later.
+    """
+    # First thing to do is to select all the observations that are standards
+    is_std_mask = np.isin(observations["uid"], std_params_all["source_id"])
+    std_observations = observations.copy().iloc[is_std_mask]
+    std_spectra_b = spectra_b[is_std_mask]
+    std_spectra_r = spectra_r[is_std_mask]
+
+    # Do something with the duplicates
+    pass
+
+    # Initialise new label dataframe
+    std_params = std_params_all.copy()
+    std_params.drop(std_params_all.index, inplace=True)
+
+    # Now need to go through this one row at a time and construct the 
+    # corresponding label vector
+    for ob_i, source_id in enumerate(std_observations["uid"]):
+        # Determine labels
+        idx = std_params_all[std_params_all["source_id"]==source_id].index[0]
+        std_params = std_params.append(std_params_all.loc[idx])
+
+    return std_observations, std_spectra_b, std_spectra_r, std_params
