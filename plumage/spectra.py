@@ -417,6 +417,25 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
     
     return spectra_norm
 
+def pseudo_continuum_normalise_red_spectra(spectra):
+    """
+    """
+    spec_c_norm = spectra.copy()
+
+    for spec_i in range(len(spec_c_norm)):
+        # Normalise by the region just to the blue of H alpha
+        wave = spec_c_norm[spec_i, 0]
+        norm_mask = np.logical_and(wave > 6535, wave < 6545)
+
+        spec_c_norm[spec_i, 1] /= np.nanmean(spec_c_norm[spec_i, 1, norm_mask])
+        
+        # Do errors if there
+        if spec_c_norm[spec_i].shape[1] > 2:
+            spec_c_norm[spec_i, 2] /= np.nanmean(spec_c_norm[spec_i, 2, norm_mask])
+
+    return spec_c_norm
+
+
 
 def make_wavelength_mask(wave_array, mask_emission=True, 
     mask_blue_edges=False, mask_sky_emission=False, mask_edges=False):
@@ -469,7 +488,7 @@ def make_wavelength_mask(wave_array, mask_emission=True,
         [9270.0, 9400.0]]
 
     master_H2O_telluric_bands = [
-        [5870.0, 6000.0],
+        #[5870.0, 6000.0],          # This is the Na doublet
         [6270.0, 6290.0],
         [6459.0, 6598.0],
         [7154.0, 7332.0],
@@ -488,16 +507,16 @@ def make_wavelength_mask(wave_array, mask_emission=True,
     ]
 
     calcium_hk = [
-        #[3925.0, 3945.0], # H Eta
-        #[3960.0, 3980.0], # H Zeta
+        [3929.0, 3939.0], # Ca II K
+        [3964.0, 3974.0], # Ca II H
     ]
 
     sky_emission = [
-        [5575.0, 5585.0],
-        [5885.0, 5900.0],
-        [6295.0, 6305.0],
-        [6360.0, 6370.0],
-        [6580.0, 6585.0]
+        [5575.0, 5580.0],
+        #[5885.0, 5900.0],
+        [6298.0, 6303.0],
+        #[6360.0, 6370.0],
+        #[6580.0, 6585.0]
     ]
 
     band_list = O2_telluric_bands + strong_H2O_telluric_bands
@@ -582,15 +601,19 @@ def make_wl_scale(wl_min, wl_max, n_px):
     return wl_scale
 
 
-def prepare_spectra(spec_b, spec_r, use_both_arms):
+def prepare_spectra(spec_b, spec_r, use_both_arms, remove_blue_overlap=False):
     """
     """
     # Mask wavelengths
     wl_mask = make_wavelength_mask(spec_b[0,0], mask_blue_edges=True,
-                                   mask_emission=True)
+                                   mask_emission=True, mask_sky_emission=True)
+
+    if remove_blue_overlap:
+        wl_mask = np.logical_and(wl_mask, spec_b[0,0] < 5400)
+    
     spec_b_m = spec_b[:, :, wl_mask]
 
-    wl_mask = make_wavelength_mask(spec_r[0,0], mask_emission=True)
+    wl_mask = make_wavelength_mask(spec_r[0,0], mask_emission=True, mask_sky_emission=True)
     spec_r_m = spec_r[:, :, wl_mask]
     
     # Separate out the spectra

@@ -30,9 +30,9 @@ standards.pop("herczeg")
 # Setup training set
 #------------------------------------------------------------------------------
 # Parameter limits
-teff_lims = (2500, 4000)
-logg_lims = (4, 6)
-feh_lims = None
+teff_lims = (2500, 4500)
+logg_lims = (4, 6.0)
+feh_lims = (-1.25, 0.75)
 
 # Get the parameters
 std_params_all = utils.consolidate_standards(
@@ -58,7 +58,8 @@ label_values = std_params[label_names].values
 wls, training_set_flux, training_set_ivar = spec.prepare_spectra(
     spec_std_b, 
     spec_std_r, 
-    use_both_arms=True)
+    use_both_arms=True,
+    remove_blue_overlap=True)
 
 #------------------------------------------------------------------------------
 # Make and Train model
@@ -73,13 +74,17 @@ sm.train_cannon_model(suppress_output=suppress_output)
 # Predict and plot
 labels_pred, errs_all, chi2_all = sm.infer_labels(sm.masked_data, 
                                                   sm.masked_data_ivar)
-sm.plot_label_comparison(sm.training_labels, labels_pred, teff_lims, (4,5.5), (-1,1))
+sm.plot_label_comparison(sm.training_labels, labels_pred, teff_lims, logg_lims, feh_lims)
 sm.plot_theta_coefficients() 
 
 #------------------------------------------------------------------------------
 # Predict labels for TESS targets
 #------------------------------------------------------------------------------
-tess_wls, tess_flux, tess_ivar = spec.prepare_spectra(spec_tess_b, spec_tess_r, True)
+tess_wls, tess_flux, tess_ivar = spec.prepare_spectra(
+    spec_tess_b, 
+    spec_tess_r, 
+    use_both_arms=True,
+    remove_blue_overlap=True)
 
 tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
     tess_flux[:,sm.pixel_mask],
@@ -89,6 +94,7 @@ plt.figure()
 plt.scatter(tess_labels_pred[:,0], 
             tess_labels_pred[:,1], 
             c=tess_labels_pred[:,2])
+plt.plot(label_values[:,0], label_values[:,1], "*", color="black")
 cb = plt.colorbar()
 cb.set_label(r"[Fe/H]")
 plt.xlim([4500,2900])
@@ -97,3 +103,4 @@ plt.xlabel(r"T$_{\rm eff}$")
 plt.ylabel(r"$\log g$")
 plt.tight_layout()
 plt.show()
+plt.savefig("plots/tess_ms.png", dpi=200)

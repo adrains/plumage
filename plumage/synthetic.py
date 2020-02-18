@@ -8,6 +8,11 @@ from astropy import constants as const
 import pidly
 import pandas as pd
 from tqdm import tqdm
+import astropy.constants as const
+from astropy import units as u
+from scipy.optimize import leastsq, least_squares
+import spectra as spec
+from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 #------------------------------------------------------------------------------    
 # Setup IDL
@@ -432,3 +437,138 @@ def load_synthetic_templates_legacy(path, setting="R7000"):
         templates.append(spec.T)
 
     return params, np.stack(templates)
+
+# -----------------------------------------------------------------------------
+# Synthetic Fitting
+# -----------------------------------------------------------------------------
+# rv, wave, spec, e_spec, ref_spec_interp, bcor
+def calc_synth_fit_resid(
+    params, 
+    wave, 
+    sci_spec, 
+    e_spec, 
+    rv, 
+    bcor, 
+    idl,
+    wl_min,
+    wl_max,
+    res,
+    wl_per_px,
+    #norm_range
+    ):
+    """
+    """
+    print(params)
+
+    # Get the template spectrum
+    try:
+        wave_synth, spec_synth = get_idl_spectrum(
+        idl, 
+        params[0], 
+        params[1], 
+        params[2], 
+        wl_min, 
+        wl_max, 
+        res, 
+        norm="abs",
+        do_resample=True, 
+        wl_per_pixel=wl_per_px,
+        )
+    except:
+        import pdb
+        pdb.set_trace()
+
+    # The grid we put our new synthetic spectrum on should be put in the same
+    # RV frame as the science spectrum
+    wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
+    ref_spec_interp = ius(wave_synth, spec_synth)
+
+    wave_synth = wave.copy()
+    spec_synth = ref_spec_interp(wave_synth)
+
+    # Normalise by the region just to the blue of H alpha
+    norm_mask = np.logical_and(wave > 6535, wave < 6545)
+    
+    try:
+        spec_synth /= np.nanmean(spec_synth[norm_mask])
+        sci_spec /= np.nanmean(sci_spec[norm_mask])
+    except:
+        import pdb
+        pdb.set_trace()
+
+    # Make a wavelength mask to mask out emission
+    wl_mask = spec.make_wavelength_mask(
+        wave, 
+        mask_emission=True, 
+        mask_edges=True,
+        mask_sky_emission=True)
+
+    plt.close("all")
+    plt.figure()
+    plt.plot(wave[wl_mask], sci_spec[wl_mask], label="sci")
+    plt.plot(wave_synth[wl_mask], spec_synth[wl_mask], "--", label="synth")
+    plt.text(6000, 0.7, "{:0.0f} K, {:0.2f}, {:0.2f}".format(params[0], params[1], params[2]))
+    plt.legend(loc="best")
+    
+    # Calculate the residual
+    resid_vect = (sci_spec[wl_mask] - spec_synth[wl_mask]) / e_spec[wl_mask]
+
+    #import pdb
+    #pdb.set_trace()
+
+    if not np.isfinite(np.sum(resid_vect)):
+        #import pdb
+        #pdb.set_trace()
+        resid_vect = np.ones_like(resid_vect) * 1E30
+
+    return resid_vect
+
+
+def do_synthetic_fit(wave, spec, e_spec, params, rv, bcor):
+    """
+    """
+    # initialise IDL
+    idl = idl_init()
+
+    # TODO - Generalise this
+    res = 7000
+    wl_min = 5400
+    wl_max = 7000
+    n_px = 3637
+    wl_per_px = (wl_max - wl_min) / n_px  
+
+    # Do fit, have initial RV guess be 0 km/s
+    args = (wave, spec, e_spec, rv, bcor, idl, wl_min, wl_max, res, wl_per_px)
+    bounds = ((2500, -1, -5), (7000, 5.5, 1))
+    scale = (1, 1, 1)
+    step = (5, 0.1, 0.1)
+    # param_fit, cov, infodict, mesg, ier
+    optimize_result = least_squares(
+        calc_synth_fit_resid, 
+        params, 
+        bounds=bounds,
+        x_scale=scale,
+        diff_step=step,
+        args=args, 
+    )
+        #full_output=True)
+    return optimize_result
+    return param_fit, cov, infodict, mesg, ier
+
+    # Scale the covariance matrix, calculate RV uncertainty
+    # docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.leastsq.html
+    if cov is None:
+        e_rv = np.nan
+    else:
+        cov *= np.nanvar(infodict["fvec"])
+        e_rv = cov**0.5
+
+    # Add extra parameters to infodict
+    infodict["cov"] = cov
+    infodict["mesg"] = mesg
+    infodict["ier"] = ier
+
+    # Calculate reduced chi^2
+    rchi2 = np.nansum(infodict["fvec"]**2) / (len(sci_spec)-len(param_fit))
+    
+    return float(param_fit), float(e_rv), rchi2, infodict

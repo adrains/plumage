@@ -397,7 +397,10 @@ class Stannon(object):
         labels_pred, 
         teff_lims=(2800,8000),
         logg_lims=(0.5,6.0),
-        feh_lims=(-2,0.75)):
+        feh_lims=(-2,0.75),
+        teff_axis_step=200,
+        logg_axis_step=0.5,
+        feh_axis_step=0.5):
         """Plot comparison between actual labels and predicted labels for 
         Teff, logg, and [Fe/H].
 
@@ -425,7 +428,7 @@ class Stannon(object):
         cb_teff.set_label(r"[Fe/H]")
         ax_teff.set_xlim(teff_lims)
         ax_teff.set_ylim(teff_lims)
-        loc_teff = plticker.MultipleLocator(base=200)
+        loc_teff = plticker.MultipleLocator(base=teff_axis_step)
         ax_teff.xaxis.set_major_locator(loc_teff)
         plt.setp(ax_teff.get_xticklabels(), rotation="vertical")
         #ax_teff.set_aspect("equal")
@@ -442,9 +445,9 @@ class Stannon(object):
         ax_logg.set_xlabel(r"$\log g$ (Lit)")
         cb_logg = fig.colorbar(sc_logg, ax=ax_logg)
         cb_logg.set_label(r"T$_{\rm eff}$")
-        loc_logg = plticker.MultipleLocator(base=0.5)
+        loc_logg = plticker.MultipleLocator(base=logg_axis_step)
         ax_logg.xaxis.set_major_locator(loc_logg)
-        #plt.setp(ax_logg.get_xticklabels(), rotation="vertical")
+        plt.setp(ax_logg.get_xticklabels(), rotation="vertical")
         #ax_logg.set_aspect("equal")
 
         # Plot Fe/H comparison
@@ -458,7 +461,7 @@ class Stannon(object):
         ax_feh.set_ylabel(r"[Fe/H] (Cannon)") 
         cb_feh = fig.colorbar(sc_feh, ax=ax_feh) 
         cb_feh.set_label(r"T$_{\rm eff}$")
-        loc_feh = plticker.MultipleLocator(base=0.5)
+        loc_feh = plticker.MultipleLocator(base=feh_axis_step)
         ax_feh.xaxis.set_major_locator(loc_feh)
         plt.setp(ax_feh.get_xticklabels(), rotation="vertical")
         #ax_feh.set_aspect("equal")
@@ -466,6 +469,7 @@ class Stannon(object):
         plt.setp(ax_feh.get_xticklabels(), rotation="vertical")
 
         plt.savefig("plots/label_comp.pdf")
+        plt.savefig("plots/label_comp.png", dpi=200)
 
 
     def plot_theta_coefficients(self):
@@ -473,16 +477,21 @@ class Stannon(object):
         and [Fe/H], plus fluxes.
         """
         # Plot of theta coefficients
-        fig, axes = plt.subplots(4, 1, sharex=True)
+        fig, axes = plt.subplots(4, 1, sharex=True, figsize=(12, 8))
         axes = axes.flatten()
 
         for star in self.masked_data:
             axes[0].plot(self.masked_wl, star, linewidth=0.2)
 
-        axes[1].plot(self.masked_wl, self.theta[:,1], linewidth=0.5)
-        axes[2].plot(self.masked_wl, self.theta[:,2], linewidth=0.5)
-        axes[3].plot(self.masked_wl, self.theta[:,3], linewidth=0.5)
+        axes[1].plot(self.masked_wl, self.theta[:,1], linewidth=0.25)
+        axes[2].plot(self.masked_wl, self.theta[:,2], linewidth=0.25)
+        axes[3].plot(self.masked_wl, self.theta[:,3], linewidth=0.25)
 
+        axes[1].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
+        axes[2].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
+        axes[3].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
+
+        axes[0].set_xlim([3500,7000])
         axes[0].set_ylim([0,3])
         axes[1].set_ylim([-0.5,0.5])
         axes[2].set_ylim([-0.5,0.5])
@@ -493,6 +502,10 @@ class Stannon(object):
         axes[2].set_ylabel(r"$\theta$ $\log g$")
         axes[3].set_ylabel(r"$\theta$ $[Fe/H]$")
         plt.xlabel("Wavelength (A)")
+        
+        plt.tight_layout()
+        plt.savefig("plots/theta_coefficients.pdf")
+        plt.savefig("plots/theta_coefficients.png", dpi=200)
 
     def run_cross_validation(self):
         """
