@@ -537,7 +537,7 @@ def make_wavelength_mask(wave_array, mask_emission=True,
     
     # Mask out blue edges and red overlap region
     if mask_blue_edges:
-        mask *= ((wave_array >= 3600)+
+        mask *= ((wave_array >= 3600)*
                  (wave_array <= 5400))
 
     # Mask out the edges to avoid edge effects

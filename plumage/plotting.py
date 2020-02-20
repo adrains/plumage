@@ -5,6 +5,7 @@ import os
 import numpy as np
 import glob
 import matplotlib.pylab as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Ensure the plotting folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -142,7 +143,7 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
     
     plt.savefig(os.path.join(plot_output_path, "spectra_%s.pdf" % night))
 
-def merge_spectra_pdfs(path=None):
+def merge_spectra_pdfs(path, new_fn):
     """Merge diagnostic pdfs together for easy checking.
     
     Code from:
@@ -150,10 +151,7 @@ def merge_spectra_pdfs(path=None):
     """
     from PyPDF2 import PdfFileMerger
 
-    if path is None:
-        pdfs = glob.glob("/home/arains/code/plumage/plots/spectra_br_2019*")
-    else:
-        pdfs = glob.glob(path)
+    pdfs = glob.glob(path)
     pdfs.sort()
     
     merger = PdfFileMerger()
@@ -161,9 +159,7 @@ def merge_spectra_pdfs(path=None):
     for pdf in pdfs:
         merger.append(open(pdf, 'rb'))
 
-    fn = "plots/spectra_summary.pdf"
-
-    with open(fn, 'wb') as fout:
+    with open(new_fn, 'wb') as fout:
         merger.write(fout)
 
 def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
@@ -310,3 +306,33 @@ def plot_standards(spectra, observations, catalogue):
     plt.ylim([5.1, 1])
 
     
+def plot_synthetic_fit(wave, spec_sci, spec_synth, params):
+    """
+    """
+    plt.close("all")
+    fig, axis = plt.subplots()
+
+    # Setup lower panel for residuals
+    divider = make_axes_locatable(axis)
+    res_ax = divider.append_axes("bottom", size="30%", pad=0)
+    axis.figure.add_axes(res_ax, sharex=axis)
+
+    axis.plot(wave, spec_sci, label="sci", linewidth=0.2)
+    axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
+
+    param_label = r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = {:0.2f}, [Fe/H] = {:0.2f}"
+    param_label = param_label.format(params[0], params[1], params[2])
+    axis.text(np.nanmean(wave), 0.7, param_label, horizontalalignment="center")
+
+    res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", linewidth=0.2)
+    res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
+    axis.set_xlim(wave[0]-10, wave[-1]+10)
+    axis.set_ylim(0.2, 1.2)
+    res_ax.set_xlim(wave[0]-10, wave[-1]+10)
+    res_ax.set_ylim(-0.25, 0.25)
+
+    axis.set_xticklabels([])
+    axis.legend(loc="best")
+    axis.set_ylabel("Flux (Normalised)")
+    res_ax.set_ylabel("Residuals")
+    res_ax.set_xlabel("Wavelength (A)")
