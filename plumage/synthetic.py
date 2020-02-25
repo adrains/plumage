@@ -450,6 +450,7 @@ def calc_synth_fit_resid(
     e_spec, 
     rv, 
     bcor, 
+    wl_mask,
     idl,
     wl_min,
     wl_max,
@@ -463,8 +464,7 @@ def calc_synth_fit_resid(
     print(params)
 
     # Get the template spectrum
-    try:
-        wave_synth, spec_synth = get_idl_spectrum(
+    wave_synth, spec_synth = get_idl_spectrum(
         idl, 
         params[0], 
         params[1], 
@@ -476,87 +476,37 @@ def calc_synth_fit_resid(
         do_resample=True, 
         wl_per_pixel=wl_per_px,
         )
-    except:
-        import pdb
-        pdb.set_trace()
 
     # The grid we put our new synthetic spectrum on should be put in the same
     # RV frame as the science spectrum
-    try:
-        wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
-        ref_spec_interp = ius(wave_synth, spec_synth)
+    wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
+    ref_spec_interp = ius(wave_synth, spec_synth)
 
-        wave_synth = wave * wave_rv_scale
-        spec_synth = ref_spec_interp(wave_synth)
+    wave_synth = wave * wave_rv_scale
+    spec_synth = ref_spec_interp(wave_synth)
 
-        # Normalise by the region just to the blue of H alpha
-        if band == "red":
-            norm_mask = np.logical_and(wave > 6535, wave < 6545)
-            xx = 6000
-            mask_blue_edges = False
+    # Normalise spectra by wavelength region before fit
+    spec_sci, e_spec = spec.norm_spec_by_wl_region(wave, spec_sci, band, e_spec)
+    spec_synth = spec.norm_spec_by_wl_region(wave, spec_synth, band)
 
-            #emission_mask = np.logical_and(wave > 6562.3*wave_rv_scale, 
-            #                            wave < 6563.3*wave_rv_scale)
-            #emission_mean = np.nanmean(spec_sci[emission_mask])
+    # Calculate the residual
+    resid_vect = (spec_sci[wl_mask] - spec_synth[wl_mask]) / e_spec[wl_mask]
 
-        # Normalise by bandhead near 5000 A
-        elif band == "blue":
-            norm_mask = np.logical_and(wave > 4925, wave < 4950)
-            xx = 4500
-            mask_blue_edges = True
+    pplt.plot_synthetic_fit(wave[wl_mask], spec_sci[wl_mask], spec_synth[wl_mask], params)
 
-            #emission_mean = 0
-
-        else:
-            raise ValueError("Must be either red or blue")
-    except:
-        import pdb
-        pdb.set_trace()
-
-    try:
-        spec_synth /= np.nanmean(spec_synth[norm_mask])
-        spec_sci /= np.nanmean(spec_sci[norm_mask])
-        e_spec /= np.nanmean(spec_sci[norm_mask])
-
-        # Check to see whether to mask emission
-        #if emission_mean > 1:
-        #    mask_emission = True
-        #else:
-        #    mask_emission = False
-        mask_emission = True
-        
-    except:
-        import pdb
-        pdb.set_trace()
-
-    # Make a wavelength mask
-    try:
-        wl_mask = spec.make_wavelength_mask(
-            wave, 
-            mask_emission=mask_emission, 
-            mask_edges=True,
-            mask_sky_emission=True,
-            mask_blue_edges=mask_blue_edges)
-        
-        # Calculate the residual
-        resid_vect = (spec_sci[wl_mask] - spec_synth[wl_mask]) / e_spec[wl_mask]
-
-        pplt.plot_synthetic_fit(wave[wl_mask], spec_sci[wl_mask], spec_synth[wl_mask], params)
-
-        if not np.isfinite(np.sum(resid_vect)):
-            resid_vect = np.ones_like(resid_vect) * 1E30
-    except:
-        import pdb
-        pdb.set_trace()
+    if not np.isfinite(np.sum(resid_vect)):
+        resid_vect = np.ones_like(resid_vect) * 1E30
+    
     return resid_vect
 
 
-def do_synthetic_fit(wave, spec, e_spec, params, rv, bcor, band="red"):
+def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, band="red"):
     """
     """
     # initialise IDL
     idl = idl_init()
 
+    # Initialise details of synthetic wavelength scale
     # TODO - Generalise this
     if band == "red":
         res = 7000
@@ -573,44 +523,29 @@ def do_synthetic_fit(wave, spec, e_spec, params, rv, bcor, band="red"):
 
     wl_per_px = (wl_max - wl_min) / n_px  
 
-    # Do fit, have initial RV guess be 0 km/s
-    args = (wave, spec, e_spec, rv, bcor, idl, wl_min, wl_max, res, wl_per_px, band)
+    # Make a wavelength mask
+    wl_mask = spec.make_wavelength_mask(
+        wave, 
+        mask_emission=False, 
+        mask_edges=True,
+        mask_sky_emission=True,
+        mask_blue_edges=False)
+
+    # Do fit
+    args = (wave, spectrum, e_spec, rv, bcor, wl_mask, idl, wl_min, wl_max,  
+            res, wl_per_px, band)
     bounds = ((2500, -1, -5), (7900, 5.5, 1))
     scale = (1, 1, 1)
     step = (10, 0.1, 0.1)
-    # param_fit, cov, infodict, mesg, ier
-    try:
-        optimize_result = least_squares(
-            calc_synth_fit_resid, 
-            params, 
-            jac="3-point",
-            #loss="arctan",
-            bounds=bounds,
-            x_scale=scale,
-            diff_step=step,
-            args=args, 
-        )
-    except:
-        import pdb
-        pdb.set_trace()
-        #full_output=True)
-    return optimize_result
-    return param_fit, cov, infodict, mesg, ier
-
-    # Scale the covariance matrix, calculate RV uncertainty
-    # docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.leastsq.html
-    if cov is None:
-        e_rv = np.nan
-    else:
-        cov *= np.nanvar(infodict["fvec"])
-        e_rv = cov**0.5
-
-    # Add extra parameters to infodict
-    infodict["cov"] = cov
-    infodict["mesg"] = mesg
-    infodict["ier"] = ier
-
-    # Calculate reduced chi^2
-    rchi2 = np.nansum(infodict["fvec"]**2) / (len(spec_sci)-len(param_fit))
     
-    return float(param_fit), float(e_rv), rchi2, infodict
+    optimize_result = least_squares(
+        calc_synth_fit_resid, 
+        params, 
+        jac="3-point",
+        bounds=bounds,
+        x_scale=scale,
+        diff_step=step,
+        args=args, 
+    )
+
+    return optimize_result

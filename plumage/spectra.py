@@ -417,24 +417,30 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
     
     return spectra_norm
 
-def pseudo_continuum_normalise_red_spectra(spectra):
-    """
-    """
-    spec_c_norm = spectra.copy()
 
-    for spec_i in range(len(spec_c_norm)):
-        # Normalise by the region just to the blue of H alpha
-        wave = spec_c_norm[spec_i, 0]
+def norm_spec_by_wl_region(wave, spectrum, band, e_spec=None):
+    """Normalise spectra by a specific wavelength region for synthetic fitting.
+    """
+    # Normalise by the region just to the blue of H alpha
+    if band == "red":
         norm_mask = np.logical_and(wave > 6535, wave < 6545)
 
-        spec_c_norm[spec_i, 1] /= np.nanmean(spec_c_norm[spec_i, 1, norm_mask])
-        
-        # Do errors if there
-        if spec_c_norm[spec_i].shape[1] > 2:
-            spec_c_norm[spec_i, 2] /= np.nanmean(spec_c_norm[spec_i, 2, norm_mask])
+    # Normalise by bandhead near 5000 A
+    elif band == "blue":
+        norm_mask = np.logical_and(wave > 4925, wave < 4950)
 
-    return spec_c_norm
+    else:
+        raise ValueError("Band must be either red or blue")
 
+    # Normalise the specta (and errors if provided)
+    spec_norm = spectrum / np.nanmean(spectrum[norm_mask])
+
+    if e_spec is not None:
+        e_spec_norm = e_spec / np.nanmean(spectrum[norm_mask])
+        return spec_norm, e_spec_norm
+
+    else:
+        return spec_norm
 
 
 def make_wavelength_mask(wave_array, mask_emission=True, 
