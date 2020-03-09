@@ -444,7 +444,8 @@ def norm_spec_by_wl_region(wave, spectrum, band, e_spec=None):
 
 
 def make_wavelength_mask(wave_array, mask_emission=True, 
-    mask_blue_edges=False, mask_sky_emission=False, mask_edges=False):
+    mask_blue_edges=False, mask_sky_emission=False, mask_edges=False,
+    mask_bad_px=True):
     """Make a wavelength mask for the provided wave array, masking out the 
     regions specified.
 
@@ -525,6 +526,10 @@ def make_wavelength_mask(wave_array, mask_emission=True,
         #[6580.0, 6585.0]
     ]
 
+    bad_px = [
+        [5575.0, 5581.0]    # bad column
+    ]
+
     band_list = O2_telluric_bands + strong_H2O_telluric_bands
 
     # Mask out Balmer series
@@ -534,6 +539,9 @@ def make_wavelength_mask(wave_array, mask_emission=True,
     # In cases of poor sky subtraction, get rid of sky emission
     if mask_sky_emission:
         band_list += sky_emission
+
+    if mask_bad_px:
+        band_list += bad_px
 
     mask = np.ones(len(wave_array))
 

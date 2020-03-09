@@ -163,7 +163,7 @@ def merge_spectra_pdfs(path, new_fn):
         merger.write(fout)
 
 def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
-                             mask=None, suffix=""):
+                             mask=None, suffix="", normalise=False):
     """Plot all spectra, their IDs, RVs, and Teffs sorted by Teff.
     """
     if mask is None:
@@ -182,7 +182,13 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
 
     for sp_i, (spec, id, teff, logg, feh, rv, e_rv) in enumerate(
         zip(sorted_spec, ids, teffs, loggs, fehs, rvs, e_rvs)): 
-        plt.plot(spec[0,:], sp_i+spec[1,:], linewidth=0.1) 
+        # Rescale if normalising
+        if normalise:
+            spec_scale = np.nanmedian(spec[1,:])
+        else:
+            spec_scale = 1
+
+        plt.plot(spec[0,:], sp_i+spec[1,:]/spec_scale, linewidth=0.1) 
         #label = "%s [%i K, %0.2f km/s]" % (id, teff, rv)
 
         if catalogue is not None:
@@ -226,12 +232,15 @@ def plot_normalised_spectra(spectra, observations, band="r", snr=0, mask=None,
 
     plt.close("all")
 
+    stars_plotted = 0
+
     for i in range(0,len(spectra[mask])): 
         if int(observations[mask].iloc[i]["snr_%s" % band]) > snr: 
             plt.plot(spectra[mask][i,0,:], spectra[mask][i,1,:],linewidth=0.1,)
                      #alpha=0.5, color="black") 
+            stars_plotted += 1
     
-    print("%i stars plotted" % (i+1))
+    print("%i stars plotted" % (stars_plotted))
 
     if band == "b":
         plt.xlim([3600,5500]) 
@@ -306,18 +315,21 @@ def plot_standards(spectra, observations, catalogue):
     plt.ylim([5.1, 1])
 
     
-def plot_synthetic_fit(wave, spec_sci, spec_synth, params):
-    """
+def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id, 
+                      plot_path):
+    """TODO: Sort out proper sharing of axes
     """
     plt.close("all")
-    fig, axis = plt.subplots()
+    fig, axis = plt.subplots()#sharex=True)
 
     # Setup lower panel for residuals
+    plt.setp(axis.get_xticklabels(), visible=False)
     divider = make_axes_locatable(axis)
     res_ax = divider.append_axes("bottom", size="30%", pad=0)
     axis.figure.add_axes(res_ax, sharex=axis)
 
-    axis.plot(wave, spec_sci, label="sci", linewidth=0.2)
+    axis.errorbar(wave, spec_sci, yerr=e_spec_sci, label="sci", linewidth=0.2,
+                  elinewidth=0.2, barsabove=True, capsize=0.3, capthick=0.1)
     axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
 
     param_label = r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = {:0.2f}, [Fe/H] = {:0.2f}"
@@ -327,12 +339,16 @@ def plot_synthetic_fit(wave, spec_sci, spec_synth, params):
     res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", linewidth=0.2)
     res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
     axis.set_xlim(wave[0]-10, wave[-1]+10)
-    axis.set_ylim(0.2, 1.2)
+    axis.set_ylim(0.1, 1.3)
     res_ax.set_xlim(wave[0]-10, wave[-1]+10)
     res_ax.set_ylim(-0.25, 0.25)
 
+    axis.set_xticks([])
     axis.set_xticklabels([])
     axis.legend(loc="best")
     axis.set_ylabel("Flux (Normalised)")
     res_ax.set_ylabel("Residuals")
     res_ax.set_xlabel("Wavelength (A)")
+
+    plt.suptitle(date_id)
+    plt.savefig(plot_path)

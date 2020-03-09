@@ -5,10 +5,11 @@ import numpy as np
 import pandas as pd
 import plumage.synthetic as synth
 import plumage.utils as utils
+import plumage.plotting as pplt
 import matplotlib.pyplot as plt
 
-sample = "standard"
-save_folder = "fits/standards"
+sample = "tess"
+save_folder = "fits/tess"
 
 # Import data
 if sample == "standard":
@@ -22,6 +23,7 @@ elif sample == "tess":
     spectra_r = utils.load_spectra_fits("r", "tess")
 
 fit_results = []
+best_fit_spec = []
 
 for ob_i in range(0, len(observations)):
     print("-"*40, "\n{}\n".format(ob_i), "-"*40)
@@ -33,7 +35,7 @@ for ob_i in range(0, len(observations)):
         )
 
     # Do the fit
-    xx = synth.do_synthetic_fit(
+    opt_res, spec_dict = synth.do_synthetic_fit(
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
         spectra_r[ob_i, 2], # Red uncertainties
@@ -42,11 +44,20 @@ for ob_i in range(0, len(observations)):
         observations.iloc[ob_i]["bcor"],
         band="red")
 
-    fit_results.append(xx)
+    fit_results.append(opt_res)
+    best_fit_spec.append(best_fit_spec)
 
-    # Save the plot
+    # Plotting
     date_id = "{}_{}".format(observations.iloc[ob_i]["date"].split("T")[0],
                                observations.iloc[ob_i]["uid"])
-    plt.suptitle(date_id)
     plot_path = os.path.join(save_folder, date_id + ".pdf")
-    plt.savefig(plot_path)
+
+    pplt.plot_synthetic_fit(
+        spec_dict["wave"][spec_dict["wl_mask"]], 
+        spec_dict["spec_sci"][spec_dict["wl_mask"]], 
+        spec_dict["e_spec_sci"][spec_dict["wl_mask"]], 
+        spec_dict["spec_synth"][spec_dict["wl_mask"]], 
+        opt_res["x"],
+        date_id,
+        plot_path,
+        )

@@ -1,6 +1,6 @@
 """Code for working with synthetic spectra.
 """
-from __future__ import division, print_function
+from __future__ import division, print_function, absolute_import
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,21 +11,32 @@ from tqdm import tqdm
 import astropy.constants as const
 from astropy import units as u
 from scipy.optimize import leastsq, least_squares
-import spectra as spec
-import plotting as pplt
+import plumage.spectra as spec
+import plumage.plotting as pplt
+#import plotting as pplt
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 #------------------------------------------------------------------------------    
 # Setup IDL
 #------------------------------------------------------------------------------
-def idl_init():
+def idl_init(grid_choice="full"):
     """Initialise IDL by setting paths and compiling relevant files.
     """
+    if grid_choice == "full":
+        grid = "grid_synthspec_main.sav"
+    elif grid_choice == "R~3000":
+        grid = "grid_synthspec_main-R3k.sav"
+    elif grid_choice == "R~7000":
+        grid = "grid_synthspec_main-R7k.sav"
+    else:
+        raise ValueError("Invalid grid choice - must be 'full', 'R~3000', or"
+                        "R~7000")
+
     idl = pidly.IDL()
     idl("!path = '/home/thomasn/idl_libraries/coyote:' + !path")
     idl(".compile /home/thomasn/grids/gaussbroad.pro")
     idl(".compile /home/thomasn/grids/get_spec.pro")
-    idl("grid='/home/thomasn/grids/grid_synthspec.sav'")
+    idl("grid='/home/thomasn/grids/%s'" % grid)
     
     return idl
     
@@ -457,6 +468,7 @@ def calc_synth_fit_resid(
     res,
     wl_per_px,
     band,
+    best_fit_spec_dict,
     #norm_range
     ):
     """
@@ -492,11 +504,16 @@ def calc_synth_fit_resid(
     # Calculate the residual
     resid_vect = (spec_sci[wl_mask] - spec_synth[wl_mask]) / e_spec[wl_mask]
 
-    pplt.plot_synthetic_fit(wave[wl_mask], spec_sci[wl_mask], spec_synth[wl_mask], params)
-
     if not np.isfinite(np.sum(resid_vect)):
         resid_vect = np.ones_like(resid_vect) * 1E30
     
+    # Save the best fit normalised spectra
+    best_fit_spec_dict["wave"] = wave
+    best_fit_spec_dict["wl_mask"] = wl_mask
+    best_fit_spec_dict["spec_sci"] = spec_sci
+    best_fit_spec_dict["e_spec_sci"] = e_spec
+    best_fit_spec_dict["spec_synth"] = spec_synth
+
     return resid_vect
 
 
@@ -528,12 +545,16 @@ def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, band="red"):
         wave, 
         mask_emission=False, 
         mask_edges=True,
-        mask_sky_emission=True,
-        mask_blue_edges=False)
+        mask_sky_emission=False,
+        mask_blue_edges=False,
+        mask_bad_px=True)
+
+    # Parameter to store best fit synthetic spectra
+    best_fit_spec_dict = {}
 
     # Do fit
     args = (wave, spectrum, e_spec, rv, bcor, wl_mask, idl, wl_min, wl_max,  
-            res, wl_per_px, band)
+            res, wl_per_px, band, best_fit_spec_dict)
     bounds = ((2500, -1, -5), (7900, 5.5, 1))
     scale = (1, 1, 1)
     step = (10, 0.1, 0.1)
@@ -548,4 +569,4 @@ def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, band="red"):
         args=args, 
     )
 
-    return optimize_result
+    return optimize_result, best_fit_spec_dict
