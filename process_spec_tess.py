@@ -39,7 +39,7 @@ from astropy.io import fits
 # Setup
 # -----------------------------------------------------------------------------
 load_spectra = False                    # Whether to load in pickle spectra
-pkl_label = "tess"                      # If loading, which pickle of N spectra
+label = "tess"                          # If loading, which pickle of N spectra
 disable_auto_max_age = False            # Useful if IERS broken
 
 flux_corrected = True                   # If *all* data is fluxed
@@ -76,19 +76,25 @@ else:
 
 if load_spectra:
     # Load in science spectra
-    print("Importing science spectra...")
-    observations, spectra_b, spectra_r = spec.load_pkl_spectra(pkl_label) 
+    print("Loading science spectra...")
+    spectra_b = utils.load_spectra_fits("b", label)
+    spectra_r = utils.load_spectra_fits("r", label)
+    observations = utils.load_observations_fits(label)
 
 else:
     # Do initial import
     print("Doing inital spectra import...")
     observations, spectra_b, spectra_r = spec.load_all_spectra(
         spec_folder, ext_sci=ext_sci)
-    spec.save_pkl_spectra(observations, spectra_b, spectra_r, pkl_label)
+    
+    # Clean spectra
+    spec.clean_spectra(spectra_b)
+    spec.clean_spectra(spectra_r)
 
-# Clean spectra
-spec.clean_spectra(spectra_b)
-spec.clean_spectra(spectra_r)
+    # Save
+    utils.save_observations_fits(observations, label)
+    utils.save_spectra_fits(spectra_b, "b", label)
+    utils.save_spectra_fits(spectra_r, "r", label)
 
 # -----------------------------------------------------------------------------
 # Normalise science and template spectra
@@ -129,7 +135,7 @@ bcors = spec.compute_barycentric_correction(observations["ra"],
 observations["bcor"] = bcors
 
 # -----------------------------------------------------------------------------
-# Calculate RVs and RV correct
+# Calculate RVs and shift spectra to the rest frame
 # -----------------------------------------------------------------------------
 print("Compute RVs...")
 all_nres, grid_rchi2 = spec.do_all_template_matches(
@@ -146,6 +152,12 @@ wl_new_r = spec.make_wl_scale(5400, 7000, 3637)
 spec_rvcor_b = spec.correct_all_rvs(spectra_b_norm, observations, wl_new_b)
 spec_rvcor_r = spec.correct_all_rvs(spectra_r_norm, observations, wl_new_r)
 
+rv_label = label + "_rv_corr"
+
+# Save rest frame normalised spectra
+utils.save_spectra_fits(spec_rvcor_b, "b", rv_label)
+utils.save_spectra_fits(spec_rvcor_r, "r", rv_label)
+
 # -----------------------------------------------------------------------------
 # Crossmatch for science program, activity, and chi^2 standard fit params 
 # -----------------------------------------------------------------------------
@@ -154,18 +166,14 @@ catalogue = utils.load_crossmatch_catalogue(cat_type, cat_file)
 utils.do_id_crossmatch(observations, catalogue)
 
 # Save the observation data
-utils.save_observations_fits(observations, pkl_label)
+utils.save_observations_fits(observations, label)
 
 # -----------------------------------------------------------------------------
-# Plot and save
+# Plot
 # -----------------------------------------------------------------------------
-# Save RV corrected spectra
-spec.save_pkl_spectra(observations, spec_rvcor_b, spec_rvcor_r, pkl_label, 
-                      rv_corr=True)
-
 # Plot the spectra sorted by temperature
 print("Plot Teff sorted summaries....")
-pplt.plot_teff_sorted_spectra(spec_rvcor_r, observations, catalogue, "r",
-                              suffix="TESS")
-pplt.plot_teff_sorted_spectra(spec_rvcor_b, observations, catalogue, "b",
-                              suffix="TESS")
+pplt.plot_teff_sorted_spectra(spectra_b, observations, catalogue, "b",
+                              suffix=label, normalise=True)
+pplt.plot_teff_sorted_spectra(spectra_r, observations, catalogue, "r",
+                              suffix=label, normalise=True)
