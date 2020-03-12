@@ -285,6 +285,8 @@ def consolidate_standards(
     e_loggs = []
     fehs = []
     e_fehs = []
+    rvs = []
+    e_rvs = []
     sources = []
 
     # There may be some overlap in standards from different catalogues
@@ -314,12 +316,21 @@ def consolidate_standards(
             e_fehs.extend(standards[key]["e_feh"].values)
         else:
             e_fehs.extend(np.nan*np.ones_like(standards[key]["feh"]))
+
+        # Radial Velocity
+        try:
+            rvs.extend(standards[key]["rv"].values)
+            e_rvs.extend(standards[key]["e_rv"].values)
+        except:
+            import pdb
+            pdb.set_trace()
         
         sources.extend([key]*len(standards[key]))
 
-    data = (ids, teffs, e_teffs, loggs, e_loggs, fehs, e_fehs, sources)
+    data = (ids, teffs, e_teffs, loggs, e_loggs, fehs, e_fehs, rvs, e_rvs, 
+            sources)
     columns = ["ids", "teffs", "e_teffs", "loggs", "e_loggs", "fehs", "e_fehs", 
-               "sources"]
+               "rv", "e_rv", "sources"]
     std_params_all = pd.DataFrame(
         {"source_id": ids,
          "teff": teffs,
@@ -328,6 +339,8 @@ def consolidate_standards(
          "e_logg": e_loggs,
          "feh": fehs,
          "e_feh": e_fehs,
+         "rv": rvs,
+         "e_rv": e_rvs,
          "source": sources,
          })
 

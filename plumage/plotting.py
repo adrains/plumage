@@ -224,7 +224,7 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
 
 
 def plot_normalised_spectra(spectra, observations, band="r", snr=0, mask=None,
-                            plot_balmer=False):
+                            plot_balmer=False, do_med_norm=False):
     """
     """
     if mask is None:
@@ -235,8 +235,13 @@ def plot_normalised_spectra(spectra, observations, band="r", snr=0, mask=None,
     stars_plotted = 0
 
     for i in range(0,len(spectra[mask])): 
+        if do_med_norm:
+            scale = np.nanmedian(spectra[mask][i,1,:])
+        else:
+            scale = 1
+
         if int(observations[mask].iloc[i]["snr_%s" % band]) > snr: 
-            plt.plot(spectra[mask][i,0,:], spectra[mask][i,1,:],linewidth=0.1,)
+            plt.plot(spectra[mask][i,0,:], spectra[mask][i,1,:]/scale,linewidth=0.1,)
                      #alpha=0.5, color="black") 
             stars_plotted += 1
     
@@ -352,3 +357,81 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
 
     plt.suptitle(date_id)
     plt.savefig(plot_path)
+
+
+def get_gaia_rv(uid, std_params):
+    """
+    """
+    entry = std_params[std_params["source_id"]==uid]
+    if len(entry) == 0:
+        rv = np.nan
+        e_rv = np.nan
+    elif len(entry) == 1:
+        rv = float(entry["rv"])
+        e_rv = float(entry["e_rv"])
+    elif len(entry) > 1:
+        raise ValueError("Duplicate standard detected in std_params")
+
+    return rv, e_rv
+
+def plot_std_rv_comparison(observations, std_params):
+    """
+    """
+    rvs_gaia = []
+    e_rvs_gaia = []
+    markers = []
+
+    for star_i in range(0, len(observations)):
+        rv, e_rv = get_gaia_rv(observations.iloc[star_i]["uid"], std_params)
+        rvs_gaia.append(rv)
+        e_rvs_gaia.append(e_rv)
+
+    rvs_gaia = np.array(rvs_gaia)
+    e_rvs_gaia = np.array(e_rvs_gaia)
+
+    e_rvs = np.sqrt(observations["e_rv"].values**2 + 
+                    (3*np.ones(len(observations)))**2)
+
+    #e_rvs = observations["e_rv"].values
+    plt.close("all")
+    fig, axis = plt.subplots(sharex=True)
+
+    # Setup lower panel for residuals
+    #plt.setp(axis.get_xticklabels(), visible=False)
+    divider = make_axes_locatable(axis)
+    res_ax = divider.append_axes("bottom", size="30%", pad=0)
+    axis.figure.add_axes(res_ax, sharex=axis)
+    xx = np.arange(-200,100) 
+    axis.plot(xx, xx, color="black") 
+    plt.setp(axis.get_xticklabels(), visible=False)
+    
+    axis.errorbar(rvs_gaia, observations["rv"].values, yerr=e_rvs, 
+                 xerr=e_rvs_gaia, fmt=".", zorder=0)
+    scatter = axis.scatter(rvs_gaia, observations["rv"].values, 
+                           c=observations["teff_fit"], marker="o", 
+                           cmap="magma", zorder=1)
+
+    cb = fig.colorbar(scatter, ax=axis)
+    cb.set_label(r"$T_{\rm eff}$")
+
+    # Residuals
+    res_ax.errorbar(rvs_gaia,
+                    observations["rv"].values-rvs_gaia,  
+                    yerr=e_rvs, 
+                    xerr=e_rvs_gaia, fmt=".", zorder=0) 
+    res_ax.scatter(rvs_gaia, 
+                   observations["rv"].values - rvs_gaia, 
+                    c=observations["teff_fit"], marker="o", 
+                    cmap="magma", zorder=1)
+    res_ax.hlines(0, -200, 100, color="black") 
+
+    axis.set_xlim(-200,100)
+    res_ax.set_xlim(-200,100)
+    res_ax.set_ylim(-20, 20)
+
+    res_ax.set_xlabel(r"RV, Gaia DR2 (km$\,$s$^{-1}$)")
+    res_ax.set_ylabel(r"RV, residuals (km$\,$s$^{-1}$)")
+    axis.set_ylabel(r"RV, WiFeS (km$\,$s$^{-1}$)")
+
+    med_diff = np.nanmedian(observations["rv"].values-rvs_gaia)
+    print("Median RV difference: %f km/s" % med_diff)
