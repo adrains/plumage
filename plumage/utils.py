@@ -459,3 +459,65 @@ def load_spectra_fits(band, label):
         spectra.append(spec_array.T)
 
     return np.stack(spectra)
+
+
+def save_fits(spectra_b, spectra_r, observations, label):
+    """Save spectra as a fits file with the format:
+        HDU 1: 1D blue wavelength scale
+        HDU 2: 2D blue band flux [star, wl]
+        HDU 3: 2D blue band flux uncertainties [star, wl]
+        HDU 1: 1D red wavelength scale
+        HDU 2: 2D red band flux [star, wl]
+        HDU 3: 2D red band flux uncertainties [star, wl]
+        HDU 7: table of observational information
+    """
+    # Intialise HDU List
+    hdu = fits.HDUList()
+
+    # Assert that all wavelength scales are the same
+    for wl_i in range(len(spectra_b[0,0])):
+        assert len(set(spectra_b[:, 0, wl_i])) == 1
+    
+    for wl_i in range(len(spectra_r[0,0])):
+        assert len(set(spectra_r[:, 0, wl_i])) == 1
+
+    # HDU 1: Blue wavelength scale
+    wave_img =  fits.PrimaryHDU(spectra_b[0,0])
+    wave_img.header["HDUINFO"] = ("wave", "Blue band wavelength scale")
+    hdu.append(wave_img)
+
+    # HDU 2: Blue band flux
+    spec_img =  fits.PrimaryHDU(spectra_b[:,1])
+    spec_img.header["HDUINFO"] = ("spec", "Blue band fluxes for all stars")
+    hdu.append(spec_img)
+
+    # HDU 3: Blue band flux uncertainty
+    e_spec_img =  fits.PrimaryHDU(spectra_b[:,2])
+    e_spec_img.header["HDUINFO"] = ("e_spec", 
+                                  "Blue band flux uncertainties for all stars")
+    hdu.append(e_spec_img)
+
+    # HDU 4: Red wavelength scale
+    wave_img =  fits.PrimaryHDU(spectra_r[0,0])
+    wave_img.header["HDUINFO"] = ("wave", "Red band wavelength scale")
+    hdu.append(wave_img)
+
+    # HDU 5: Red band flux
+    spec_img =  fits.PrimaryHDU(spectra_r[:,1])
+    spec_img.header["HDUINFO"] = ("spec", "Red band fluxes for all stars")
+    hdu.append(spec_img)
+
+    # HDU 6: Red band flux uncertainty
+    e_spec_img =  fits.PrimaryHDU(spectra_r[:,2])
+    e_spec_img.header["HDUINFO"] = ("e_spec", 
+                                   "Red band flux uncertainties for all stars")
+    hdu.append(e_spec_img)
+
+    # HDU 7: table of observational information
+    obs_tab = fits.BinTableHDU(Table.from_pandas(observations))
+    obs_tab.header["HDUINFO"] = ("tab", "Observation info table")
+    hdu.append(obs_tab)
+    
+    # Done, save
+    save_path = os.path.join("spectra",  "spectra_{}.fits".format(label))
+    hdu.writeto(save_path, overwrite=True)
