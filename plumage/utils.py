@@ -461,15 +461,101 @@ def load_spectra_fits(band, label):
     return np.stack(spectra)
 
 
-def save_fits(spectra_b, spectra_r, observations, label):
-    """Save spectra as a fits file with the format:
-        HDU 1: 1D blue wavelength scale
-        HDU 2: 2D blue band flux [star, wl]
-        HDU 3: 2D blue band flux uncertainties [star, wl]
-        HDU 1: 1D red wavelength scale
-        HDU 2: 2D red band flux [star, wl]
-        HDU 3: 2D red band flux uncertainties [star, wl]
-        HDU 7: table of observational information
+def load_fits(label, path="spectra"):
+    """Load blue and red spectra, plus observational log table from fits file 
+    with the format:
+        HDU 0: 1D blue wavelength scale
+        HDU 1: 2D blue band flux [star, wl]
+        HDU 2: 2D blue band flux uncertainties [star, wl]
+        HDU 3: 1D red wavelength scale
+        HDU 4: 2D red band flux [star, wl]
+        HDU 5: 2D red band flux uncertainties [star, wl]
+        HDU 6: table of observational information
+    
+    File will be loaded from {path}/spectra_{label}.fits
+
+    Parameters
+    ----------
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to. Defaults to spectra/
+
+    Returns 
+    -------
+    spectra_b: float array
+        3D numpy array containing blue arm spectra of form 
+        [N_ob, wl/spec/sigma, value].
+
+    spectra_r: float array
+        3D numpy array containing red arm spectra of form 
+        [N_ob, wl/spec/sigma, value].
+    
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+    """
+    # Load in the fits file
+    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+
+    with fits.open(fits_path) as fits_file: 
+        # TODO - do this with fits headers
+        n_px_b = len(fits_file[0].data)
+        n_px_r = len(fits_file[3].data)
+        n_stars = len(fits_file[1].data)
+
+        # Blue
+        wl_b = np.tile(fits_file[0].data, n_stars).reshape((n_stars, n_px_b))
+        flux_b = fits_file[1].data
+        e_flux_b = fits_file[2].data
+        spec_b = np.stack((wl_b, flux_b, e_flux_b))
+        spec_b = np.swapaxes(spec_b, 0, 1)
+
+        # Red
+        wl_r = np.tile(fits_file[3].data, n_stars).reshape((n_stars, n_px_r))
+        flux_r = fits_file[4].data
+        e_flux_r = fits_file[5].data
+        spec_r = np.stack((wl_r, flux_r, e_flux_r))
+        spec_r = np.swapaxes(spec_r, 0, 1)
+
+        # Extract the table of observations
+        obs_tab = Table(fits_file[6].data)
+        obs_pd = obs_tab.to_pandas()
+
+        return spec_b, spec_r, obs_pd
+
+
+def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
+    """Save blue and red spectra, plus observational log table as a fits file 
+    with the format:
+        HDU 0: 1D blue wavelength scale
+        HDU 1: 2D blue band flux [star, wl]
+        HDU 2: 2D blue band flux uncertainties [star, wl]
+        HDU 3: 1D red wavelength scale
+        HDU 4: 2D red band flux [star, wl]
+        HDU 5: 2D red band flux uncertainties [star, wl]
+        HDU 6: table of observational information
+    
+    File will be saved as {path}/spectra_{label}.fits
+
+    Parameters
+    ----------
+    spectra_b: float array
+        3D numpy array containing blue arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+
+    spectra_r: float array
+        3D numpy array containing red arm spectra of form 
+        [N_ob, wl/spec/sigma, flux].
+    
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to
     """
     # Intialise HDU List
     hdu = fits.HDUList()
@@ -519,5 +605,5 @@ def save_fits(spectra_b, spectra_r, observations, label):
     hdu.append(obs_tab)
     
     # Done, save
-    save_path = os.path.join("spectra",  "spectra_{}.fits".format(label))
+    save_path = os.path.join(path,  "spectra_{}.fits".format(label))
     hdu.writeto(save_path, overwrite=True)
