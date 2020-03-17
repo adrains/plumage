@@ -74,6 +74,16 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
     ra = []
     dec = []
     airmass = []
+    bcor = []
+    readmode = []
+    grating_b = []
+    grating_r = []
+    beam_splitter = []
+    xbin = []
+    ybin = []
+    fullframe = []
+    filename_b = []
+    filename_r = []
 
     if not include_subfolders:
         spectra_b_path = os.path.join(spectra_folder, "*_b.fits")
@@ -134,29 +144,49 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
             # Get object name and details of observation
             header = fits_b[0].header
             ids.append(header["OBJNAME"])
-            exp_time.append(header["EXPTIME"])
-            obs_mjd.append(header["MJD-OBS"])
+            exp_time.append(float(header["EXPTIME"]))
+            obs_mjd.append(float(header["MJD-OBS"]))
             obs_date.append(header["DATE-OBS"])
             ra.append(header["RA"])
             dec.append(header["DEC"])
-            airmass.append(header["AIRMASS"])
+            airmass.append(float(header["AIRMASS"]))
+            bcor.append(float(header["RADVEL"]))
+            readmode.append(header["READMODE"])
+            grating_b.append(header["GRATINGB"])
+            grating_r.append(header["GRATINGR"])
+            beam_splitter.append(header["BEAMSPLT"])
+            xbin.append(int(header["CCDSUM"].split(" ")[0]))
+            ybin.append(int(header["CCDSUM"].split(" ")[1]))
+
+            # Determine if full or half-frame
+            y_min = int(header["CCDSEC"].split(",")[-1].split(":")[0])
+            if y_min == 1:
+                fullframe.append(True)
+            else:
+                fullframe.append(False)
+
+            filename_b.append(os.path.split(file_b)[-1])
+            filename_r.append(os.path.split(file_r)[-1])
         
     # Now combine the arrays into our output structures
     spectra_b = np.stack(spectra_b)
     spectra_r = np.stack(spectra_r)
 
-    # Convert arrays
+    # Convert arrays where necessary
     snrs_b = np.array(snrs_b).astype(float).astype(int)
     snrs_r = np.array(snrs_r).astype(float).astype(int)
-    exp_time = np.array(exp_time).astype(float)
-    obs_mjd = np.array(obs_mjd).astype(float)
-    airmass = np.array(airmass).astype(float)
 
-    data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass]
+    data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass,
+            bcor, readmode, grating_b, grating_r, beam_splitter, xbin, ybin, 
+            fullframe, filename_b, filename_r]
     cols = ["id", "snr_b", "snr_r", "exp_time", "mjd", "date", "ra", 
-            "dec", "airmass"]
-
-    observations = pd.DataFrame(data=np.array(data).T, columns=cols)
+            "dec", "airmass", "bcor_pw", "readmode", "grating_b", "grating_r", 
+            "beam_splitter", "xbin", "ybin", "fullframe", "filename_b", 
+            "filename_r"]
+    
+    # Create our resulting dataframe from a dict comprehension
+    data = {col: vals for col, vals in zip(cols, data)}  
+    observations = pd.DataFrame(data=data)
 
     # Print bad filenames
     print("Excluded %i bad (i.e. all nan) files: %s" % 
@@ -657,9 +687,16 @@ def prepare_spectra(spec_b, spec_r, use_both_arms, remove_blue_overlap=False):
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # -----------------------------------------------------------------------------
-def compute_barycentric_correction(ras, decs, times, site="SSO", 
-                                   disable_auto_max_age=False):
+def compute_barycentric_correction(ras, decs, times, exps, site="SSO", 
+                                   disable_auto_max_age=False,
+                                   overrid_iers=False):
     """Compute the barycentric corrections for a set of stars
+
+    In late 2019 issues were encountered accessing online files related to the
+    International Earth Rotation and Reference Systems Service. This is 
+    required to calculate barycentric corrections for the data. This astopy 
+    issue may prove a useful resource again if the issue reoccurs:
+    - https://github.com/astropy/astropy/issues/8981
 
     Parameters
     ----------
@@ -694,11 +731,21 @@ def compute_barycentric_correction(ras, decs, times, site="SSO",
         IERS_A_URL = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals.all'
         #from astropy.utils.iers import conf
         #conf.auto_max_age = None
+    
+    # Override the IERS server if the mirror is down or not up to date
+    if overrid_iers:
+        from astropy.utils import iers
+        from astropy.utils.iers import conf as iers_conf
+        url = "https://datacenter.iers.org/data/9/finals2000A.all"
+        iers_conf.iers_auto_url = url
+        iers_conf.reload()
 
     # Calculate the barycentric correction for every star
-    for ra, dec, time in zip(tqdm(ras), decs, times):
+    for ra, dec, time, exp in zip(tqdm(ras), decs, times, exps):
         sc = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
-        time = Time(float(time), format="mjd")
+
+        # Get the *mid-point* of the observeration
+        time = Time(float(time), format="mjd") + 0.5*float(exp)*u.second
         barycorr = sc.radial_velocity_correction(obstime=time, location=loc)  
         bcors.append(barycorr.to(u.km/u.s).value)
 
