@@ -9,6 +9,7 @@ import plumage.utils as utils
 # -----------------------------------------------------------------------------
 label = "tess"                      # If loading, which pickle of N spectra
 spec_path = "spectra"
+fits_save_path = "spectra"
 
 ref_label = "576_tess_R7000_grid"       # The grid of reference spectra to use
 #ref_label = "51_teff_only_R7000_rv_grid"
