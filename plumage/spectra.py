@@ -792,7 +792,8 @@ def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
     return resid_vect
 
 
-def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
+def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bad_px_mask, 
+                  bcor):
     """Calculate the RV shift for a single science and template spectrum.
 
     Parameters
@@ -812,6 +813,9 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
     e_sci_spec: float array
         Uncertainties on the science fluxes
 
+    sci_mask: float array
+        Boolean mask for which spectral pixels to *not* include in the fit.
+
     bcor: float
         Barycentric velocity in km/s
 
@@ -826,15 +830,22 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
     # Make interpolation function
     ref_spec_interp = ius(ref_wl, ref_spec)
 
-    # Mask the science data for tellurics and emission
-    mask = make_wavelength_mask(sci_wl, mask_emission=True, mask_edges=True)
-    sci_wl = sci_wl[mask]
-    sci_spec = sci_spec[mask]
-    e_sci_spec = e_sci_spec[mask]
+    # Mask the science data by setting the masked regions to nans
+    sci_wl_m = sci_wl.copy()
+    sci_spec_m = sci_spec.copy()
+    e_sci_spec_m = e_sci_spec.copy()
+
+    #sci_wl_m = sci_wl_m[bad_px_mask]
+    #sci_spec_m = sci_spec_m[bad_px_mask]
+    sci_spec_m[bad_px_mask] = 1
+    e_sci_spec_m[bad_px_mask] = 1E30
+
+    e_sci_spec_m[np.isnan(sci_spec_m)] = 1E30
+    sci_spec_m[np.isnan(sci_spec_m)] = 1
 
     # Do fit, have initial RV guess be 0 km/s
     rv = 0
-    args = (sci_wl, sci_spec, e_sci_spec, ref_spec_interp, bcor)
+    args = (sci_wl_m, sci_spec_m, e_sci_spec_m, ref_spec_interp, bcor)
     rv_fit, cov, infodict, mesg, ier = leastsq(calc_rv_shift_residual, rv, 
                                             args=args, full_output=True)
 
@@ -847,6 +858,8 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
         e_rv = cov**0.5
 
     # Add extra parameters to infodict
+    infodict["template_spec"] = ref_spec_interp(
+        sci_wl_m * (1-(float(rv_fit)-bcor)/(const.c.si.value/1000)))
     infodict["cov"] = cov
     infodict["mesg"] = mesg
     infodict["ier"] = ier
@@ -858,7 +871,7 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bcor):
 
 
 def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
-                      print_diagnostics=False):
+                      print_diagnostics=False, n_std=3):
     """Find the best fitting template to determine the RV and temperature of
     the star.
 
@@ -898,15 +911,51 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
     e_rvs = []
     rchi2_grid = []
     norm_res = []
+    info_dicts = []
 
     for params, ref_spec in zip(ref_params, ref_spectra):
-        rv, e_rv, rchi2, infodict = calc_rv_shift(ref_spec[0,:], ref_spec[1,:], 
-                                        sci_spectra[0,:], sci_spectra[1,:], 
-                                        sci_spectra[2,:], bcor)
+        # Initialise mask (just telluric regions)
+        #bad_px_mask = np.full(len(sci_spectra[0]), False)
+        bad_px_mask = ~make_wavelength_mask(sci_spectra[0])
+        bad_px_mask[-1] = True # Mask out the final pixel (TODO: generalise)
+
+        #zero_mask = sci_spec_m < 0.001
+        #e_sci_spec_m[zero_mask] = 1E30
+        #sci_spec_m[zero_mask] = 1
+
+        # Do first fit without any masking beyond tellurics
+        rv, e_rv, rchi2, infodict = calc_rv_shift(
+            ref_spec[0,:], 
+            ref_spec[1,:], 
+            sci_spectra[0,:], 
+            sci_spectra[1,:], 
+            sci_spectra[2,:],
+            bad_px_mask,
+            bcor)
+
+        # Now mask out any pixels that have residuals greater than the 
+        # threshold value, and fit again
+        resid = infodict["fvec"]
+        std = np.std(resid[~bad_px_mask])
+        bad_px_mask[np.abs(resid) > (n_std*std)] = True
+
+        # Do second fit, now with masking
+        rv, e_rv, rchi2, infodict = calc_rv_shift(
+            ref_spec[0,:], 
+            ref_spec[1,:], 
+            sci_spectra[0,:], 
+            sci_spectra[1,:], 
+            sci_spectra[2,:],
+            bad_px_mask,
+            bcor)
+
+        infodict["bad_px_mask"] = bad_px_mask
+
         rvs.append(rv)
         e_rvs.append(e_rv)
         rchi2_grid.append(rchi2)
         norm_res.append(infodict["fvec"])
+        info_dicts.append(infodict)
         
         if print_diagnostics:
             print("\tTeff = %i K, RV = %0.2f km/s, quality = %0.2f" 
@@ -920,8 +969,9 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
     rchi2 = np.array(rchi2_grid[fit_i])
     nres = np.array(norm_res[fit_i])
     params = np.array(ref_params[fit_i])
+    info_dict = info_dicts[fit_i]
 
-    return rv, e_rv, rchi2, nres, params, rchi2_grid
+    return rv, e_rv, rchi2, nres, params, rchi2_grid, info_dict
 
 
 def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
@@ -962,6 +1012,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     all_nres = []
     all_params = []
     all_rchi2_grid = []
+    info_dicts = []
 
     # For every star, do template fitting
     for star_i, sci_spec in enumerate(tqdm(sci_spectra)):
@@ -971,7 +1022,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
                     observations.iloc[star_i]["id"]))
 
         bcor = observations.iloc[star_i]["bcor"]
-        rv, e_rv, rchi2, nres, params, rchi2_grid = do_template_match(
+        rv, e_rv, rchi2, nres, params, rchi2_grid, idicts = do_template_match(
             sci_spec, 
             bcor, 
             ref_params, 
@@ -984,6 +1035,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
         all_nres.append(nres)
         all_params.append(params)
         all_rchi2_grid.append(rchi2_grid)
+        info_dicts.append(idicts)
 
     # Convert to numpy arrays
     all_params = np.array(all_params)
@@ -999,7 +1051,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     observations["e_rv"] = np.array(all_e_rvs)
     observations["rchi2"] = np.array(all_rchi2)
 
-    return all_nres, all_rchi2_grid
+    return all_nres, all_rchi2_grid, info_dicts
 
 
 def correct_rv(sci_spectra, bcor, rv, wl_new):

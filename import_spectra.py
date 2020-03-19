@@ -35,9 +35,9 @@ import plumage.utils as utils
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-label =  "test"                         # Unique label of fits file of all spec
+label =  "ys"                         # Unique label of fits file of all spec
 
-spectra_folder = "spectra/tess"         # Base folder of 1D fits spectra
+spectra_folder = "spectra/ys"     # Base folder of 1D fits spectra
 include_subfolders = False              # If 1D fits spectra are within 
                                         # additional subfolders (e.g. nights)
 fits_save_path = "spectra"              # Folder to save the new fits file to

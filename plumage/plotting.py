@@ -321,9 +321,13 @@ def plot_standards(spectra, observations, catalogue):
 
     
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id, 
-                      plot_path):
+                      plot_path, masked_regions=None, rv=None, e_rv=None):
     """TODO: Sort out proper sharing of axes
     """
+    # Initialise empty mask for bad pixels if none is provided
+    if masked_regions is None:
+        masked_regions = np.full(len(wave), False)
+
     plt.close("all")
     fig, axis = plt.subplots()#sharex=True)
 
@@ -337,16 +341,31 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
                   elinewidth=0.2, barsabove=True, capsize=0.3, capthick=0.1)
     axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
 
+    # Plot the parameters of the synthetic fit
     param_label = r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = {:0.2f}, [Fe/H] = {:0.2f}"
     param_label = param_label.format(params[0], params[1], params[2])
     axis.text(np.nanmean(wave), 0.7, param_label, horizontalalignment="center")
 
+    # Plot the RVs if we have been given them
+    if rv is not None:
+        rv_label = r"RV = %0.2f$\pm$%0.2f km s$^{-1}$" % (rv, e_rv)
+        axis.text(np.nanmean(wave), 0.5, rv_label, horizontalalignment="center")
+
     res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", linewidth=0.2)
     res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
     axis.set_xlim(wave[0]-10, wave[-1]+10)
-    axis.set_ylim(0.1, 1.3)
+    axis.set_ylim(0.1, 1.7)
     res_ax.set_xlim(wave[0]-10, wave[-1]+10)
     res_ax.set_ylim(-0.25, 0.25)
+
+    # Plot vertical bars
+    wl_delta = (wave[1] - wave[0]) / 2
+    for xi in range(len(wave)):
+        if masked_regions[xi]:
+            axis.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=0, 
+                         ymax=1.7, alpha=0.05, color="red")
+            res_ax.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=-1, 
+                           ymax=1, alpha=0.05, color="red")
 
     axis.set_xticks([])
     axis.set_xticklabels([])
