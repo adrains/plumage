@@ -58,22 +58,27 @@ utils.save_fits(spectra_b, spectra_r, observations, label, path=fits_save_path)
 
 # Make diagnostic plots
 if do_plotting:
-  # Make new directory
-  plot_dir = "plots/rv_fits_%s" % label
-  if not os.path.isdir(plot_dir):
-    os.mkdir(plot_dir)
+    # Make new directory
+    plot_dir = "plots/rv_fits_%s" % label
+    if not os.path.isdir(plot_dir):
+        os.mkdir(plot_dir)
 
-  for star_i in tqdm(range(len(observations)), desc="Plotting Diagnostics"):
-    pplt.plot_synthetic_fit(
-      spectra_r_norm[star_i, 0], 
-      spectra_r_norm[star_i, 1], 
-      spectra_r_norm[star_i, 2], 
-      info_dicts[star_i]["template_spec"], 
-      (observations.iloc[star_i]["teff_fit"], 
-       observations.iloc[star_i]["logg_fit"],
-       observations.iloc[star_i]["feh_fit"],),
-      "%i_%s" % (star_i, observations.iloc[star_i]["id"]), 
-      os.path.join(plot_dir, "%03i.pdf" % star_i),
-      info_dicts[star_i]["bad_px_mask"],
-      observations.iloc[star_i]["rv"],
-      observations.iloc[star_i]["e_rv"])
+    for star_i in tqdm(range(len(observations)), desc="Plotting Diagnostics"):
+        pplt.plot_synthetic_fit(
+          spectra_r_norm[star_i, 0], 
+          spectra_r_norm[star_i, 1], 
+          spectra_r_norm[star_i, 2], 
+          info_dicts[star_i]["template_spec"], 
+          (observations.iloc[star_i]["teff_fit"], 
+          observations.iloc[star_i]["logg_fit"],
+          observations.iloc[star_i]["feh_fit"],),
+          "%i_%s" % (star_i, observations.iloc[star_i]["id"]), 
+          os.path.join(plot_dir, "%03i.pdf" % star_i),
+          info_dicts[star_i]["bad_px_mask"],
+          observations.iloc[star_i]["rv"],
+          observations.iloc[star_i]["e_rv"])
+
+    # Merge plots
+    pplt.merge_spectra_pdfs(
+        os.path.join(plot_dir,"???.pdf"), 
+        os.path.join(plot_dir, "rv_diagnostics_%s.pdf" % label))
