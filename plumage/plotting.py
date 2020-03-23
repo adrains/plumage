@@ -5,6 +5,7 @@ import os
 import numpy as np
 import glob
 import matplotlib.pylab as plt
+import matplotlib.colors as mplc
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Ensure the plotting folder exists to save to
@@ -180,8 +181,15 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
     rvs = observations[mask]["rv"].values[teff_order]
     e_rvs = observations[mask]["e_rv"].values[teff_order]
 
-    for sp_i, (spec, id, teff, logg, feh, rv, e_rv) in enumerate(
-        zip(sorted_spec, ids, teffs, loggs, fehs, rvs, e_rvs)): 
+    if arm == "b":
+        snrs = observations[mask]["snr_b"].values[teff_order]
+    elif arm == "r":
+        snrs = observations[mask]["snr_r"].values[teff_order]
+    else:
+        raise ValueError("Invalid Arm: must be either b or r.")
+
+    for sp_i, (spec, id, teff, logg, feh, rv, e_rv, snr) in enumerate(
+        zip(sorted_spec, ids, teffs, loggs, fehs, rvs, e_rvs, snrs)): 
         # Rescale if normalising
         if normalise:
             spec_scale = np.nanmedian(spec[1,:])
@@ -207,6 +215,7 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
 
             label = (r"%s [%s, %s, %i K, %0.1f, %0.2f, %0.2f$\pm$%0.2f km/s]"
                     % (id, program, subset, teff, logg, feh, rv, e_rv))
+            label += r" SNR ~ %i" % snr 
         
         plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
                         ha="center")
@@ -454,3 +463,55 @@ def plot_std_rv_comparison(observations, std_params):
 
     med_diff = np.nanmedian(observations["rv"].values-rvs_gaia)
     print("Median RV difference: %f km/s" % med_diff)
+
+
+def plot_tess_cmd(tess_info, plot_only_obs_pc=True, plot_toi_ids=False, ms=50):
+    """
+    """
+    # Make a mask
+    if plot_only_obs_pc:
+        mask = np.logical_and(tess_info["observed"], tess_info["pc"])
+    else:
+        mask = np.fill(len(tess_info), True)
+
+    plt.close("all")
+    plt.scatter(
+        tess_info[mask]["Bp-Rp"], 
+        tess_info[mask]["G_mag_abs"], 
+        s=ms,
+        c=tess_info[mask]["ruwe"]>1.4,
+        cmap="seismic"
+        #norm=mplc.LogNorm()
+    )
+
+    # Now outline those with high RUWE
+    ruwe_mask = np.logical_and(mask, tess_info["ruwe"] > 1.4)
+    """
+    plt.plot(
+        tess_info[ruwe_mask]["Bp-Rp"], 
+        tess_info[ruwe_mask]["G_mag_abs"],
+        linestyle="",
+        marker="o",
+        markeredgecolor="red",
+        markerfacecolor=None,
+        markersize=ms,
+        )
+    """
+    if plot_toi_ids:
+        for star_i, star in tess_info[mask].iterrows():
+            plt.text(
+                star["Bp-Rp"], 
+                star["G_mag_abs"]-0.1,
+                star["TOI"],
+                horizontalalignment="center",
+                fontsize="xx-small"
+            )
+
+    cb = plt.colorbar()
+    cb.set_label("RUWE > 1.4")
+
+    plt.ylim((12.8, 6.2))
+    plt.xlabel(r"$B_P-R_P$")
+    plt.ylabel(r"$G_{\rm abs}$")
+    plt.tight_layout()
+    plt.savefig("paper/tess_cmd.pdf")

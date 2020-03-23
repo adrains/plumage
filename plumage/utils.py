@@ -607,3 +607,31 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
     # Done, save
     save_path = os.path.join(path,  "spectra_{}.fits".format(label))
     hdu.writeto(save_path, overwrite=True)
+
+def load_tess_info(path="data/tess_info.tsv"):
+    """
+    """
+    # Do initial import
+    tess_info = pd.read_csv(
+        "data/tess_info.tsv", 
+        sep="\t", 
+        dtype={"source_id":str}
+    )
+
+    # Clean
+    tess_info["observed"] = tess_info["observed"] == "yes"
+
+    # Make new boolean column for planet candidates or known planets
+    pc_mask = np.logical_and(
+        tess_info["TFOPWG Disposition"] != "FP",
+        np.logical_or(
+            tess_info["TESS Disposition"] == "PC",
+            tess_info["TESS Disposition"] == "KP")
+    )
+    tess_info["pc"] = pc_mask
+
+    # Compute distance and absolute magnitudes
+    tess_info["dist"] = 1000 / tess_info["plx"]
+    tess_info["G_mag_abs"] = tess_info["G_mag"] - 5*np.log10(tess_info["dist"]/10)
+
+    return tess_info
