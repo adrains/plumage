@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import Polynomial, polyval
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 from scipy.interpolate import interp1d
+from collections import Counter
 
 
 # -----------------------------------------------------------------------------
@@ -33,8 +34,8 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
     return catalogue
 
 
-def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
-                    include_subfolders=False):
+def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
+                     ext_telluric_corr=3, include_subfolders=False):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations.
 
@@ -46,8 +47,11 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
     ext_snr: int
         The fits extension with non-fluxed 1D spectra to get a measure of SNR.
     
-    ext_sci: int
-        The fits extension containing the spectra to be used for science.
+    ext_fluxed: int
+        The fits extension with fluxed 1D spectra.
+    
+    ext_telluric_corr: int
+        The fits extension with fluxed *and* telluric corrected spectra.
 
     Returns
     -------
@@ -84,6 +88,8 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
     fullframe = []
     filename_b = []
     filename_r = []
+    fluxed = []
+    telluric_corr = []
 
     if not include_subfolders:
         spectra_b_path = os.path.join(spectra_folder, "*_b.fits")
@@ -100,13 +106,47 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
 
     bad_files = []
 
-    assert len(spectra_b_files) == len(spectra_r_files)
+    # Ensure we have a matching number of blue and red spectra
+    if len(spectra_b_files) != len(spectra_r_files):
+        spec_files_b = [bb.split("_b")[0] for bb in spectra_b_files]
+        spec_files_r = [rr.split("_r")[0] for rr in spectra_r_files]
+        n_files = Counter(spec_files_b + spec_files_r)
+        unmatched_spec = [si for si in n_files if n_files[si]==1]
+
+        raise ValueError("Unequal number of blue and red spectra for following"
+                         " observations: %s" % unmatched_spec)
 
     for fi, (file_b, file_r) in enumerate(
         zip(tqdm(spectra_b_files), spectra_r_files)):
         # Load in and extract required information from fits files
         with fits.open(file_b) as fits_b, fits.open(file_r) as fits_r:
-            # Get the flux and telluric corrected spectra
+            # Determine how many extensions the fits file has.
+            #  2 extensions --> non-fluxed, no telluric corr [PyWiFeS p08]
+            #  3 extensions --> fluxed, no telluric corr [PyWiFeS p09]
+            #  4 extensions --> fluxed and telluric corr [PyWiFeS p10]
+            if len(fits_b) != len(fits_r):
+                raise ValueError("Blue and red have different # fits ext")
+            
+            if len(fits_b) == ext_snr+1:
+                is_fluxed = False
+                is_telluric_corr = False
+                ext_sci = 1
+
+            elif len(fits_b) == ext_fluxed+1:
+                is_fluxed = True
+                is_telluric_corr = False
+                ext_sci = 2
+
+            elif len(fits_b) == ext_telluric_corr+1:
+                is_fluxed = True
+                is_telluric_corr = True
+                ext_sci = 3
+
+            else: 
+                raise ValueError("Unexpected # of HDUs. Should have 2-4.")
+
+            # Take the "most-complete" (in terms of data reduction) extension
+            # for use as the "science" spectrum
             spec_b = np.stack(fits_b[ext_sci].data)
             spec_r = np.stack(fits_r[ext_sci].data)
 
@@ -117,6 +157,10 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
                 bad_files.append(file_b)
                 bad_files.append(file_r)
                 continue
+
+            # Now that we know we're not working with bad files, add ext info
+            fluxed.append(is_fluxed)
+            telluric_corr.append(is_telluric_corr)
 
             # Get SNR measurements for each arm
             sig_b = np.median(fits_b[ext_snr].data["spectrum"])
@@ -178,12 +222,12 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_sci=3,
 
     data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass,
             bcor, readmode, grating_b, grating_r, beam_splitter, xbin, ybin, 
-            fullframe, filename_b, filename_r]
+            fullframe, filename_b, filename_r, fluxed, telluric_corr]
     cols = ["id", "snr_b", "snr_r", "exp_time", "mjd", "date", "ra", 
             "dec", "airmass", "bcor_pw", "readmode", "grating_b", "grating_r", 
             "beam_splitter", "xbin", "ybin", "fullframe", "filename_b", 
-            "filename_r"]
-    
+            "filename_r", "fluxed", "telluric_corr"]
+
     # Create our resulting dataframe from a dict comprehension
     data = {col: vals for col, vals in zip(cols, data)}  
     observations = pd.DataFrame(data=data)

@@ -35,32 +35,21 @@ import plumage.utils as utils
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-label =  "ys"                         # Unique label of fits file of all spec
+# Unique label of fits file of all spec
+label =  "standard"
 
-spectra_folder = "spectra/ys"     # Base folder of 1D fits spectra
-include_subfolders = False              # If 1D fits spectra are within 
-                                        # additional subfolders (e.g. nights)
-fits_save_path = "spectra"              # Folder to save the new fits file to
+# Base folder of 1D fits spectra
+spectra_folder = "spectra/standard"
 
-flux_corrected = True                   # If *all* data is fluxed
-telluric_corrected = True               # If *all* data is telluric corr
+# If 1D fits spectra are within additional subfolders (e.g. nights)
+include_subfolders = False
 
-# 1D extracted spectra fits files have extensions as follows:
-#  1) uncalibrated [pyWiFeS p08 files]
-#  2) fluxed [pyWiFeS p09 files]
-#  3) telluric [pyWiFeS p10 files]
-# Here is where we pick the extension for our science data
-if not flux_corrected and not telluric_corrected:
-    ext_sci = 1
-elif flux_corrected and not telluric_corrected:
-    ext_sci = 2
-elif flux_corrected and telluric_corrected:
-    ext_sci = 3
-else:
-    ext_sci = 1
+# Folder to save the new fits file to
+fits_save_path = "spectra"
 
-cat_type = "csv"                        # Crossmatch catalogue type
-cat_file = "data/all_2m3_star_ids.csv"  # Crossmatch catalogue 
+# Crossmatch catalogue matching observed IDs to science program
+cat_type = "csv"
+cat_file = "data/all_2m3_star_ids.csv"
 
 # -----------------------------------------------------------------------------
 # Import spectra, clean, find bcor, and save
@@ -68,8 +57,7 @@ cat_file = "data/all_2m3_star_ids.csv"  # Crossmatch catalogue
 # Do initial import
 print("Importing Spectra...")
 observations, spectra_b, spectra_r = spec.load_all_spectra(
-    spectra_folder=spectra_folder, 
-    ext_sci=3,
+    spectra_folder=spectra_folder,
     include_subfolders=include_subfolders
 )
 
