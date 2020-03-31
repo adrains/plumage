@@ -26,6 +26,7 @@ def do_id_crossmatch(observations, catalogue):
     # Initialise array of unique IDs
     u_ids = []
     program = []
+    subset = []
 
     id_cols = ["source_id", "2MASS_Source_ID", "HD", "TOI", "bayer", "other"]
 
@@ -45,6 +46,7 @@ def do_id_crossmatch(observations, catalogue):
             if len(idx) == 1:
                 u_ids.append(catalogue.iloc[int(idx)]["source_id"])
                 program.append(catalogue.iloc[int(idx)]["program"])
+                subset.append(catalogue.iloc[int(idx)]["subset"])
                 id_found = True
                 break
         
@@ -54,9 +56,11 @@ def do_id_crossmatch(observations, catalogue):
             print("No ID match for #%i: %s" % (ob_id_i, ob_id))
             u_ids.append("")
             program.append("")
+            subset.append("")
 
     observations["uid"] = u_ids
     observations["program"] = program
+    observations["subset"] = subset
 
 
 def do_activity_crossmatch(observations, activity):

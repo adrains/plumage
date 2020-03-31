@@ -10,19 +10,23 @@ import plumage.plotting as pplt
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-label = "std"                      # If loading, which pickle of N spectra
+# Unique label of the fits file of spectra
+label = "standard"
+
+# Where to load from and save to
 spec_path = "spectra"
 fits_save_path = "spectra"
 
-#ref_label = "576_tess_R7000_grid"       # The grid of reference spectra to use
+ref_label = "576_tess_R7000_grid"       # The grid of reference spectra to use
 #ref_label = "795_full_R7000_rv_grid"
 ref_label = "51_teff_only_R7000_rv_grid"
 
 # Load science spectra
 spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
 
-# Whether to do diagnostic plotting
-do_plotting = True
+# Whether to do plotting
+make_rv_diagnostic_plots = True
+plot_teff_sorted_spectra = True
 
 # -----------------------------------------------------------------------------
 # Normalise science and template spectra
@@ -57,7 +61,7 @@ all_nres, grid_rchi2, info_dicts = spec.do_all_template_matches(
 utils.save_fits(spectra_b, spectra_r, observations, label, path=fits_save_path)
 
 # Make diagnostic plots
-if do_plotting:
+if make_rv_diagnostic_plots:
     # Make new directory
     plot_dir = "plots/rv_fits_%s" % label
     if not os.path.isdir(plot_dir):
@@ -82,3 +86,11 @@ if do_plotting:
     pplt.merge_spectra_pdfs(
         os.path.join(plot_dir,"???.pdf"), 
         os.path.join(plot_dir, "rv_diagnostics_%s.pdf" % label))
+
+# Plot the spectra sorted by temperature
+if plot_teff_sorted_spectra:
+    print("Plot Teff sorted summaries....")
+    pplt.plot_teff_sorted_spectra(spectra_b, observations, "b",
+                                suffix=label, normalise=True)
+    pplt.plot_teff_sorted_spectra(spectra_r, observations, "r",
+                                suffix=label, normalise=True)

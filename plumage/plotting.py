@@ -163,7 +163,7 @@ def merge_spectra_pdfs(path, new_fn):
     with open(new_fn, 'wb') as fout:
         merger.write(fout)
 
-def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
+def plot_teff_sorted_spectra(spectra, observations, arm="r",
                              mask=None, suffix="", normalise=False):
     """Plot all spectra, their IDs, RVs, and Teffs sorted by Teff.
     """
@@ -180,6 +180,8 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
     fehs = observations[mask]["feh_fit"].values[teff_order]
     rvs = observations[mask]["rv"].values[teff_order]
     e_rvs = observations[mask]["e_rv"].values[teff_order]
+    programs = observations[mask]["program"].values[teff_order]
+    subsets = observations[mask]["subset"].values[teff_order]
 
     if arm == "b":
         snrs = observations[mask]["snr_b"].values[teff_order]
@@ -188,8 +190,9 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
     else:
         raise ValueError("Invalid Arm: must be either b or r.")
 
-    for sp_i, (spec, id, teff, logg, feh, rv, e_rv, snr) in enumerate(
-        zip(sorted_spec, ids, teffs, loggs, fehs, rvs, e_rvs, snrs)): 
+    for sp_i, (spec, id, teff, logg, feh, rv, e_rv, snr, pg, sub) in enumerate(
+        zip(sorted_spec, ids, teffs, loggs, fehs, rvs, e_rvs, snrs,
+            programs, subsets)): 
         # Rescale if normalising
         if normalise:
             spec_scale = np.nanmedian(spec[1,:])
@@ -199,24 +202,11 @@ def plot_teff_sorted_spectra(spectra, observations, catalogue=None, arm="r",
         plt.plot(spec[0,:], sp_i+spec[1,:]/spec_scale, linewidth=0.1) 
         #label = "%s [%i K, %0.2f km/s]" % (id, teff, rv)
 
-        if catalogue is not None:
-            uid = uids[sp_i]
-            if uid == "":
-                program = "?"
-                subset = "?"
-            else:
-                try:
-                    idx = int(np.argwhere(catalogue["source_id"].values==uid))  
-                except:
-                    import pdb
-                    pdb.set_trace()
-                program = catalogue.iloc[idx]["program"]
-                subset = catalogue.iloc[idx]["subset"]
+        # Prepare the label
+        label = (r"%s [%s, %s, %i K, %0.1f, %0.2f, %0.2f$\pm$%0.2f km/s]"
+                % (id, pg, sub, teff, logg, feh, rv, e_rv))
+        label += r" SNR ~ %i" % snr 
 
-            label = (r"%s [%s, %s, %i K, %0.1f, %0.2f, %0.2f$\pm$%0.2f km/s]"
-                    % (id, program, subset, teff, logg, feh, rv, e_rv))
-            label += r" SNR ~ %i" % snr 
-        
         plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
                         ha="center")
 
