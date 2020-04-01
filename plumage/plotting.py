@@ -164,7 +164,8 @@ def merge_spectra_pdfs(path, new_fn):
         merger.write(fout)
 
 def plot_teff_sorted_spectra(spectra, observations, arm="r",
-                             mask=None, suffix="", normalise=False):
+                             mask=None, suffix="", normalise=False,
+                             show_telluric_box=True):
     """Plot all spectra, their IDs, RVs, and Teffs sorted by Teff.
     """
     if mask is None:
@@ -209,6 +210,13 @@ def plot_teff_sorted_spectra(spectra, observations, arm="r",
 
         plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
                         ha="center")
+
+    if show_telluric_box:
+        h2o = [6270.0, 6290.0]
+        o2 = [6856.0, 6956.0]
+
+        plt.axvspan(h2o[0], h2o[1], ymin=0, ymax=sp_i+1, alpha=0.1, color="grey")
+        plt.axvspan(o2[0], o2[1], ymin=0, ymax=sp_i+1, alpha=0.1, color="grey")
 
     plt.xlabel("Wavelength (A)")
     plt.ylabel("Flux (Normalised, offset)")
