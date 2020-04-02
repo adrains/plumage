@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import plumage.spectra as spec
+from numpy.polynomial.polynomial import polyval as polyval
 
 def compare_to_standard_spectrum(spec_sci, spec_std):
     """
@@ -38,3 +39,37 @@ def compare_sci_to_all_standards(spec_sci, spec_stds, std_params):
     #plt.plot(spec_sci[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
     #plt.plot(spec_stds[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
     
+
+def compute_mann_2019_masses():
+    """
+    """
+    coeff = np.array([
+
+    ])
+
+def compute_mann_2015_teff(
+    colour,
+    j_h,
+    feh=None,
+    relation="BP - RP, J - H",
+    teff_file="data/mann_2015_teff.txt", 
+    r_file="data/mann_2015_teff.txt",
+    sigma_spec=60,
+    ):
+    """
+    """
+    supported_relations = ("BP - RP, J - H")
+    if relation not in supported_relations:
+        raise ValueError("Unsupported relation. Must be one of %s"
+                         % supported_relations)
+
+    m15_teff = pd.read_csv(teff_file, delimiter="\t", comment="#", index_col="X")
+
+    x_coeff = m15_teff.loc[relation][["a", "b", "c", "d", "e"]]
+
+    jh_coeff = m15_teff.loc[relation][["f", "g"]]
+
+    teffs = (polyval(colour, x_coeff) + polyval(j_h, jh_coeff)) * 3500
+    e_teffs = np.ones_like(teffs) * np.sqrt(m15_teff.loc[relation]["sigma"]**2+sigma_spec**2)
+
+    return teffs, e_teffs

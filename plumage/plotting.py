@@ -463,7 +463,14 @@ def plot_std_rv_comparison(observations, std_params):
     print("Median RV difference: %f km/s" % med_diff)
 
 
-def plot_tess_cmd(tess_info, plot_only_obs_pc=True, plot_toi_ids=False, ms=50):
+def plot_tess_cmd(
+    tess_info, 
+    plot_only_obs_pc=True, 
+    plot_toi_ids=False,
+    colour="Bp-Rp",
+    abs_mag="G_mag_abs",
+    ms=50
+    ):
     """
     """
     # Make a mask
@@ -473,43 +480,35 @@ def plot_tess_cmd(tess_info, plot_only_obs_pc=True, plot_toi_ids=False, ms=50):
         mask = np.fill(len(tess_info), True)
 
     plt.close("all")
-    plt.scatter(
-        tess_info[mask]["Bp-Rp"], 
-        tess_info[mask]["G_mag_abs"], 
+    fig, axis = plt.subplots()
+    scatter = axis.scatter(
+        tess_info[mask][colour], 
+        tess_info[mask][abs_mag], 
         s=ms,
         c=tess_info[mask]["ruwe"]>1.4,
         cmap="seismic"
-        #norm=mplc.LogNorm()
     )
 
-    # Now outline those with high RUWE
-    ruwe_mask = np.logical_and(mask, tess_info["ruwe"] > 1.4)
-    """
-    plt.plot(
-        tess_info[ruwe_mask]["Bp-Rp"], 
-        tess_info[ruwe_mask]["G_mag_abs"],
-        linestyle="",
-        marker="o",
-        markeredgecolor="red",
-        markerfacecolor=None,
-        markersize=ms,
-        )
-    """
     if plot_toi_ids:
         for star_i, star in tess_info[mask].iterrows():
-            plt.text(
-                star["Bp-Rp"], 
-                star["G_mag_abs"]-0.1,
+            axis.text(
+                star[colour], 
+                star[abs_mag]-0.1,
                 star["TOI"],
                 horizontalalignment="center",
                 fontsize="xx-small"
             )
 
-    cb = plt.colorbar()
+    cb = fig.colorbar(scatter, ax=axis)
     cb.set_label("RUWE > 1.4")
 
-    plt.ylim((12.8, 6.2))
-    plt.xlabel(r"$B_P-R_P$")
-    plt.ylabel(r"$G_{\rm abs}$")
-    plt.tight_layout()
+    # Flip magnitude axis
+    ymin, ymax = axis.get_ylim()
+    axis.set_ylim((ymax, ymin))
+    
+    #plt.xlabel(r"$B_P-R_P$")
+    #plt.ylabel(r"$G_{\rm abs}$")
+    axis.set_xlabel(colour)
+    axis.set_ylabel(abs_mag)
+    fig.tight_layout()
     plt.savefig("paper/tess_cmd.pdf")

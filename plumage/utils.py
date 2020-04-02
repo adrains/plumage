@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from astropy.io import fits
 from astropy.table import Table
+import plumage.parameters as params
 
 def do_id_crossmatch(observations, catalogue):
     """Do an ID crossmatch and add the Gaia DR2 ID to observations
@@ -637,5 +638,18 @@ def load_tess_info(path="data/tess_info.tsv"):
     # Compute distance and absolute magnitudes
     tess_info["dist"] = 1000 / tess_info["plx"]
     tess_info["G_mag_abs"] = tess_info["G_mag"] - 5*np.log10(tess_info["dist"]/10)
+    tess_info["K_mag_abs"] = tess_info["K_mag"] - 5*np.log10(tess_info["dist"]/10)
+
+    # Compute additional colours
+    tess_info["G-K"] = tess_info["G_mag"]-tess_info["K_mag"]
+    tess_info["J-H"] = tess_info["J_mag"]-tess_info["H_mag"]
+    tess_info["J-K"] = tess_info["J_mag"]-tess_info["K_mag"]
+
+    # Compute Mann 2015 temperatures
+    teffs, e_teffs = params.compute_mann_2015_teff(tess_info["Bp-Rp"], 
+                                                   tess_info["J-H"])
+    
+    tess_info["teff_mann_15"] = teffs
+    tess_info["e_teff_mann_15"] = e_teffs
 
     return tess_info
