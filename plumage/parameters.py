@@ -39,37 +39,155 @@ def compare_sci_to_all_standards(spec_sci, spec_stds, std_params):
     #plt.plot(spec_sci[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
     #plt.plot(spec_stds[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
     
+# -----------------------------------------------------------------------------
+# Fundamental Parameter Empirical Relations
+# -----------------------------------------------------------------------------
+def compute_mann_2019_masses(k_mag_abs):
+    """Calculates stellar masses based on absolute 2MASS Ks band magnitudes
+    per the empirical relations in Table 6 of Mann et al. 2019. 
 
-def compute_mann_2019_masses():
-    """
-    """
-    coeff = np.array([
+    The implemented relation is the 5th order polynomial fit without the 
+    dependence on [Fe/H].
 
-    ])
+    Parameters
+    ----------
+    k_mag_abs: float array
+        Array of absolute 2MASS Ks band magnitudes
+
+    Returns
+    -------
+    masses: float array
+        Resulting stellar masses in solar units.
+
+    e_masses: float array
+        Uncertainties on stellar masses in solar units.
+    """
+    # Zero point for the relation
+    zp = 7.5
+    e_mass = 0.02
+
+    # Coefficients for 5th order polynomial fit without [Fe/H] dependence
+    coeff = np.array(
+        [-0.642, -0.208, -8.43*10**-4, 7.87*10**-3, 1.42*10**-4, -2.13*10**-4]
+        )
+
+    # Calculate masses
+    masses = 10**polyval(k_mag_abs-zp, coeff)
+    e_masses = np.ones_like(masses) * e_mass
+
+    return masses, e_masses
+    
 
 def compute_mann_2015_teff(
     colour,
-    j_h,
+    j_h=None,
     feh=None,
     relation="BP - RP, J - H",
     teff_file="data/mann_2015_teff.txt", 
-    r_file="data/mann_2015_teff.txt",
     sigma_spec=60,
     ):
     """
+    Calculates stellar effective temperatures based on the empircal relations
+    in Table 2 of Mann et al. 2015.
+
+    Paper:
+        https://iopscience.iop.org/article/10.1088/0004-637X/804/1/64
+    
+    Erratum:
+        https://iopscience.iop.org/article/10.3847/0004-637X/819/1/87
+
+    Supported relations:
+        BP - RP
+        V - J
+        V - Ic
+        r - z
+        r - J
+        BP - RP, [Fe/H]
+        V - J, [Fe/H]
+        V - Ic, [Fe/H]
+        r - z, [Fe/H]
+        r - J, [Fe/H]
+        BP - RP, J - H
+        V - J, J - H
+        V - Ic, J - H
+        r - z, J - H
+        r - J, J - H
+
+    Parameters
+    ----------
+    colour: float array
+        Photometric colour used for the relation, e.g. Bp-Rp.
+
+    j_h: float array
+        J-H colour used as a proxy for [Fe/H] in some relations. Defaults to 
+        None.
+
+    feh: float array
+        Metallicities of the sample for use in some relations. Defaults to 
+        None.
+
+    relation: string
+        Photometric relation to use.
+
+    teff_file: string
+        Location for the stored table.
+
+    sigma_spec: string
+        Spectroscopic uncertainty quoted in the paper added in quadrature with
+        relation uncertainties, defaults to 60 K.
+    
+    Returns
+    -------
+    teffs: float array
+        Array of calculated stellar effective temperatues
+
+    e_teffs: float array
+        Uncertainties on teff.
     """
-    supported_relations = ("BP - RP, J - H")
-    if relation not in supported_relations:
+    # Import the table of colour relations
+    m15_teff = pd.read_csv(teff_file, delimiter="\t", comment="#", 
+                           index_col="X")
+
+    # Check we've been given a valid relation
+    if relation not in m15_teff.index.values:
         raise ValueError("Unsupported relation. Must be one of %s"
-                         % supported_relations)
+                         % m15_teff.index.values)
 
-    m15_teff = pd.read_csv(teff_file, delimiter="\t", comment="#", index_col="X")
+    # Now ensure we've been given the right combination of inputs
+    if "J - H" in relation and j_h is None:
+        raise ValueError("Must give value for J-H to use J-H relations")
+    if "[Fe/H]" in relation and feh is None:
+        raise ValueError("Must give value of [Fe/H] to use [Fe/H] relations")
 
+    # Calculate non-metallicity component
     x_coeff = m15_teff.loc[relation][["a", "b", "c", "d", "e"]]
+    color_comp = polyval(colour, x_coeff)
 
-    jh_coeff = m15_teff.loc[relation][["f", "g"]]
+    # Now calculate the metallicity component, which either uses [Fe/H] 
+    # directly, or J-H as a proxy. These are mutually exclusive
 
-    teffs = (polyval(colour, x_coeff) + polyval(j_h, jh_coeff)) * 3500
-    e_teffs = np.ones_like(teffs) * np.sqrt(m15_teff.loc[relation]["sigma"]**2+sigma_spec**2)
+    # J-H component
+    if "J - H" in relation:
+        jh_coeff = m15_teff.loc[relation][["f", "g"]]
+        jh_comp = polyval(j_h, jh_coeff)
+        feh_comp = 0
+
+    # [Fe/H] component
+    elif "[Fe/H]" in relation:
+        feh_comp = 1 + m15_teff.loc[relation][["f"]]*feh
+        jh_comp = 0
+
+    # Using a single colour
+    else:
+        feh_comp = 0
+        jh_comp = 0
+
+    # Add components together, and scale by temperature pivot/zero point
+    teffs = (color_comp + jh_comp + feh_comp) * 3500
+
+    # Calculate errors by taking the uncertainty on the relation, added in
+    # quadrature with the spectroscopic uncertainties on derived Teffs
+    e_teff = np.sqrt(m15_teff.loc[relation]["sigma"]**2 + sigma_spec**2)
+    e_teffs = np.ones_like(teffs) * e_teff
 
     return teffs, e_teffs
