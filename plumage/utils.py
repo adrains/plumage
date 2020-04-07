@@ -414,7 +414,9 @@ def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
 
     return spec_b_subset, spec_r_subset
 
-
+# -----------------------------------------------------------------------------
+# Single fits file original functions for saving/loading spec/obs
+# ----------------------------------------------------------------------------- 
 def save_observations_fits(observations, label):
     """Save observations table
     """
@@ -465,7 +467,9 @@ def load_spectra_fits(band, label):
 
     return np.stack(spectra)
 
-
+# -----------------------------------------------------------------------------
+# Spectra and table of observations
+# ----------------------------------------------------------------------------- 
 def load_fits(label, path="spectra"):
     """Load blue and red spectra, plus observational log table from fits file 
     with the format:
@@ -574,45 +578,183 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
 
     # HDU 1: Blue wavelength scale
     wave_img =  fits.PrimaryHDU(spectra_b[0,0])
-    wave_img.header["HDUINFO"] = ("wave", "Blue band wavelength scale")
+    wave_img.header["EXTNAME"] = ("WAVE_B", "Blue band wavelength scale")
     hdu.append(wave_img)
 
     # HDU 2: Blue band flux
     spec_img =  fits.PrimaryHDU(spectra_b[:,1])
-    spec_img.header["HDUINFO"] = ("spec", "Blue band fluxes for all stars")
+    spec_img.header["EXTNAME"] = ("SPEC_B", "Blue band fluxes for all stars")
     hdu.append(spec_img)
 
     # HDU 3: Blue band flux uncertainty
     e_spec_img =  fits.PrimaryHDU(spectra_b[:,2])
-    e_spec_img.header["HDUINFO"] = ("e_spec", 
+    e_spec_img.header["EXTNAME"] = ("SIGMA_B", 
                                   "Blue band flux uncertainties for all stars")
     hdu.append(e_spec_img)
 
     # HDU 4: Red wavelength scale
     wave_img =  fits.PrimaryHDU(spectra_r[0,0])
-    wave_img.header["HDUINFO"] = ("wave", "Red band wavelength scale")
+    wave_img.header["EXTNAME"] = ("WAVE_R", "Red band wavelength scale")
     hdu.append(wave_img)
 
     # HDU 5: Red band flux
     spec_img =  fits.PrimaryHDU(spectra_r[:,1])
-    spec_img.header["HDUINFO"] = ("spec", "Red band fluxes for all stars")
+    spec_img.header["EXTNAME"] = ("SPEC_R", "Red band fluxes for all stars")
     hdu.append(spec_img)
 
     # HDU 6: Red band flux uncertainty
     e_spec_img =  fits.PrimaryHDU(spectra_r[:,2])
-    e_spec_img.header["HDUINFO"] = ("e_spec", 
+    e_spec_img.header["EXTNAME"] = ("SIGMA_R", 
                                    "Red band flux uncertainties for all stars")
     hdu.append(e_spec_img)
 
     # HDU 7: table of observational information
     obs_tab = fits.BinTableHDU(Table.from_pandas(observations))
-    obs_tab.header["HDUINFO"] = ("tab", "Observation info table")
+    obs_tab.header["EXTNAME"] = ("OBS_TAB", "Observation info table")
     hdu.append(obs_tab)
     
     # Done, save
     save_path = os.path.join(path,  "spectra_{}.fits".format(label))
     hdu.writeto(save_path, overwrite=True)
 
+# -----------------------------------------------------------------------------
+# Loading and saving/updating fits image HDUs
+# ----------------------------------------------------------------------------- 
+def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
+    """Loads in the data from specified fits image HDU.
+
+    Parameters
+    ----------
+    extension: string
+
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to
+
+    arm: string
+        Arm of the spectrograph, either "b" or "r".
+
+    Returns
+    -------
+    data: numpy array
+        Data to load from the fits image HDU. Currently supported:
+         1) wave, the wavelength scale, [n_stars, n_pixels]
+         2) spec, science spectra fluxes, [n_stars, n_pixels]
+         3) sigma, science spectra uncertainties, [n_stars, n_pixels]
+         4) bad_px, boolean array indicating pixels flagged as bad (i.e. 
+         telluric contamination, sigma cut on residuals from science compared 
+         to synthetic spectrum), [n_stars, n_pixels] 
+         5) synth, best fit synthetic spectra, [n_stars, n_pixels] 
+        Which can either correspond to the blue or red arms of the spectrograph
+    """
+    # Ensure extension is valid - maps the user specification to the start of
+    # EXTNAME (non-arm component) and the data type to load as
+    valid_ext = {
+        "wave":("WAVE_", float),
+        "spec":("SPEC_", float),
+        "sigma":("SIGMA_", float),
+        "bad_px":("BAD_PX_MASK_", bool),
+        "synth":("SYNTH_FIT_", float),
+    }
+
+    if extension not in valid_ext.keys():
+        raise ValueError("Invalid extension type. Must be in {}".format(
+            valid_ext.keys()))
+
+    # Ensure correct value of arm is passed
+    arm = arm.capitalize()
+    valid_arms = ("B", "R")
+    
+    if arm not in valid_arms:
+        raise ValueError("Arm must be in {}".format())
+
+    # All good, so construct the extension name
+    extname = valid_ext[extension][0] + arm
+
+    # Load in the fits file
+    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+
+    with fits.open(fits_path) as fits_file:
+        if extname in fits_file:
+            data = fits_file[extname].data.astype(valid_ext[extension][1])
+        else:
+            raise Exception("No {} extension for {} arm".format(extension, arm))
+
+    return data
+
+
+def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
+    """Saves/updates the data from specified fits image HDU.
+
+    Parameters
+    ----------
+    data: numpy array
+        Data to save/update to fits image HDU. Currently supported:
+         1) wave, the wavelength scale, [n_stars, n_pixels]
+         2) spec, science spectra fluxes, [n_stars, n_pixels]
+         3) sigma, science spectra uncertainties, [n_stars, n_pixels]
+         4) bad_px, boolean array indicating pixels flagged as bad (i.e. 
+         telluric contamination, sigma cut on residuals from science compared 
+         to synthetic spectrum), [n_stars, n_pixels] 
+         5) synth, best fit synthetic spectra, [n_stars, n_pixels] 
+
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to
+
+    arm: string
+        Arm of the spectrograph, either "b" or "r".
+    """
+    # Ensure extension is valid - maps the user specification to the start of
+    # EXTNAME (non-arm component) and the data type to save as
+    valid_ext = {
+        "wave":("WAVE_", float),
+        "spec":("SPEC_", float),
+        "sigma":("SIGMA_", float),
+        "bad_px":("BAD_PX_MASK_", int),
+        "synth":("SYNTH_FIT_", float),
+    }
+
+    if extension not in valid_ext.keys():
+        raise ValueError("Invalid extension type. Must be in {}".format(
+            valid_ext.keys()))
+
+    # Ensure correct value of arm is passed
+    arm = arm.capitalize()
+    valid_arms = ("B", "R")
+    
+    if arm not in valid_arms:
+        raise ValueError("Arm must be in {}".format())
+
+    # All good, so construct the extension name
+    extname = valid_ext[extension][0] + arm
+
+    # Load in the fits file
+    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+
+    with fits.open(fits_path) as fits_file: 
+        # First check if the HDU already exists
+        if extname in fits_file:
+            fits_file[extname].data = data.astype(valid_ext[extension][1])
+        
+        # Not there, make and append
+        else:
+            hdu = fits.PrimaryHDU(bad_px_masks.astype(valid_ext[extension][1]))
+            hdu.header["EXTNAME"] = (extname,
+                "{} extension for {} arm".format(extension, arm)
+                )
+            fits_file.append(hdu)
+
+        fits_file.writeto(fits_path, overwrite=True)
+
+
+# -----------------------------------------------------------------------------
+# Loading in literature info (e.g. photometry)
+# ----------------------------------------------------------------------------- 
 def load_tess_info(path="data/tess_info.tsv"):
     """
     """
