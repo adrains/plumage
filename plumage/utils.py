@@ -617,6 +617,72 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
     save_path = os.path.join(path,  "spectra_{}.fits".format(label))
     hdu.writeto(save_path, overwrite=True)
 
+
+# -----------------------------------------------------------------------------
+# Loading and saving/updating fits table
+# -----------------------------------------------------------------------------
+def load_fits_obs_table(label, path="spectra"):
+    """Loads in the data from specified fits image HDU.
+
+    Parameters
+    ----------
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to
+
+    Returns
+    -------
+    obs_pd: pandas dataframe
+        Dataframe containing information about each observation.
+    """
+    # All good, so construct the extension name
+    extname = "OBS_TAB"
+
+    # Load in the fits file
+    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+
+    with fits.open(fits_path, mode="readonly") as fits_file:
+        if extname in fits_file:
+            obs_tab = Table(fits_file[extname].data)
+            obs_pd = obs_tab.to_pandas()
+        else:
+            raise Exception("No table of observations or wrong fits format")
+
+    return obs_pd
+
+
+def update_fits_obs_table(observations, label, path="spectra"):
+    """Update table of observations stored in given fits file.
+
+    Parameters
+    ----------
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to
+    """
+    # All good, so construct the extension name
+    extname = "OBS_TAB"
+
+    # Load in the fits file
+    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+
+    with fits.open(fits_path, mode="update") as fits_file:
+        if extname in fits_file:
+            # Update table
+            obs_tab = fits.BinTableHDU(Table.from_pandas(observations))
+            fits_file[extname].data = obs_tab.data
+            fits_file.flush()
+        else:
+            raise Exception("No table of observations to update")
+
+
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits image HDUs
 # ----------------------------------------------------------------------------- 
@@ -626,6 +692,8 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
     Parameters
     ----------
     extension: string
+        Which fits image HDU to load. Currently either wave, spec, sigma, 
+        bad_px, or synth.
 
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
@@ -676,7 +744,7 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
     # Load in the fits file
     fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
 
-    with fits.open(fits_path) as fits_file:
+    with fits.open(fits_path, mode="readonly") as fits_file:
         if extname in fits_file:
             data = fits_file[extname].data.astype(valid_ext[extension][1])
         else:
@@ -699,6 +767,10 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
          telluric contamination, sigma cut on residuals from science compared 
          to synthetic spectrum), [n_stars, n_pixels] 
          5) synth, best fit synthetic spectra, [n_stars, n_pixels] 
+
+    extension: string
+        Which fits image HDU to load. Currently either wave, spec, sigma, 
+        bad_px, or synth.
 
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
@@ -736,20 +808,20 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
     # Load in the fits file
     fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
 
-    with fits.open(fits_path) as fits_file: 
+    with fits.open(fits_path, mode="update") as fits_file: 
         # First check if the HDU already exists
         if extname in fits_file:
             fits_file[extname].data = data.astype(valid_ext[extension][1])
         
         # Not there, make and append
         else:
-            hdu = fits.PrimaryHDU(bad_px_masks.astype(valid_ext[extension][1]))
+            hdu = fits.PrimaryHDU(data.astype(valid_ext[extension][1]))
             hdu.header["EXTNAME"] = (extname,
                 "{} extension for {} arm".format(extension, arm)
                 )
             fits_file.append(hdu)
 
-        fits_file.writeto(fits_path, overwrite=True)
+        fits_file.flush()
 
 
 # -----------------------------------------------------------------------------

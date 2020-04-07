@@ -8,27 +8,35 @@ import plumage.utils as utils
 import plumage.plotting as pplt
 import matplotlib.pyplot as plt
 
-sample = "tess"
+# -----------------------------------------------------------------------------
+# Setup
+# -----------------------------------------------------------------------------
+# Unique label of the fits file of spectra
+label = "tess"
+
+# Where to load from and save to
+spec_path = "spectra"
 save_folder = "fits/tess"
 
-# Import data
-if sample == "standard":
-    observations = utils.load_observations_fits("standard")
-    spectra_b = utils.load_spectra_fits("b", "std")
-    spectra_r = utils.load_spectra_fits("r", "std")
+# Load science spectra
+spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
+bad_px_masks = utils.load_fits_image_hdu("bad_px", label)
 
-elif sample == "tess":
-    observations = utils.load_observations_fits("tess")
-    spectra_b = utils.load_spectra_fits("b", "tess")
-    spectra_r = utils.load_spectra_fits("r", "tess")
+do_plotting_after_each_fit = False
 
+# -----------------------------------------------------------------------------
+# Do fits
+# -----------------------------------------------------------------------------
+params_fit = []
 fit_results = []
-best_fit_spec = []
+synth_fits_r = []
+spec_dicts = []
+rchi2 = []
 
 for ob_i in range(0, len(observations)):
     print("-"*40, "\n{}\n".format(ob_i), "-"*40)
     plt.close("all")
-    params = (
+    params_init = (
         observations.iloc[ob_i]["teff_fit"],
         observations.iloc[ob_i]["logg_fit"],
         observations.iloc[ob_i]["feh_fit"],
@@ -39,25 +47,58 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
         spectra_r[ob_i, 2], # Red uncertainties
-        params, 
+        params_init, 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
+        ~bad_px_masks[ob_i],
         band="red")
 
+    # Save results
+    params_fit.append(opt_res["x"])
     fit_results.append(opt_res)
-    best_fit_spec.append(best_fit_spec)
+    synth_fits_r.append(spec_dict["spec_synth"])
+    spec_dicts.append(spec_dict)
+    rchi2.append(np.sum(opt_res["fun"]**2) - (len(opt_res["fun"]-len(params_init))))
 
     # Plotting
-    date_id = "{}_{}".format(observations.iloc[ob_i]["date"].split("T")[0],
-                               observations.iloc[ob_i]["uid"])
-    plot_path = os.path.join(save_folder, date_id + ".pdf")
+    if do_plotting_after_each_fit:
+        date_id = "{}_{}".format(observations.iloc[ob_i]["date"].split("T")[0],
+                                observations.iloc[ob_i]["uid"])
+        plot_path = os.path.join(save_folder, date_id + ".pdf")
 
-    pplt.plot_synthetic_fit(
-        spec_dict["wave"][spec_dict["wl_mask"]], 
-        spec_dict["spec_sci"][spec_dict["wl_mask"]], 
-        spec_dict["e_spec_sci"][spec_dict["wl_mask"]], 
-        spec_dict["spec_synth"][spec_dict["wl_mask"]], 
-        opt_res["x"],
-        date_id,
-        plot_path,
-        )
+        pplt.plot_synthetic_fit(
+            spec_dict["wave"], 
+            spec_dict["spec_sci"], 
+            spec_dict["e_spec_sci"], 
+            spec_dict["spec_synth"], 
+            opt_res["x"],
+            date_id,
+            plot_path,
+            masked_regions=bad_px_masks[ob_i]
+            )
+
+# Update observations
+params_fit = np.stack(params_fit)
+
+observations["teff_synth"] = params_fit[:,0]
+observations["logg_synth"] = params_fit[:,1]
+observations["feh_synth"] = params_fit[:,2]
+observations["rchi2_synth"] = np.array(rchi2)
+
+utils.update_fits_obs_table(observations, label, path=spec_path)
+
+# Save best fit synthetic spectra
+synth_fits_r = np.array(synth_fits_r)
+utils.save_fits_image_hdu(synth_fits_r, "synth", label, path=spec_path, arm="r")
+
+# Now do final plotting
+"""
+pplt.plot_all_synthetic_fits(
+    spectra_r, 
+    synth_fits_r, 
+    observations
+    bad_px_masks,
+    plot_path,
+    ref_table=tess_info,
+    )
+"""

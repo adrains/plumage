@@ -517,7 +517,8 @@ def calc_synth_fit_resid(
     return resid_vect
 
 
-def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, band="red"):
+def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, wl_mask, 
+        band="red"):
     """
     """
     # initialise IDL
@@ -539,15 +540,6 @@ def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, band="red"):
         raise ValueError("Must be either red or blue")
 
     wl_per_px = (wl_max - wl_min) / n_px  
-
-    # Make a wavelength mask
-    wl_mask = spec.make_wavelength_mask(
-        wave, 
-        mask_emission=False, 
-        mask_edges=True,
-        mask_sky_emission=False,
-        mask_blue_edges=False,
-        mask_bad_px=True)
 
     # Parameter to store best fit synthetic spectra
     best_fit_spec_dict = {}
