@@ -6,6 +6,8 @@ import numpy as np
 import glob
 import matplotlib.pylab as plt
 import matplotlib.colors as mplc
+import plumage.spectra as spec
+from tqdm import tqdm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Ensure the plotting folder exists to save to
@@ -326,17 +328,19 @@ def plot_standards(spectra, observations, catalogue):
     plt.xlim([6700, 3000])
     plt.ylim([5.1, 1])
 
-    
+
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id, 
-                      plot_path, masked_regions=None, rv=None, e_rv=None):
+                      plot_path, masked_regions=None, rv=None, e_rv=None,
+                      known_params=None, fig=None, axis=None):
     """TODO: Sort out proper sharing of axes
     """
     # Initialise empty mask for bad pixels if none is provided
     if masked_regions is None:
         masked_regions = np.full(len(wave), False)
 
-    plt.close("all")
-    fig, axis = plt.subplots()#sharex=True)
+    if fig is None and axis is None:
+        plt.close("all")
+        fig, axis = plt.subplots()
 
     # Setup lower panel for residuals
     plt.setp(axis.get_xticklabels(), visible=False)
@@ -358,12 +362,24 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
         rv_label = r"RV = %0.2f$\pm$%0.2f km s$^{-1}$" % (rv, e_rv)
         axis.text(np.nanmean(wave), 0.5, rv_label, horizontalalignment="center")
 
+    # Plot residuals
     res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", linewidth=0.2)
     res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
     axis.set_xlim(wave[0]-10, wave[-1]+10)
-    axis.set_ylim(0.1, 1.7)
+    axis.set_ylim(0.0, 1.7)
     res_ax.set_xlim(wave[0]-10, wave[-1]+10)
-    res_ax.set_ylim(-0.25, 0.25)
+    res_ax.set_ylim(-0.3, 0.3)
+
+    # Plot estimated parameters if we've been given them
+    if known_params is not None:
+        kp_label = r""
+
+        if "teff" in known_params:
+            kp_label += r"$T_{\rm eff} = {:4.0f} \pm {:4.0f} ({})".format(
+                known_params["teff"]
+            )
+        
+        axis.text(np.nanmean(wave), 0.3, kp_label, horizontalalignment="center")
 
     # Plot vertical bars
     wl_delta = (wave[1] - wave[0]) / 2
@@ -381,8 +397,113 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
     res_ax.set_ylabel("Residuals")
     res_ax.set_xlabel("Wavelength (A)")
 
-    plt.suptitle(date_id)
-    plt.savefig(plot_path)
+    #plt.suptitle(date_id)
+    #plt.savefig(plot_path)
+
+
+def plot_synth_fit_diagnostic(
+    wave,
+    spec_sci,
+    e_spec_sci,
+    spec_synth,
+    params,
+    bad_px_mask,
+    rv,
+    e_rv,
+    tess_info, 
+    toi,
+    plot_path):
+    """Want to plot TESS CMD (highlighting the current star) next to the 
+    synthetic fit, along with associated flags.
+    """
+    # Initialise
+    plt.close("all")
+    fig, (ax_cmd, ax_spec) = plt.subplots(1,2)
+
+    # Plot up the CMD side
+    mask = np.logical_and(tess_info["observed"], tess_info["pc"])
+
+    # First plot all the points
+    ax_cmd.plot(
+        tess_info[mask]["Bp-Rp"], 
+        tess_info[mask]["G_mag_abs"], 
+        "o",
+        c="blue",
+    )
+
+    star_info = tess_info[tess_info["TOI"]==toi]
+
+    # Then just plot our current star
+    ax_cmd.plot(star_info["Bp-Rp"], star_info["G_mag_abs"], "o", c="red")
+
+    # Flip magnitude axis
+    ymin, ymax = ax_cmd.get_ylim()
+    ax_cmd.set_ylim((ymax, ymin))
+
+    ax_cmd.set_xlabel(r"$B_P-R_P$")
+    ax_cmd.set_ylabel(r"$G_{\rm abs}$")
+
+    # Plot diagnostic info
+    ax_cmd.text(1.5, 10, "RUWE = {:.2f}".format(float(star_info["ruwe"])),
+        horizontalalignment="left")
+    ax_cmd.text(1.5, 11, 
+        r"$T_{{\rm eff}} (B_p-R_p) = {:.0f} \pm {:.0f}\,K$".format(
+            float(star_info["teff_mann_15"]), 
+            float(star_info["e_teff_mann_15"])),
+        horizontalalignment="left")
+
+    # Now do second part
+    spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(wave, spec_sci, "red", e_spec_sci)
+
+    plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, "", 
+                      "", bad_px_mask, rv, e_rv,
+                      fig=fig, axis=ax_spec)
+
+    plt_save_loc = os.path.join(plot_path, "{}_TOI{}.pdf".format(int(params[0]), toi))
+    plt.savefig(plt_save_loc)
+
+def plot_all_synthetic_fits(
+    spectra_r, 
+    synth_spec, 
+    observations,
+    bad_px_masks,
+    plot_path,
+    label,
+    tess_info,
+    ):
+    """
+    
+    date_id = "{}_{}".format(observations.iloc[ob_i]["date"].split("T")[0],
+                                observations.iloc[ob_i]["uid"])
+    plot_path = os.path.join(save_folder, date_id + ".pdf")
+
+    pplt.plot_synthetic_fit(
+        spec_dict["wave"], 
+        spec_dict["spec_sci"], 
+        spec_dict["e_spec_sci"], 
+        spec_dict["spec_synth"], 
+        opt_res["x"],
+        date_id,
+        plot_path,
+        masked_regions=bad_px_masks[ob_i]
+        )
+    """
+    for i in tqdm(range(len(observations)), desc="Plotting diagnostics"):
+        plot_synth_fit_diagnostic(
+            spectra_r[i,0], 
+            spectra_r[i,1], 
+            spectra_r[i,2], 
+            synth_spec[i], 
+            observations.iloc[i][["teff_synth", "logg_synth","feh_synth"]], 
+            bad_px_masks[i], 
+            observations.iloc[i]["rv"], 
+            observations.iloc[i]["e_rv"], 
+            tess_info, 
+            float(observations.iloc[i]["id"].split("TOI")[-1]), 
+            plot_path)
+
+    # Merge plots
+    merge_spectra_pdfs(plot_path, "synthetic_fits_{}".format(label))
 
 
 def get_gaia_rv(uid, std_params):
@@ -399,6 +520,7 @@ def get_gaia_rv(uid, std_params):
         raise ValueError("Duplicate standard detected in std_params")
 
     return rv, e_rv
+
 
 def plot_std_rv_comparison(observations, std_params):
     """
@@ -505,7 +627,7 @@ def plot_tess_cmd(
     # Flip magnitude axis
     ymin, ymax = axis.get_ylim()
     axis.set_ylim((ymax, ymin))
-    
+
     #plt.xlabel(r"$B_P-R_P$")
     #plt.ylabel(r"$G_{\rm abs}$")
     axis.set_xlabel(colour)

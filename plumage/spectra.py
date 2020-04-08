@@ -1057,6 +1057,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     all_params = []
     all_rchi2_grid = []
     info_dicts = []
+    bad_px_masks = []
 
     # For every star, do template fitting
     for star_i, sci_spec in enumerate(tqdm(sci_spectra)):
@@ -1066,7 +1067,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
                     observations.iloc[star_i]["id"]))
 
         bcor = observations.iloc[star_i]["bcor"]
-        rv, e_rv, rchi2, nres, params, rchi2_grid, idicts = do_template_match(
+        rv, e_rv, rchi2, nres, params, rchi2_grid, idict = do_template_match(
             sci_spec, 
             bcor, 
             ref_params, 
@@ -1079,12 +1080,14 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
         all_nres.append(nres)
         all_params.append(params)
         all_rchi2_grid.append(rchi2_grid)
-        info_dicts.append(idicts)
+        info_dicts.append(idict)
+        bad_px_masks.append(idict["bad_px_mask"])
 
     # Convert to numpy arrays
     all_params = np.array(all_params)
     all_nres = np.array(all_nres)
     all_rchi2_grid = np.array(all_rchi2_grid)
+    bad_px_masks = np.array(bad_px_masks)
 
     # Add to observations
     observations["teff_fit"] = all_params[:,0]
@@ -1095,7 +1098,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     observations["e_rv"] = np.array(all_e_rvs)
     observations["rchi2"] = np.array(all_rchi2)
 
-    return all_nres, all_rchi2_grid, info_dicts
+    return all_nres, all_rchi2_grid, bad_px_masks, info_dicts
 
 
 def correct_rv(sci_spectra, bcor, rv, wl_new):
