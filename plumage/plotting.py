@@ -328,16 +328,22 @@ def plot_standards(spectra, observations, catalogue):
     plt.xlim([6700, 3000])
     plt.ylim([5.1, 1])
 
-
-def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id, 
-                      plot_path, masked_regions=None, rv=None, e_rv=None,
-                      known_params=None, fig=None, axis=None):
+# -----------------------------------------------------------------------------
+# Synthetic fit diagnostics
+# ----------------------------------------------------------------------------- 
+def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
+        obs_info, param_cols, date_id, plot_path, fig=None, axis=None):
     """TODO: Sort out proper sharing of axes
+
+    Parameters
+    ----------
+
     """
     # Initialise empty mask for bad pixels if none is provided
-    if masked_regions is None:
-        masked_regions = np.full(len(wave), False)
+    if bad_px_mask is None:
+        bad_px_mask = np.full(len(wave), False)
 
+    # Use fig/axis handles we've been given, otherwise make new ones
     if fig is None and axis is None:
         plt.close("all")
         fig, axis = plt.subplots()
@@ -352,16 +358,6 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
                   elinewidth=0.2, barsabove=True, capsize=0.3, capthick=0.1)
     axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
 
-    # Plot the parameters of the synthetic fit
-    param_label = r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = {:0.2f}, [Fe/H] = {:0.2f}"
-    param_label = param_label.format(params[0], params[1], params[2])
-    axis.text(np.nanmean(wave), 0.7, param_label, horizontalalignment="center")
-
-    # Plot the RVs if we have been given them
-    if rv is not None:
-        rv_label = r"RV = %0.2f$\pm$%0.2f km s$^{-1}$" % (rv, e_rv)
-        axis.text(np.nanmean(wave), 0.5, rv_label, horizontalalignment="center")
-
     # Plot residuals
     res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", linewidth=0.2)
     res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
@@ -370,8 +366,45 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
     res_ax.set_xlim(wave[0]-10, wave[-1]+10)
     res_ax.set_ylim(-0.3, 0.3)
 
+    # Plot vertical bars
+    wl_delta = (wave[1] - wave[0]) / 2
+    for xi in range(len(wave)):
+        if bad_px_mask[xi]:
+            axis.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=0, 
+                         ymax=1.7, alpha=0.05, color="red")
+            res_ax.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=-1, 
+                           ymax=1, alpha=0.05, color="red")
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Label synthetic fit parameters
+    params = obs_info[param_cols]
+    param_label = r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = {:0.2f}, [Fe/H] = {:0.2f}"
+    param_label = param_label.format(params[0], params[1], params[2])
+    axis.text(np.nanmean(wave), 1.6, param_label, horizontalalignment="center")
+
+    if "rchi2_synth" in obs_info:
+        rchi2_label = r"red. $\chi^2 = {:0.0f}$".format(obs_info["rchi2_synth"])
+        axis.text(np.nanmean(wave), 1.525, rchi2_label, horizontalalignment="center")
+
+    # Label RVs
+    rv_label = r"RV$ = {:0.2f}\pm{:0.2f}\,$km$\,$s$^{{-1}}$"
+    rv_label = rv_label.format(obs_info["rv"], obs_info["e_rv"])
+    axis.text(np.nanmean(wave), 1.45, rv_label, horizontalalignment="center")
+
+    # Label SNR
+    snr_label = r"SNR (R) $\sim {:0.0f}$".format(obs_info["snr_r"])
+    axis.text(np.nanmean(wave), 1.375, snr_label, horizontalalignment="center")
+
+    # Label date
+    date_label = r"Date = {}".format(obs_info["date"].split("T")[0])
+    axis.text(np.nanmean(wave), 1.30, date_label, horizontalalignment="center")
+
+    # Label airmass
+    airmass_label = r"Airmass = {:0.2f}".format(obs_info["airmass"])
+    axis.text(np.nanmean(wave), 1.225, airmass_label, horizontalalignment="center")
+
     # Plot estimated parameters if we've been given them
-    if known_params is not None:
+    if False:
         kp_label = r""
 
         if "teff" in known_params:
@@ -379,17 +412,9 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, date_id,
                 known_params["teff"]
             )
         
-        axis.text(np.nanmean(wave), 0.3, kp_label, horizontalalignment="center")
+        axis.text(np.nanmean(wave), 0.3, kp_label, horizontalalignment="left")
 
-    # Plot vertical bars
-    wl_delta = (wave[1] - wave[0]) / 2
-    for xi in range(len(wave)):
-        if masked_regions[xi]:
-            axis.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=0, 
-                         ymax=1.7, alpha=0.05, color="red")
-            res_ax.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=-1, 
-                           ymax=1, alpha=0.05, color="red")
-
+    # Do final plot setup
     axis.set_xticks([])
     axis.set_xticklabels([])
     axis.legend(loc="best")
@@ -406,19 +431,17 @@ def plot_synth_fit_diagnostic(
     spec_sci,
     e_spec_sci,
     spec_synth,
-    params,
     bad_px_mask,
-    rv,
-    e_rv,
-    tess_info, 
-    toi,
+    obs_info,
+    tess_info,
     plot_path):
     """Want to plot TESS CMD (highlighting the current star) next to the 
     synthetic fit, along with associated flags.
     """
     # Initialise
     plt.close("all")
-    fig, (ax_cmd, ax_spec) = plt.subplots(1,2)
+    fig, (ax_cmd, ax_spec) = plt.subplots(1,2, gridspec_kw={'width_ratios': [1, 4]})
+    #fig.subplots_adjust(top=0.9)
 
     # Plot up the CMD side
     mask = np.logical_and(tess_info["observed"], tess_info["pc"])
@@ -430,6 +453,7 @@ def plot_synth_fit_diagnostic(
         "o",
         c="blue",
     )
+    toi = float(obs_info["id"].replace("TOI",""))
 
     star_info = tess_info[tess_info["TOI"]==toi]
 
@@ -444,21 +468,53 @@ def plot_synth_fit_diagnostic(
     ax_cmd.set_ylabel(r"$G_{\rm abs}$")
 
     # Plot diagnostic info
-    ax_cmd.text(1.5, 10, "RUWE = {:.2f}".format(float(star_info["ruwe"])),
-        horizontalalignment="left")
-    ax_cmd.text(1.5, 11, 
-        r"$T_{{\rm eff}} (B_p-R_p) = {:.0f} \pm {:.0f}\,K$".format(
-            float(star_info["teff_mann_15"]), 
-            float(star_info["e_teff_mann_15"])),
-        horizontalalignment="left")
+    ax_cmd.text(2.4, 6.4, "RUWE = {:.2f}".format(float(star_info["ruwe"])),
+        horizontalalignment="center")
+    ax_cmd.text(2.4, 6.6, 
+        r"$T_{{{{\rm eff}}, (B_p-R_p)}}  = {:.0f} \pm {:.0f}\,K$".format(
+            float(star_info["teff_m15_bprp"]), 
+            float(star_info["e_teff_m15_bprp"])),
+        horizontalalignment="center")
+    ax_cmd.text(2.4, 6.8, 
+        r"$T_{{{{\rm eff}}, (B_p-R_p, J-H)}} = {:.0f} \pm {:.0f}\,K$".format(
+            float(star_info["teff_m15_bprp_jh"]), 
+            float(star_info["e_teff_m15_bprp_jh"])),
+        horizontalalignment="center")
+    ax_cmd.text(2.4, 7.00, 
+        r"$M_{{K_s}} = {:.2f} \pm {:.2f}\,M_{{\odot}}$".format(
+            float(star_info["mass_m19"]), 
+            float(star_info["e_mass_m19"])),
+        horizontalalignment="center")
+    ax_cmd.text(2.4, 7.20, 
+        "Blended 2MASS = {}".format(bool(int(star_info["blended_2mass"]))),
+        horizontalalignment="center")
+    ax_cmd.text(2.4, 7.4, 
+        "# Obs = {}".format(int(star_info["wife_obs"])),
+        horizontalalignment="center")
+    ax_cmd.text(2.4, 7.6, 
+        "Dist. = {:.2f} pc".format(float(star_info["dist"])),
+        horizontalalignment="center")
 
     # Now do second part
+    params = obs_info[["teff_synth", "logg_synth", "feh_synth"]]
     spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(wave, spec_sci, "red", e_spec_sci)
 
-    plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, params, "", 
-                      "", bad_px_mask, rv, e_rv,
-                      fig=fig, axis=ax_spec)
+    plot_synthetic_fit(
+        wave, 
+        spec_sci, 
+        e_spec_sci, 
+        spec_synth,
+        bad_px_mask,
+        obs_info,
+        ["teff_synth", "logg_synth", "feh_synth"], 
+        "", 
+        "", 
+        fig=fig, 
+        axis=ax_spec)
 
+    plt.suptitle("TOI {}, Gaia DR2 {}".format(toi, obs_info["uid"]))
+    plt.gcf().set_size_inches(16, 9)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
     plt_save_loc = os.path.join(plot_path, "{}_TOI{}.pdf".format(int(params[0]), toi))
     plt.savefig(plt_save_loc)
 
@@ -467,45 +523,35 @@ def plot_all_synthetic_fits(
     synth_spec, 
     observations,
     bad_px_masks,
-    plot_path,
     label,
-    tess_info,
-    ):
+    tess_info):
     """
-    
-    date_id = "{}_{}".format(observations.iloc[ob_i]["date"].split("T")[0],
-                                observations.iloc[ob_i]["uid"])
-    plot_path = os.path.join(save_folder, date_id + ".pdf")
+    """
+    # Make plot path if it doesn't already exist
+    plot_path = os.path.join("plots", "synth_diagnostics_{}".format(label))
 
-    pplt.plot_synthetic_fit(
-        spec_dict["wave"], 
-        spec_dict["spec_sci"], 
-        spec_dict["e_spec_sci"], 
-        spec_dict["spec_synth"], 
-        opt_res["x"],
-        date_id,
-        plot_path,
-        masked_regions=bad_px_masks[ob_i]
-        )
-    """
+    if not os.path.isdir(plot_path):
+        os.mkdir(plot_path)
+
+    # Plot diagnostics pdf for every spectrum
     for i in tqdm(range(len(observations)), desc="Plotting diagnostics"):
         plot_synth_fit_diagnostic(
             spectra_r[i,0], 
             spectra_r[i,1], 
             spectra_r[i,2], 
             synth_spec[i], 
-            observations.iloc[i][["teff_synth", "logg_synth","feh_synth"]], 
             bad_px_masks[i], 
-            observations.iloc[i]["rv"], 
-            observations.iloc[i]["e_rv"], 
-            tess_info, 
-            float(observations.iloc[i]["id"].split("TOI")[-1]), 
+            observations.iloc[i], 
+            tess_info,
             plot_path)
 
     # Merge plots
-    merge_spectra_pdfs(plot_path, "synthetic_fits_{}".format(label))
+    glob_path = os.path.join(plot_path, "*TOI*")
+    merge_spectra_pdfs(glob_path, "plots/synthetic_fits_{}.pdf".format(label))
 
-
+# -----------------------------------------------------------------------------
+# Comparisons
+# ----------------------------------------------------------------------------- 
 def get_gaia_rv(uid, std_params):
     """
     """

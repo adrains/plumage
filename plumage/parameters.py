@@ -168,13 +168,13 @@ def compute_mann_2015_teff(
 
     # J-H component
     if "J - H" in relation:
-        jh_coeff = m15_teff.loc[relation][["f", "g"]]
-        jh_comp = polyval(j_h, jh_coeff)
+        jh_comp = (m15_teff.loc[relation]["f"] * j_h 
+                   + m15_teff.loc[relation]["g"] * j_h**2)
         feh_comp = 0
 
     # [Fe/H] component
     elif "[Fe/H]" in relation:
-        feh_comp = 1 + m15_teff.loc[relation][["f"]]*feh
+        feh_comp = m15_teff.loc[relation][["f"]] * feh
         jh_comp = 0
 
     # Using a single colour

@@ -80,14 +80,14 @@ utils.save_fits_image_hdu(synth_fits_r, "synth", label, path=spec_path, arm="r")
 # -----------------------------------------------------------------------------
 # Diagnostic plotting
 # -----------------------------------------------------------------------------
+# Import reference catalogue
+ti = utils.load_tess_info()  
+
 # Now do final plotting
-"""
 pplt.plot_all_synthetic_fits(
     spectra_r, 
     synth_fits_r, 
-    observations
-    bad_px_masks,
-    plot_path,
-    ref_table=tess_info,
-    )
-"""
+    observations, 
+    bad_px_masks, 
+    label, 
+    ti)

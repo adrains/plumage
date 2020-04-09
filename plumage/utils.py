@@ -849,21 +849,41 @@ def load_tess_info(path="data/tess_info.tsv"):
     )
     tess_info["pc"] = pc_mask
 
+    # Make boolean for blended 2MASS photometry
+    b2m_mask = tess_info["blended_2mass"] == "yes"
+    tess_info["blended_2mass"] = b2m_mask
+
     # Compute distance and absolute magnitudes
     tess_info["dist"] = 1000 / tess_info["plx"]
     tess_info["G_mag_abs"] = tess_info["G_mag"] - 5*np.log10(tess_info["dist"]/10)
     tess_info["K_mag_abs"] = tess_info["K_mag"] - 5*np.log10(tess_info["dist"]/10)
 
     # Compute additional colours
-    tess_info["G-K"] = tess_info["G_mag"]-tess_info["K_mag"]
-    tess_info["J-H"] = tess_info["J_mag"]-tess_info["H_mag"]
-    tess_info["J-K"] = tess_info["J_mag"]-tess_info["K_mag"]
+    tess_info["G-K"] = tess_info["G_mag"] - tess_info["K_mag"]
+    tess_info["J-H"] = tess_info["J_mag"] - tess_info["H_mag"]
+    tess_info["J-K"] = tess_info["J_mag"] - tess_info["K_mag"]
 
     # Compute Mann 2015 temperatures
-    teffs, e_teffs = params.compute_mann_2015_teff(tess_info["Bp-Rp"], 
-                                                   tess_info["J-H"])
-    
-    tess_info["teff_mann_15"] = teffs
-    tess_info["e_teff_mann_15"] = e_teffs
+    # Bp-Rp
+    teffs, e_teffs = params.compute_mann_2015_teff(
+        tess_info["Bp-Rp"],
+        relation="BP - RP")
+
+    tess_info["teff_m15_bprp"] = teffs
+    tess_info["e_teff_m15_bprp"] = e_teffs
+
+    # Bp-Rp, J-H
+    teffs, e_teffs = params.compute_mann_2015_teff(
+        tess_info["Bp-Rp"], 
+        j_h=tess_info["J-H"],
+        relation="BP - RP, J - H")
+
+    tess_info["teff_m15_bprp_jh"] = teffs
+    tess_info["e_teff_m15_bprp_jh"] = e_teffs
+
+    # And Mann 2015 masses
+    mass, e_mass = params.compute_mann_2019_masses(tess_info["K_mag_abs"]) 
+    tess_info["mass_m19"] = mass
+    tess_info["e_mass_m19"] = e_mass
 
     return tess_info
