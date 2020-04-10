@@ -11,7 +11,7 @@ import plumage.plotting as pplt
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "standard"
+label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -25,8 +25,8 @@ ref_label = "51_teff_only_R7000_rv_grid"
 spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
 
 # Whether to do plotting
-make_rv_diagnostic_plots = True
-plot_teff_sorted_spectra = True
+make_rv_diagnostic_plots = False
+plot_teff_sorted_spectra = False
 
 # -----------------------------------------------------------------------------
 # Normalise science and template spectra
@@ -51,7 +51,7 @@ ref_spec_norm = spec.normalise_spectra(ref_spec)
 # Calculate RVs
 # -----------------------------------------------------------------------------
 print("Compute RVs...")
-all_nres, grid_rchi2, info_dicts = spec.do_all_template_matches(
+all_nres, grid_rchi2, bad_px_masks, info_dicts = spec.do_all_template_matches(
     spectra_r_norm, 
     observations, 
     ref_params, 
@@ -59,7 +59,13 @@ all_nres, grid_rchi2, info_dicts = spec.do_all_template_matches(
 
 # Save, but now with RV
 utils.save_fits(spectra_b, spectra_r, observations, label, path=fits_save_path)
+utils.save_fits_image_hdu(bad_px_masks, "bad_px", label)
 
+# TODO: save rv corrected spectra as fits HDUs
+
+# -----------------------------------------------------------------------------
+# Plotting
+# -----------------------------------------------------------------------------
 # Make diagnostic plots
 if make_rv_diagnostic_plots:
     # Make new directory

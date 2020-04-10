@@ -433,8 +433,9 @@ def plot_synth_fit_diagnostic(
     spec_synth,
     bad_px_mask,
     obs_info,
-    tess_info,
-    plot_path):
+    info_cat,
+    plot_path,
+    is_tess=False):
     """Want to plot TESS CMD (highlighting the current star) next to the 
     synthetic fit, along with associated flags.
     """
@@ -444,18 +445,35 @@ def plot_synth_fit_diagnostic(
     #fig.subplots_adjust(top=0.9)
 
     # Plot up the CMD side
-    mask = np.logical_and(tess_info["observed"], tess_info["pc"])
+    if "pc" in info_cat:
+        mask = np.logical_and(info_cat["observed"], info_cat["pc"])
+    else:
+        mask = info_cat["observed"]
 
     # First plot all the points
     ax_cmd.plot(
-        tess_info[mask]["Bp-Rp"], 
-        tess_info[mask]["G_mag_abs"], 
+        info_cat[mask]["Bp-Rp"], 
+        info_cat[mask]["G_mag_abs"], 
         "o",
         c="blue",
     )
-    toi = float(obs_info["id"].replace("TOI",""))
 
-    star_info = tess_info[tess_info["TOI"]==toi]
+    # ID
+    if is_tess:
+        sid = float(obs_info["id"].replace("TOI",""))
+        star_info = info_cat[info_cat["TOI"]==sid].iloc[0]
+    
+    else:
+        sid = obs_info["uid"]
+        star_info = info_cat[info_cat["source_id"]==sid]
+
+        if len(star_info) < 1:
+            return
+        elif len(star_info) > 1:
+            return
+        else:
+            star_info = star_info.iloc[0]
+    
 
     # Then just plot our current star
     ax_cmd.plot(star_info["Bp-Rp"], star_info["G_mag_abs"], "o", c="red")
@@ -512,11 +530,19 @@ def plot_synth_fit_diagnostic(
         fig=fig, 
         axis=ax_spec)
 
-    plt.suptitle("TOI {}, Gaia DR2 {}".format(toi, obs_info["uid"]))
+    # If lit params are known, display
+    if "teff" in star_info:
+        lit_params = star_info[["teff", "e_teff", "logg", "feh", "e_feh"]].values
+        lit_param_label = r"Lit Params ({}): $T_{{\rm eff}} = {:0.0f} \pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = {:0.2f} \pm {:0.2f}$"
+        lit_param_label = lit_param_label.format(str(star_info["source"]), lit_params[0], lit_params[1], lit_params[2], lit_params[3], lit_params[4])
+        ax_spec.text(np.nanmean(wave), 0.25, lit_param_label, horizontalalignment="center")
+
+    plt.suptitle("TOI {}, Gaia DR2 {}".format(sid, obs_info["uid"]))
     plt.gcf().set_size_inches(16, 9)
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    plt_save_loc = os.path.join(plot_path, "{}_TOI{}.pdf".format(int(params[0]), toi))
+    plt_save_loc = os.path.join(plot_path, "{}_TOI{}.pdf".format(int(params[0]), sid))
     plt.savefig(plt_save_loc)
+
 
 def plot_all_synthetic_fits(
     spectra_r, 
@@ -524,7 +550,7 @@ def plot_all_synthetic_fits(
     observations,
     bad_px_masks,
     label,
-    tess_info):
+    info_cat):
     """
     """
     # Make plot path if it doesn't already exist
@@ -542,7 +568,7 @@ def plot_all_synthetic_fits(
             synth_spec[i], 
             bad_px_masks[i], 
             observations.iloc[i], 
-            tess_info,
+            info_cat,
             plot_path)
 
     # Merge plots

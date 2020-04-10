@@ -544,13 +544,20 @@ def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, wl_mask,
     # Parameter to store best fit synthetic spectra
     best_fit_spec_dict = {}
 
-    # Do fit
+    # Setup fit settings
     args = (wave, spectrum, e_spec, rv, bcor, wl_mask, idl, wl_min, wl_max,  
             res, wl_per_px, band, best_fit_spec_dict)
     bounds = ((2500, -1, -5), (7900, 5.5, 1))
     scale = (1, 1, 1)
     step = (10, 0.1, 0.1)
     
+    # Make sure initial teff guess isn't out of bounds, assign default if so
+    params = np.array(params)
+    
+    if params[0] < bounds[0][0] or params[0] > bounds[1][0]:
+        params[0] = 5250
+
+    # Do fit
     optimize_result = least_squares(
         calc_synth_fit_resid, 
         params, 

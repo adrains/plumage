@@ -12,11 +12,11 @@ import matplotlib.pyplot as plt
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "tess"
+label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
-save_folder = "fits/tess"
+save_folder = "fits/std"
 
 # Load science spectra and bad pixel masks
 spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
@@ -81,7 +81,9 @@ utils.save_fits_image_hdu(synth_fits_r, "synth", label, path=spec_path, arm="r")
 # Diagnostic plotting
 # -----------------------------------------------------------------------------
 # Import reference catalogue
-ti = utils.load_tess_info()  
+
+info_cat = utils.load_info_cat(
+    os.path.join("data", "{}_info.tsv".format(label)))
 
 # Now do final plotting
 pplt.plot_all_synthetic_fits(
@@ -90,4 +92,4 @@ pplt.plot_all_synthetic_fits(
     observations, 
     bad_px_masks, 
     label, 
-    ti)
+    info_cat)

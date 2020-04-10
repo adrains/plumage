@@ -38,7 +38,32 @@ def compare_sci_to_all_standards(spec_sci, spec_stds, std_params):
 
     #plt.plot(spec_sci[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
     #plt.plot(spec_stds[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
+
+
+def compare_fits_to_lit(observations, std_info):
+    """Compares synthetic fits to literatue values
+    """
+    diff = []
+
+    for i in range(len(observations)):
+        # ID
     
+        sid = observations.iloc[i]["uid"]
+        star_info = std_info[std_info["source_id"]==sid]
+
+        if len(star_info) < 1:
+            diff.append([np.nan, np.nan, np.nan])
+        elif len(star_info) > 1:
+            diff.append([np.nan, np.nan, np.nan])
+        else:
+            star_info = star_info.iloc[0]
+            synth_params = observations.iloc[i][[
+                "teff_synth", "logg_synth", "feh_synth"]].values
+            lit_params = star_info[["teff", "logg", "feh"]].values
+            diff.append(synth_params-lit_params)
+        
+    return np.array(diff).astype(float)
+
 # -----------------------------------------------------------------------------
 # Fundamental Parameter Empirical Relations
 # -----------------------------------------------------------------------------

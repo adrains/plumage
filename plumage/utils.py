@@ -827,63 +827,60 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
 # -----------------------------------------------------------------------------
 # Loading in literature info (e.g. photometry)
 # ----------------------------------------------------------------------------- 
-def load_tess_info(path="data/tess_info.tsv"):
+def load_info_cat(path="data/tess_info.tsv"):
     """
     """
     # Do initial import
-    tess_info = pd.read_csv(
-        "data/tess_info.tsv", 
-        sep="\t", 
-        dtype={"source_id":str}
-    )
+    info_cat = pd.read_csv(path, sep="\t", dtype={"source_id":str})
 
     # Clean
-    tess_info["observed"] = tess_info["observed"] == "yes"
+    info_cat["observed"] = info_cat["observed"] == "yes"
 
     # Make new boolean column for planet candidates or known planets
-    pc_mask = np.logical_and(
-        tess_info["TFOPWG Disposition"] != "FP",
-        np.logical_or(
-            tess_info["TESS Disposition"] == "PC",
-            tess_info["TESS Disposition"] == "KP")
-    )
-    tess_info["pc"] = pc_mask
+    if "TOI" in info_cat:
+        pc_mask = np.logical_and(
+            info_cat["TFOPWG Disposition"] != "FP",
+            np.logical_or(
+                info_cat["TESS Disposition"] == "PC",
+                info_cat["TESS Disposition"] == "KP")
+        )
+        info_cat["pc"] = pc_mask
 
     # Make boolean for blended 2MASS photometry
-    b2m_mask = tess_info["blended_2mass"] == "yes"
-    tess_info["blended_2mass"] = b2m_mask
+    b2m_mask = info_cat["blended_2mass"] == "yes"
+    info_cat["blended_2mass"] = b2m_mask
 
     # Compute distance and absolute magnitudes
-    tess_info["dist"] = 1000 / tess_info["plx"]
-    tess_info["G_mag_abs"] = tess_info["G_mag"] - 5*np.log10(tess_info["dist"]/10)
-    tess_info["K_mag_abs"] = tess_info["K_mag"] - 5*np.log10(tess_info["dist"]/10)
+    info_cat["dist"] = 1000 / info_cat["plx"]
+    info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
 
     # Compute additional colours
-    tess_info["G-K"] = tess_info["G_mag"] - tess_info["K_mag"]
-    tess_info["J-H"] = tess_info["J_mag"] - tess_info["H_mag"]
-    tess_info["J-K"] = tess_info["J_mag"] - tess_info["K_mag"]
+    info_cat["G-K"] = info_cat["G_mag"] - info_cat["K_mag"]
+    info_cat["J-H"] = info_cat["J_mag"] - info_cat["H_mag"]
+    info_cat["J-K"] = info_cat["J_mag"] - info_cat["K_mag"]
 
     # Compute Mann 2015 temperatures
     # Bp-Rp
     teffs, e_teffs = params.compute_mann_2015_teff(
-        tess_info["Bp-Rp"],
+        info_cat["Bp-Rp"],
         relation="BP - RP")
 
-    tess_info["teff_m15_bprp"] = teffs
-    tess_info["e_teff_m15_bprp"] = e_teffs
+    info_cat["teff_m15_bprp"] = teffs
+    info_cat["e_teff_m15_bprp"] = e_teffs
 
     # Bp-Rp, J-H
     teffs, e_teffs = params.compute_mann_2015_teff(
-        tess_info["Bp-Rp"], 
-        j_h=tess_info["J-H"],
+        info_cat["Bp-Rp"], 
+        j_h=info_cat["J-H"],
         relation="BP - RP, J - H")
 
-    tess_info["teff_m15_bprp_jh"] = teffs
-    tess_info["e_teff_m15_bprp_jh"] = e_teffs
+    info_cat["teff_m15_bprp_jh"] = teffs
+    info_cat["e_teff_m15_bprp_jh"] = e_teffs
 
     # And Mann 2015 masses
-    mass, e_mass = params.compute_mann_2019_masses(tess_info["K_mag_abs"]) 
-    tess_info["mass_m19"] = mass
-    tess_info["e_mass_m19"] = e_mass
+    mass, e_mass = params.compute_mann_2019_masses(info_cat["K_mag_abs"]) 
+    info_cat["mass_m19"] = mass
+    info_cat["e_mass_m19"] = e_mass
 
-    return tess_info
+    return info_cat
