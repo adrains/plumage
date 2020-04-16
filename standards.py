@@ -4,6 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from astropy.coordinates import Angle
 
+only_observed = True
+
 # Load in 
 royas = pd.read_csv("rojas-ayala_2012.tsv", sep="\t", header=1, 
                      skiprows=0, dtype={"source_id":str, "useful":bool})
@@ -37,7 +39,7 @@ tess = tess[[type(ii) == str for ii in tess.index.values]]
  
 
 # Decide on limits, and mask
-faint_mag = 10       # This gives ~15.6x the SNR of our faintest echelle target
+faint_mag = 15       # This gives ~15.6x the SNR of our faintest echelle target
 bright_mag = 0
 ra_min = 0 #10 * 15    
 ra_max = 24 #5 * 15
@@ -56,13 +58,26 @@ def mask_catalogue(catalogue, faint_mag, bright_mag, ra_min, ra_max):
     mask = np.logical_and(mag_mask, ra_mask)
     
     final_mask = np.logical_and(mask, catalogue["useful"])
+
+    if only_observed:
+        observed_standards = np.loadtxt("observed_std.csv",dtype=str)
+
+        is_observed = [sid in observed_standards for sid in catalogue.index.values]
+
+        #print(is_observed)
+
+        final_mask *= is_observed
     
     return catalogue[final_mask].copy()
+
+#import pdb
+#pdb.set_trace()
 
 royas_masked = mask_catalogue(royas, faint_mag, bright_mag, ra_min, ra_max)
 newton_masked = mask_catalogue(newton, faint_mag, bright_mag, ra_min, ra_max)
 mann_masked = mask_catalogue(mann, faint_mag, bright_mag, ra_min, ra_max)
 int_masked = mask_catalogue(interferometry, faint_mag, bright_mag, ra_min, ra_max)
+herzceg_masked = mask_catalogue(herczeg, faint_mag, bright_mag, ra_min, ra_max)
 
 unique_stars = set(np.hstack([royas_masked.index.values, 
                               newton_masked.index.values, 
@@ -90,7 +105,7 @@ plt.scatter(mann_masked["teff"], mann_masked["logg"], c=mann_masked["feh"],
             marker="+", label="Mann+2015")  
 plt.scatter(int_masked["teff"], int_masked["logg"], c=int_masked["feh"], 
             marker="^", label="Interferometry", norm=norm) 
-plt.scatter(herczeg["teff"], herczeg["logg"], c=herczeg["feh"], 
+plt.scatter(herzceg_masked["teff"], herzceg_masked["logg"], c=herzceg_masked["feh"], 
             marker="*", label="Herczeg+14", norm=norm)  
 cb = plt.colorbar()
 cb.set_label("[Fe/H]")
@@ -158,12 +173,19 @@ int_masked["Gmag_abs"] = int_masked["Gmag"] - 5*np.log10(int_masked["dist"]/10)
 herczeg["dist"] = 1000 / herczeg["plx"]  
 herczeg["Gmag_abs"] = herczeg["Gmag"] - 5*np.log10(herczeg["dist"]/10)  
 
-cats = [royas_masked, newton_masked, mann_masked, int_masked, herczeg, ys_candidates] 
+cats = [royas_masked, newton_masked, mann_masked, int_masked, herzceg_masked,]# ys_candidates] 
 labels = ["Royas-Ayala+2012", "Newton+2014", "Mann+2015", "Interferometry", 
           "Herczeg+14", "YS Candidates"]
 markers = ["o", "s", "+", "^", "*", "1"]
 
 plt.figure()
+
+total = 0
+for cat, label in zip(cats, labels):
+    print(label, "-", len(cat))
+    total += len(cat)
+
+print("Total stars: %i" % total)
 
 for cat_i in range(0, len(cats)):
     print(labels[cat_i])

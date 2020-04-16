@@ -44,24 +44,34 @@ def compare_fits_to_lit(observations, std_info):
     """Compares synthetic fits to literatue values
     """
     diff = []
+    n_matches = 0
+    n_dups = 0
+    dups = []
 
     for i in range(len(observations)):
         # ID
     
         sid = observations.iloc[i]["uid"]
-        star_info = std_info[std_info["source_id"]==sid]
+        is_obs = std_info["observed"].values
+        star_info = std_info[is_obs][std_info[is_obs]["source_id"]==sid]
 
         if len(star_info) < 1:
             diff.append([np.nan, np.nan, np.nan])
         elif len(star_info) > 1:
             diff.append([np.nan, np.nan, np.nan])
+            n_dups += 1
+            dups.append(sid)
         else:
+            n_matches += 1
             star_info = star_info.iloc[0]
             synth_params = observations.iloc[i][[
                 "teff_synth", "logg_synth", "feh_synth"]].values
             lit_params = star_info[["teff", "logg", "feh"]].values
             diff.append(synth_params-lit_params)
-        
+    
+    print("{} matches".format(n_matches))
+    print("{} duplicates".format(n_dups))
+
     return np.array(diff).astype(float)
 
 # -----------------------------------------------------------------------------

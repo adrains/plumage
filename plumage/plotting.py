@@ -462,10 +462,13 @@ def plot_synth_fit_diagnostic(
     if is_tess:
         sid = float(obs_info["id"].replace("TOI",""))
         star_info = info_cat[info_cat["TOI"]==sid].iloc[0]
+
+        plt.suptitle("TOI {}, Gaia DR2 {}".format(sid, obs_info["uid"]))
     
     else:
         sid = obs_info["uid"]
-        star_info = info_cat[info_cat["source_id"]==sid]
+        is_obs = info_cat["observed"].values
+        star_info = info_cat[is_obs][info_cat[is_obs]["source_id"]==sid]
 
         if len(star_info) < 1:
             return
@@ -473,6 +476,8 @@ def plot_synth_fit_diagnostic(
             return
         else:
             star_info = star_info.iloc[0]
+
+        plt.suptitle("{}, Gaia DR2 {}".format(star_info["ID"], sid))
     
 
     # Then just plot our current star
@@ -533,11 +538,17 @@ def plot_synth_fit_diagnostic(
     # If lit params are known, display
     if "teff" in star_info:
         lit_params = star_info[["teff", "e_teff", "logg", "feh", "e_feh"]].values
-        lit_param_label = r"Lit Params ({}): $T_{{\rm eff}} = {:0.0f} \pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = {:0.2f} \pm {:0.2f}$"
-        lit_param_label = lit_param_label.format(str(star_info["source"]), lit_params[0], lit_params[1], lit_params[2], lit_params[3], lit_params[4])
+        lit_param_label = r"Lit Params ({}, {}): $T_{{\rm eff}} = {:0.0f} \pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = {:0.2f} \pm {:0.2f}$"
+        lit_param_label = lit_param_label.format(
+            str(star_info["kind"]),
+            str(star_info["source"]), 
+            lit_params[0], 
+            lit_params[1], 
+            lit_params[2], 
+            lit_params[3], 
+            lit_params[4])
         ax_spec.text(np.nanmean(wave), 0.25, lit_param_label, horizontalalignment="center")
 
-    plt.suptitle("TOI {}, Gaia DR2 {}".format(sid, obs_info["uid"]))
     plt.gcf().set_size_inches(16, 9)
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
     plt_save_loc = os.path.join(plot_path, "{}_TOI{}.pdf".format(int(params[0]), sid))
@@ -706,3 +717,81 @@ def plot_tess_cmd(
     axis.set_ylabel(abs_mag)
     fig.tight_layout()
     plt.savefig("paper/tess_cmd.pdf")
+
+
+def plot_label_comparison(
+    observations, 
+    std_info,
+    teff_lims=(2800,6500),
+    logg_lims=(4.0,6.0),
+    feh_lims=(-2,1.0),
+    teff_axis_step=200,
+    logg_axis_step=0.5,
+    feh_axis_step=0.5):
+    """Plot comparison between actual labels and predicted labels for 
+    Teff, logg, and [Fe/H].
+
+    Parameters
+    ----------
+    label_values: 2D numpy array
+        Label array with columns [teff, logg, feh]
+    
+    labels_pred: 2D numpy array
+        Predicted label array with columns [teff, logg, feh]
+    """
+    plt.close("all")
+    fig, (ax_teff, ax_logg, ax_feh) = plt.subplots(1, 3, figsize=(12, 4)) 
+    fig.subplots_adjust(left=0.1, bottom=0.2, right=0.9, top=0.95, 
+                        wspace=0.5)
+
+    lit_source = [ls for ls in list(set(std_info["source"].values)) if type(ls) == str]
+    
+    # Only plot standards in std_info that are marked as observed
+    obs_stds = std_info[std_info["observed"]]
+
+    cms_mask = np.isin(observations["uid"], obs_stds["source_id"])
+    cms_obs = observations[cms_mask]
+
+    # Now for every observed star in cms_obs, plot params vs lit equivalents
+    for star_i, star in cms_obs.iterrows(): 
+        star_lit_info = obs_stds[obs_stds["source_id"]==star["uid"]].iloc[0]
+
+        ax_teff.errorbar(
+            star["teff_synth"], 
+            star_lit_info["teff"], 
+            yerr=star_lit_info["e_teff"],
+            fmt="o")
+
+        ax_logg.errorbar(
+            star["logg_synth"], 
+            star_lit_info["logg"], 
+            yerr=star_lit_info["e_logg"],
+            fmt="o")
+
+        ax_feh.errorbar(
+            star["feh_synth"], 
+            star_lit_info["feh"], 
+            yerr=star_lit_info["e_feh"],
+            fmt="o")
+
+    xy = np.arange(teff_lims[0],teff_lims[1])
+    ax_teff.plot(xy, xy, "-", color="black")
+    ax_teff.set_xlabel(r"T$_{\rm eff}$ (Synth)")
+    ax_teff.set_ylabel(r"T$_{\rm eff}$ (Lit)")
+
+    xy = np.arange(logg_lims[0],logg_lims[1], 0.1)
+    ax_logg.plot(xy, xy, "-", color="black")
+    ax_logg.set_xlabel(r"$\log g$ (Synth)")
+    ax_logg.set_ylabel(r"$\log g$ (Lit)")
+
+    xy = np.arange(feh_lims[0],feh_lims[1], 0.1)
+    ax_feh.plot(xy, xy, "-", color="black")
+    ax_feh.set_xlabel(r"[Fe/H] (Synth)")
+    ax_feh.set_ylabel(r"[Fe/H] (Lit)") 
+
+    plt.savefig("plots/std_label_comp.pdf")
+    # Plot every source separately
+    #for source in lit_source:
+        # Sort the array
+        #mm = np.isin(observations["uid"], std_info[std_info["source"]==source]["source_id"])  
+        #obs = observations[mm]
