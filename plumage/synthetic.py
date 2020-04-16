@@ -453,8 +453,73 @@ def load_synthetic_templates_legacy(path, setting="R7000"):
 # -----------------------------------------------------------------------------
 # Synthetic Fitting
 # -----------------------------------------------------------------------------
-# rv, wave, spec, e_spec, ref_spec_interp, bcor
-def calc_synth_fit_resid(
+def calc_synth_fit_resid_one_arm(
+    params, 
+    wave_sci, 
+    spec_sci, 
+    e_spec_sci, 
+    bad_px_mask,
+    rv, 
+    bcor, 
+    idl,
+    arm,
+    ):
+    """
+    """
+    # Initialise details of synthetic wavelength scale
+    # TODO - Generalise this
+    if arm == "r":
+        res = 7000
+        wl_min = 5400
+        wl_max = 7000
+        n_px = 3637
+    elif arm == "b":
+        res = 3000
+        wl_min = 3500
+        wl_max = 5700
+        n_px = 2858
+    else:
+        raise ValueError("Must be either r or b")
+
+    wl_per_px = (wl_max - wl_min) / n_px
+
+    # Get the template spectrum
+    wave_synth, spec_synth = get_idl_spectrum(
+        idl, 
+        params[0], 
+        params[1], 
+        params[2], 
+        wl_min, 
+        wl_max, 
+        res, 
+        norm="abs",
+        do_resample=True, 
+        wl_per_pixel=wl_per_px,
+        )
+
+    # The grid we put our new synthetic spectrum on should be put in the same
+    # RV frame as the science spectrum
+    wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
+    ref_spec_interp = ius(wave_synth, spec_synth)
+
+    wave_synth = wave_sci * wave_rv_scale
+    spec_synth = ref_spec_interp(wave_synth)
+
+    # Normalise spectra by wavelength region before fit
+    spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(wave_sci, spec_sci, arm, e_spec_sci)
+    spec_synth = spec.norm_spec_by_wl_region(wave_sci, spec_synth, arm)
+
+    # Calculate the residual
+    resid_vect = (spec_sci[~bad_px_mask] 
+                  - spec_synth[~bad_px_mask]) / e_spec_sci[~bad_px_mask]
+
+    if not np.isfinite(np.sum(resid_vect)):
+        resid_vect = np.ones_like(resid_vect) * 1E30
+
+    return resid_vect, spec_synth
+
+
+def calc_synth_fit_resid_both_arms(
     params, 
     wave_r, 
     spec_r, 
@@ -528,63 +593,50 @@ def calc_synth_fit_resid(
     """
     print(params)
 
-    arm = "r"
-
-    # Initialise details of synthetic wavelength scale
-    # TODO - Generalise this
-    if arm == "r":
-        res = 7000
-        wl_min = 5400
-        wl_max = 7000
-        n_px = 3637
-    elif arm == "b":
-        res = 3000
-        wl_min = 3500
-        wl_max = 5700
-        n_px = 2858
+    # Fit red
+    resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
+        params, 
+        wave_r, 
+        spec_r, 
+        e_spec_r, 
+        bad_px_mask_r,
+        rv, 
+        bcor, 
+        idl,
+        "r")
+    
+    # Do blue if we've been given it
+    if ((not wave_b is None) or (not spec_b is None) or (not e_spec_b is None) 
+        or (not bad_px_mask_b is None)):
+        # Determine blue residuals
+        resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
+            params, 
+            wave_b, 
+            spec_b, 
+            e_spec_b, 
+            bad_px_mask_b,
+            rv, 
+            bcor, 
+            idl,
+            "b")
+        
+        # Combine residual vectors
+        resid_vect = np.concatenate((resid_vect_b, resid_vect_r))
+    
     else:
-        raise ValueError("Must be either r or b")
+        # Default blue synth spec
+        spec_synth_b = None
 
-    wl_per_px = (wl_max - wl_min) / n_px
-
-    # Get the template spectrum
-    wave_synth_r, spec_synth_r = get_idl_spectrum(
-        idl, 
-        params[0], 
-        params[1], 
-        params[2], 
-        wl_min, 
-        wl_max, 
-        res, 
-        norm="abs",
-        do_resample=True, 
-        wl_per_pixel=wl_per_px,
-        )
-
-    # The grid we put our new synthetic spectrum on should be put in the same
-    # RV frame as the science spectrum
-    wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
-    ref_spec_interp = ius(wave_synth_r, spec_synth_r)
-
-    wave_synth_r = wave_r * wave_rv_scale
-    spec_synth_r = ref_spec_interp(wave_synth_r)
-
-    # Normalise spectra by wavelength region before fit
-    spec_r, e_spec_r = spec.norm_spec_by_wl_region(wave_r, spec_r, arm, e_spec_r)
-    spec_synth_r = spec.norm_spec_by_wl_region(wave_r, spec_synth_r, arm)
-
-    # Calculate the residual
-    resid_vect = (spec_r[~bad_px_mask_r] - spec_synth_r[~bad_px_mask_r]) / e_spec_r[~bad_px_mask_r]
-
-    if not np.isfinite(np.sum(resid_vect)):
-        resid_vect = np.ones_like(resid_vect) * 1E30
+        # Just use red residual vector
+        resid_vect = resid_vect_r
     
     # Save the best fit normalised spectra
-    best_fit_spec_dict["wave"] = wave_r
-    best_fit_spec_dict["wl_mask"] = ~bad_px_mask_r
-    best_fit_spec_dict["spec_sci"] = spec_r
-    best_fit_spec_dict["e_spec_sci"] = e_spec_r
-    best_fit_spec_dict["spec_synth"] = spec_synth_r
+    #best_fit_spec_dict["wave"] = wave_r
+    #best_fit_spec_dict["wl_mask"] = ~bad_px_mask_r
+    #best_fit_spec_dict["spec_sci"] = spec_r
+    #best_fit_spec_dict["e_spec_sci"] = e_spec_r
+    best_fit_spec_dict["spec_synth_b"] = spec_synth_b
+    best_fit_spec_dict["spec_synth_r"] = spec_synth_r
 
     return resid_vect
 
@@ -674,7 +726,7 @@ def do_synthetic_fit(
 
     # Do fit
     optimize_result = least_squares(
-        calc_synth_fit_resid, 
+        calc_synth_fit_resid_both_arms, 
         params, 
         jac="3-point",
         bounds=bounds,
