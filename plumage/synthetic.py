@@ -467,7 +467,7 @@ def calc_synth_fit_resid(
     wl_max,
     res,
     wl_per_px,
-    band,
+    arm,
     best_fit_spec_dict,
     #norm_range
     ):
@@ -498,8 +498,8 @@ def calc_synth_fit_resid(
     spec_synth = ref_spec_interp(wave_synth)
 
     # Normalise spectra by wavelength region before fit
-    spec_sci, e_spec = spec.norm_spec_by_wl_region(wave, spec_sci, band, e_spec)
-    spec_synth = spec.norm_spec_by_wl_region(wave, spec_synth, band)
+    spec_sci, e_spec = spec.norm_spec_by_wl_region(wave, spec_sci, arm, e_spec)
+    spec_synth = spec.norm_spec_by_wl_region(wave, spec_synth, arm)
 
     # Calculate the residual
     resid_vect = (spec_sci[wl_mask] - spec_synth[wl_mask]) / e_spec[wl_mask]
@@ -518,7 +518,7 @@ def calc_synth_fit_resid(
 
 
 def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, wl_mask, 
-        band="red"):
+        arm="r"):
     """
     """
     # initialise IDL
@@ -526,12 +526,12 @@ def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, wl_mask,
 
     # Initialise details of synthetic wavelength scale
     # TODO - Generalise this
-    if band == "red":
+    if arm == "r":
         res = 7000
         wl_min = 5400
         wl_max = 7000
         n_px = 3637
-    elif band == "blue":
+    elif arm == "b":
         res = 3000
         wl_min = 3500
         wl_max = 5700
@@ -546,14 +546,14 @@ def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, wl_mask,
 
     # Setup fit settings
     args = (wave, spectrum, e_spec, rv, bcor, wl_mask, idl, wl_min, wl_max,  
-            res, wl_per_px, band, best_fit_spec_dict)
+            res, wl_per_px, arm, best_fit_spec_dict)
     bounds = ((2500, -1, -5), (7900, 5.5, 1))
     scale = (1, 1, 1)
     step = (10, 0.1, 0.1)
     
     # Make sure initial teff guess isn't out of bounds, assign default if so
     params = np.array(params)
-    
+
     if params[0] < bounds[0][0] or params[0] > bounds[1][0]:
         params[0] = 5250
 

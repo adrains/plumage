@@ -213,7 +213,7 @@ def plot_teff_sorted_spectra(spectra, observations, arm="r",
         plt.text(spec[0,:].mean(), sp_i+0.5, label, fontsize=4, 
                         ha="center")
 
-    if show_telluric_box:
+    if arm == "r" and show_telluric_box:
         h2o = [6270.0, 6290.0]
         o2 = [6856.0, 6956.0]
 
@@ -332,7 +332,8 @@ def plot_standards(spectra, observations, catalogue):
 # Synthetic fit diagnostics
 # ----------------------------------------------------------------------------- 
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
-        obs_info, param_cols, date_id, plot_path, fig=None, axis=None):
+        obs_info, param_cols, date_id, save_path=None, fig=None, axis=None,
+        save_fig=False, arm="r"):
     """TODO: Sort out proper sharing of axes
 
     Parameters
@@ -392,7 +393,7 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     axis.text(np.nanmean(wave), 1.45, rv_label, horizontalalignment="center")
 
     # Label SNR
-    snr_label = r"SNR (R) $\sim {:0.0f}$".format(obs_info["snr_r"])
+    snr_label = r"SNR ({}) $\sim {:0.0f}$".format(arm, obs_info["snr_{}".format(arm)])
     axis.text(np.nanmean(wave), 1.375, snr_label, horizontalalignment="center")
 
     # Label date
@@ -422,8 +423,9 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     res_ax.set_ylabel("Residuals")
     res_ax.set_xlabel("Wavelength (A)")
 
-    #plt.suptitle(date_id)
-    #plt.savefig(plot_path)
+    if save_fig:
+        plt.suptitle(date_id)
+        plt.savefig(save_path)
 
 
 def plot_synth_fit_diagnostic(

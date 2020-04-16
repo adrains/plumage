@@ -51,7 +51,7 @@ for ob_i in range(0, len(observations)):
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
         ~bad_px_masks[ob_i],
-        band="red")
+        arm="r")
 
     # Record results
     params_fit.append(opt_res["x"])

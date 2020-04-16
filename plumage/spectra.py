@@ -475,7 +475,7 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
     """
     spectra_norm = spectra.copy()
 
-    for spec_i in tqdm(range(len(spectra_norm))):
+    for spec_i in tqdm(range(len(spectra_norm)), desc="Normalising spectra"):
         if normalise_uncertainties:
             spec_norm, e_spec_norm = normalise_spectrum(spectra[spec_i][0,:],
                                        spectra[spec_i][1,:],
@@ -492,19 +492,19 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
     return spectra_norm
 
 
-def norm_spec_by_wl_region(wave, spectrum, band, e_spec=None):
+def norm_spec_by_wl_region(wave, spectrum, arm, e_spec=None):
     """Normalise spectra by a specific wavelength region for synthetic fitting.
     """
     # Normalise by the region just to the blue of H alpha
-    if band == "red":
+    if arm == "r":
         norm_mask = np.logical_and(wave > 6535, wave < 6545)
 
     # Normalise by bandhead near 5000 A
-    elif band == "blue":
+    elif arm == "b":
         norm_mask = np.logical_and(wave > 4925, wave < 4950)
 
     else:
-        raise ValueError("Band must be either red or blue")
+        raise ValueError("Arm must be either red or blue")
 
     # Normalise the specta (and errors if provided)
     spec_norm = spectrum / np.nanmean(spectrum[norm_mask])
@@ -1019,7 +1019,7 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
 
 
 def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
-                            print_diagnostics=False):
+                            print_diagnostics=False, save_column_ext=""):
     """Do template fitting on all stars for radial velocity and temperature, 
     and save the results to observations.
 
@@ -1060,7 +1060,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     bad_px_masks = []
 
     # For every star, do template fitting
-    for star_i, sci_spec in enumerate(tqdm(sci_spectra)):
+    for star_i, sci_spec in enumerate(tqdm(sci_spectra, desc="Fitting RVs")):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
                  % (star_i+1, len(sci_spectra), 
@@ -1090,13 +1090,16 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     bad_px_masks = np.array(bad_px_masks)
 
     # Add to observations
-    observations["teff_fit"] = all_params[:,0]
-    observations["logg_fit"] = all_params[:,1]
-    observations["feh_fit"] = all_params[:,2]
-    observations["vsini_fit"] = all_params[:,3]
-    observations["rv"] = np.array(all_rvs)
-    observations["e_rv"] = np.array(all_e_rvs)
-    observations["rchi2"] = np.array(all_rchi2)
+    if save_column_ext != "":
+        save_column_ext = "_{}".format(save_column_ext)
+
+    observations["teff_fit{}".format(save_column_ext)] = all_params[:,0]
+    observations["logg_fit{}".format(save_column_ext)] = all_params[:,1]
+    observations["feh_fit{}".format(save_column_ext)] = all_params[:,2]
+    observations["vsini_fit{}".format(save_column_ext)] = all_params[:,3]
+    observations["rv{}".format(save_column_ext)] = np.array(all_rvs)
+    observations["e_rv{}".format(save_column_ext)] = np.array(all_e_rvs)
+    observations["rchi2{}".format(save_column_ext)] = np.array(all_rchi2)
 
     return all_nres, all_rchi2_grid, bad_px_masks, info_dicts
 
