@@ -32,7 +32,7 @@ spec_dicts = []
 rchi2 = []
 
 # For every star, do synthetic fitting
-for ob_i in range(0, len(observations)):
+for ob_i in range(0, 3):#len(observations)):
     print("-"*40, "\n{}\n".format(ob_i), "-"*40)
 
     # Initialise parameters based on best fitting RV template
@@ -47,11 +47,15 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
         spectra_r[ob_i, 2], # Red uncertainties
+        bad_px_masks[ob_i],
         params_init, 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
-        ~bad_px_masks[ob_i],
-        arm="r")
+        wave_b=None, 
+        spec_b=None, 
+        e_spec_b=None, 
+        bad_px_mask_b=None,
+        )
 
     # Record results
     params_fit.append(opt_res["x"])

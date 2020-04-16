@@ -456,27 +456,99 @@ def load_synthetic_templates_legacy(path, setting="R7000"):
 # rv, wave, spec, e_spec, ref_spec_interp, bcor
 def calc_synth_fit_resid(
     params, 
-    wave, 
-    spec_sci, 
-    e_spec, 
+    wave_r, 
+    spec_r, 
+    e_spec_r, 
+    bad_px_mask_r,
     rv, 
     bcor, 
-    wl_mask,
     idl,
-    wl_min,
-    wl_max,
-    res,
-    wl_per_px,
-    arm,
+    wave_b, 
+    spec_b, 
+    e_spec_b, 
+    bad_px_mask_b,
     best_fit_spec_dict,
     #norm_range
     ):
-    """
+    """Calculates the uncertainty weighted residuals between a science spectrum
+    and a generated template spectrum with parameters per 'params'. If blue
+    band spectrum related arrays are None, will just fit for red spectra. This
+    is to account for potentially poor SNR in the blue.
+
+    Parameters
+    ----------
+    params: float array
+        Initial parameter guess of form (teff, logg, [Fe/H])
+
+    wave_r: float array
+        Wavelength scale for the red spectrum.
+
+    spec_r: float array
+        The red spectrum corresponding to wave_r.
+
+    e_spec_r: float array
+        Uncertainties on red spectra.
+
+    bad_px_mask_r: boolean array
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    rv: float
+        Radial velocity in km/s
+
+    bcor: float:
+        Barycentric velocity in km/s
+
+    idl: pidly.IDL
+        pidly.IDL object to interface with Thomas Nordlander's synthetic 
+        MARCS spectra through IDL.
+
+    wave_b: float array, optional
+        Wavelength scale for the blue spectrum.
+
+    spec_b: float array, optional
+        The red spectrum corresponding to wave_r.
+
+    e_spec_b: float array, optional
+        Uncertainties on red spectra.
+
+    bad_px_mask_b: boolean, optional
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    best_fit_spec_dict: dict
+        Initially empty dictionary used to return normalised science spectrum 
+        and best fit synthetic spectrum.
+
+    Returns
+    -------
+    resid_vect: float array
+        Uncertainty weighted residual vector between science and synthetic
+        spectra.
     """
     print(params)
 
+    arm = "r"
+
+    # Initialise details of synthetic wavelength scale
+    # TODO - Generalise this
+    if arm == "r":
+        res = 7000
+        wl_min = 5400
+        wl_max = 7000
+        n_px = 3637
+    elif arm == "b":
+        res = 3000
+        wl_min = 3500
+        wl_max = 5700
+        n_px = 2858
+    else:
+        raise ValueError("Must be either r or b")
+
+    wl_per_px = (wl_max - wl_min) / n_px
+
     # Get the template spectrum
-    wave_synth, spec_synth = get_idl_spectrum(
+    wave_synth_r, spec_synth_r = get_idl_spectrum(
         idl, 
         params[0], 
         params[1], 
@@ -492,61 +564,104 @@ def calc_synth_fit_resid(
     # The grid we put our new synthetic spectrum on should be put in the same
     # RV frame as the science spectrum
     wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
-    ref_spec_interp = ius(wave_synth, spec_synth)
+    ref_spec_interp = ius(wave_synth_r, spec_synth_r)
 
-    wave_synth = wave * wave_rv_scale
-    spec_synth = ref_spec_interp(wave_synth)
+    wave_synth_r = wave_r * wave_rv_scale
+    spec_synth_r = ref_spec_interp(wave_synth_r)
 
     # Normalise spectra by wavelength region before fit
-    spec_sci, e_spec = spec.norm_spec_by_wl_region(wave, spec_sci, arm, e_spec)
-    spec_synth = spec.norm_spec_by_wl_region(wave, spec_synth, arm)
+    spec_r, e_spec_r = spec.norm_spec_by_wl_region(wave_r, spec_r, arm, e_spec_r)
+    spec_synth_r = spec.norm_spec_by_wl_region(wave_r, spec_synth_r, arm)
 
     # Calculate the residual
-    resid_vect = (spec_sci[wl_mask] - spec_synth[wl_mask]) / e_spec[wl_mask]
+    resid_vect = (spec_r[~bad_px_mask_r] - spec_synth_r[~bad_px_mask_r]) / e_spec_r[~bad_px_mask_r]
 
     if not np.isfinite(np.sum(resid_vect)):
         resid_vect = np.ones_like(resid_vect) * 1E30
     
     # Save the best fit normalised spectra
-    best_fit_spec_dict["wave"] = wave
-    best_fit_spec_dict["wl_mask"] = wl_mask
-    best_fit_spec_dict["spec_sci"] = spec_sci
-    best_fit_spec_dict["e_spec_sci"] = e_spec
-    best_fit_spec_dict["spec_synth"] = spec_synth
+    best_fit_spec_dict["wave"] = wave_r
+    best_fit_spec_dict["wl_mask"] = ~bad_px_mask_r
+    best_fit_spec_dict["spec_sci"] = spec_r
+    best_fit_spec_dict["e_spec_sci"] = e_spec_r
+    best_fit_spec_dict["spec_synth"] = spec_synth_r
 
     return resid_vect
 
 
-def do_synthetic_fit(wave, spectrum, e_spec, params, rv, bcor, wl_mask, 
-        arm="r"):
-    """
+def do_synthetic_fit(
+    wave_r, 
+    spec_r, 
+    e_spec_r, 
+    bad_px_mask_r, 
+    params, 
+    rv, 
+    bcor,
+    wave_b=None, 
+    spec_b=None, 
+    e_spec_b=None, 
+    bad_px_mask_b=None,):
+    """Performs least squares fitting (using scipy.optimize.least_squares) on
+    science spectra given an initial stellar parameter guess. By default only
+    fits red arm spectra (to account for poor SNR blue spectra), but will fit 
+    blue spectra if provided.
+
+    Parameters
+    ----------
+    wave_r: float array
+        Wavelength scale for the red spectrum.
+
+    spec_r: float array
+        The red spectrum corresponding to wave_r.
+
+    e_spec_r: float array
+        Uncertainties on red spectra.
+
+    bad_px_mask_r: boolean array
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    params: float array
+        Initial parameter guess of form (teff, logg, [Fe/H])
+
+    rv: float
+        Radial velocity in km/s
+
+    bcor: float:
+        Barycentric velocity in km/s
+
+    wave_b: float array, optional
+        Wavelength scale for the blue spectrum.
+
+    spec_b: float array, optional
+        The red spectrum corresponding to wave_r.
+
+    e_spec_b: float array, optional
+        Uncertainties on red spectra.
+
+    bad_px_mask_b: boolean, optional
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    Returns
+    -------
+    optimize_result: dict
+        Dictionary of best fit results returned from 
+        scipy.optimize.least_squares.
+
+    best_fit_spec_dict: dict
+        Dictionary containing normalised science spectrum and best fit 
+        synthetic spectrum
     """
     # initialise IDL
     idl = idl_init()
-
-    # Initialise details of synthetic wavelength scale
-    # TODO - Generalise this
-    if arm == "r":
-        res = 7000
-        wl_min = 5400
-        wl_max = 7000
-        n_px = 3637
-    elif arm == "b":
-        res = 3000
-        wl_min = 3500
-        wl_max = 5700
-        n_px = 2858
-    else:
-        raise ValueError("Must be either red or blue")
-
-    wl_per_px = (wl_max - wl_min) / n_px  
 
     # Parameter to store best fit synthetic spectra
     best_fit_spec_dict = {}
 
     # Setup fit settings
-    args = (wave, spectrum, e_spec, rv, bcor, wl_mask, idl, wl_min, wl_max,  
-            res, wl_per_px, arm, best_fit_spec_dict)
+    args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
+            wave_b, spec_b, e_spec_b, bad_px_mask_b, best_fit_spec_dict)
     bounds = ((2500, -1, -5), (7900, 5.5, 1))
     scale = (1, 1, 1)
     step = (10, 0.1, 0.1)
