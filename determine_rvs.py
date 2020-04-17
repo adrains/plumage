@@ -27,7 +27,7 @@ ref_label_r = "51_teff_only_R7000_rv_grid"
 spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
 
 # Whether to do plotting
-make_rv_diagnostic_plots = True
+make_rv_diagnostic_plots = False
 plot_teff_sorted_spectra = False
 
 # -----------------------------------------------------------------------------
@@ -61,14 +61,16 @@ nres_b, rchi2_b, bad_px_masks_b, info_dicts_b = spec.do_all_template_matches(
     observations, 
     ref_params_b, 
     ref_spec_norm_b,
+    "b",
     save_column_ext="b")
 
 # Red
 nres_r, rchi2_r, bad_px_masks_r, info_dicts_r = spec.do_all_template_matches(
     spectra_r_norm, 
     observations, 
-    ref_params_r, 
-    ref_spec_norm_r,)
+    ref_params_r,
+    ref_spec_norm_r,
+    "r")
 
 
 # Save, but now with RV

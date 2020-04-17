@@ -504,7 +504,7 @@ def norm_spec_by_wl_region(wave, spectrum, arm, e_spec=None):
         norm_mask = np.logical_and(wave > 4925, wave < 4950)
 
     else:
-        raise ValueError("Arm must be either red or blue")
+        raise ValueError("Arm must be either r or b")
 
     # Normalise the specta (and errors if provided)
     spec_norm = spectrum / np.nanmean(spectrum[norm_mask])
@@ -914,8 +914,8 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bad_px_mask,
     return float(rv_fit), float(e_rv), rchi2, infodict
 
 
-def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
-                      print_diagnostics=False, n_std=3):
+def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
+                      print_diagnostics=False, n_std=3, mask_blue_edges=True):
     """Find the best fitting template to determine the RV and temperature of
     the star.
 
@@ -950,6 +950,12 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
     rchi2_grid: float array
         Grid of reduced chi^2 values corresponding to all template spectra.
     """
+    # Ensure we have a correct arm
+    valid_arms = ["b", "r"]
+
+    if arm not in valid_arms:
+        raise ValueError("Arm must be either r or b")
+
     # Fit each template to the science data to figure out the best match
     rvs = []
     e_rvs = []
@@ -958,14 +964,32 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
     info_dicts = []
 
     for params, ref_spec in zip(ref_params, ref_spectra):
-        # Initialise mask (just telluric regions)
-        #bad_px_mask = np.full(len(sci_spectra[0]), False)
-        bad_px_mask = ~make_wavelength_mask(sci_spectra[0])
-        bad_px_mask[-1] = True # Mask out the final pixel (TODO: generalise)
+        # Initialise bad pixel mask. Initially this mask will exclude telluric
+        # regions, emission regions (i.e. the Balmer series and Ca II H+K), any
+        # pixels that are nan (e.g. due to having possessed negative flux 
+        # values) and the very edges of the blue data
 
-        #zero_mask = sci_spec_m < 0.001
-        #e_sci_spec_m[zero_mask] = 1E30
-        #sci_spec_m[zero_mask] = 1
+        # Only mask blue edges if we're dealing with blue data, otherwise leave
+        # as is
+        if arm != "b":
+            mask_blue_edges = False
+
+        bad_px_mask = ~make_wavelength_mask(
+            sci_spectra[0],
+            mask_emission=True,
+            mask_bad_px=mask_blue_edges)
+
+        # Now that we have our initial mask, OR this with the array of any nan
+        # fluxes or uncertainties
+        nan_px_mask = np.logical_or(
+            ~np.isfinite(sci_spectra[1]), 
+            ~np.isfinite(sci_spectra[2]))
+
+        bad_px_mask = np.logical_or(bad_px_mask, nan_px_mask)
+        
+        # Finally, mask out the final pixel as it is known to be bad 
+        # TODO: generalise
+        bad_px_mask[-1] = True 
 
         # Do first fit without any masking beyond tellurics
         rv, e_rv, rchi2, infodict = calc_rv_shift(
@@ -1019,7 +1043,7 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra,
 
 
 def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
-                            print_diagnostics=False, save_column_ext=""):
+                            arm, print_diagnostics=False, save_column_ext=""):
     """Do template fitting on all stars for radial velocity and temperature, 
     and save the results to observations.
 
@@ -1037,6 +1061,9 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     ref_spectra: float array
         Array of imported template spectra of form [star, wl/spec, flux]
     
+    arm: string
+        Which WiFeS arm we're using (either b or r).
+
     print_diagnostics: boolean
         Whether to print diagnostics about the fit
 
@@ -1072,6 +1099,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
             bcor, 
             ref_params, 
             ref_spectra, 
+            arm,
             print_diagnostics)
         
         all_rvs.append(rv)

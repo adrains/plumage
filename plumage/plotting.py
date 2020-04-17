@@ -332,8 +332,8 @@ def plot_standards(spectra, observations, catalogue):
 # Synthetic fit diagnostics
 # ----------------------------------------------------------------------------- 
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
-        obs_info, param_cols, date_id, save_path=None, fig=None, axis=None,
-        save_fig=False, arm="r"):
+        obs_info, param_cols, date_id=None, save_path=None, fig=None, 
+        axis=None, save_fig=False, arm="r", plot_text=True):
     """TODO: Sort out proper sharing of axes
 
     Parameters
@@ -418,7 +418,7 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     # Do final plot setup
     axis.set_xticks([])
     axis.set_xticklabels([])
-    axis.legend(loc="best")
+    axis.legend(loc="upper left")
     axis.set_ylabel("Flux (Normalised)")
     res_ax.set_ylabel("Residuals")
     res_ax.set_xlabel("Wavelength (A)")
@@ -429,24 +429,37 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
 
 
 def plot_synth_fit_diagnostic(
-    wave,
-    spec_sci,
-    e_spec_sci,
-    spec_synth,
-    bad_px_mask,
+    wave_r,
+    spec_r,
+    e_spec_r,
+    spec_synth_r,
+    bad_px_mask_r,
     obs_info,
     info_cat,
     plot_path,
+    wave_b=None,
+    spec_b=None,
+    e_spec_b=None,
+    spec_synth_b=None,
+    bad_px_mask_b=None,
     is_tess=False):
-    """Want to plot TESS CMD (highlighting the current star) next to the 
+    """Want to plot Gaia CMD (highlighting the current star) next to the 
     synthetic fit, along with associated flags.
     """
     # Initialise
     plt.close("all")
-    fig, (ax_cmd, ax_spec) = plt.subplots(1,2, gridspec_kw={'width_ratios': [1, 4]})
+    fig = plt.figure()#constrained_layout=True)
+    gs = fig.add_gridspec(nrows=2, ncols=5)
+    ax_cmd = fig.add_subplot(gs[:, 0])
+    ax_spec_b = fig.add_subplot(gs[0, 1:])
+    ax_spec_r = fig.add_subplot(gs[1, 1:])
+
+    #fig, (ax_cmd, ax_spec) = plt.subplots(1,2, gridspec_kw={'width_ratios': [1, 4]})
     #fig.subplots_adjust(top=0.9)
 
-    # Plot up the CMD side
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Colour Magnitude Diagram
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if "pc" in info_cat:
         mask = np.logical_and(info_cat["observed"], info_cat["pc"])
     else:
@@ -485,60 +498,68 @@ def plot_synth_fit_diagnostic(
     # Then just plot our current star
     ax_cmd.plot(star_info["Bp-Rp"], star_info["G_mag_abs"], "o", c="red")
 
-    # Flip magnitude axis
-    ymin, ymax = ax_cmd.get_ylim()
-    ax_cmd.set_ylim((ymax, ymin))
-
     ax_cmd.set_xlabel(r"$B_P-R_P$")
     ax_cmd.set_ylabel(r"$G_{\rm abs}$")
 
     # Plot diagnostic info
-    ax_cmd.text(2.4, 6.4, "RUWE = {:.2f}".format(float(star_info["ruwe"])),
+    ax_cmd.text(2.4, 5.4, "RUWE = {:.2f}".format(float(star_info["ruwe"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 6.6, 
+    ax_cmd.text(2.4, 5.6, 
         r"$T_{{{{\rm eff}}, (B_p-R_p)}}  = {:.0f} \pm {:.0f}\,K$".format(
             float(star_info["teff_m15_bprp"]), 
             float(star_info["e_teff_m15_bprp"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 6.8, 
+    ax_cmd.text(2.4, 5.8, 
         r"$T_{{{{\rm eff}}, (B_p-R_p, J-H)}} = {:.0f} \pm {:.0f}\,K$".format(
             float(star_info["teff_m15_bprp_jh"]), 
             float(star_info["e_teff_m15_bprp_jh"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 7.00, 
+    ax_cmd.text(2.4, 6.00, 
         r"$M_{{K_s}} = {:.2f} \pm {:.2f}\,M_{{\odot}}$".format(
             float(star_info["mass_m19"]), 
             float(star_info["e_mass_m19"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 7.20, 
+    ax_cmd.text(2.4, 6.20, 
         "Blended 2MASS = {}".format(bool(int(star_info["blended_2mass"]))),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 7.4, 
+    ax_cmd.text(2.4, 6.4, 
         "# Obs = {}".format(int(star_info["wife_obs"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 7.6, 
+    ax_cmd.text(2.4, 6.6, 
         "Dist. = {:.2f} pc".format(float(star_info["dist"])),
         horizontalalignment="center")
 
-    # Now do second part
+    # Flip magnitude axis
+    ymin, ymax = ax_cmd.get_ylim()
+
+    # Consider text when setting limits
+    text_min = 5.4
+
+    if ymin > text_min:
+        ymin = text_min - 0.2
+
+    ax_cmd.set_ylim((ymax, ymin))
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Blue spectra
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     params = obs_info[["teff_synth", "logg_synth", "feh_synth"]]
-    spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(wave, spec_sci, "red", e_spec_sci)
+    spec_b, e_spec_b = spec.norm_spec_by_wl_region(wave_b, spec_b, "b", e_spec_b)
 
     plot_synthetic_fit(
-        wave, 
-        spec_sci, 
-        e_spec_sci, 
-        spec_synth,
-        bad_px_mask,
+        wave_b, 
+        spec_b, 
+        e_spec_b, 
+        spec_synth_b,
+        bad_px_mask_b,
         obs_info,
         ["teff_synth", "logg_synth", "feh_synth"], 
-        "", 
-        "", 
         fig=fig, 
-        axis=ax_spec)
+        axis=ax_spec_b,
+        arm="b")
 
     # If lit params are known, display
-    if "teff" in star_info:
+    if "teff" in star_info and not is_tess:
         lit_params = star_info[["teff", "e_teff", "logg", "feh", "e_feh"]].values
         lit_param_label = r"Lit Params ({}, {}): $T_{{\rm eff}} = {:0.0f} \pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = {:0.2f} \pm {:0.2f}$"
         lit_param_label = lit_param_label.format(
@@ -549,7 +570,28 @@ def plot_synth_fit_diagnostic(
             lit_params[2], 
             lit_params[3], 
             lit_params[4])
-        ax_spec.text(np.nanmean(wave), 0.25, lit_param_label, horizontalalignment="center")
+        ax_spec_b.text(np.nanmean(wave_b), 0.25, lit_param_label, horizontalalignment="center")
+
+    ax_spec_b.text(np.nanmean(wave_b), 0.175, 
+    "both arms used in fit = {}".format(obs_info["both_arm_synth_fit"]), 
+    horizontalalignment="center")
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Red spectra
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    spec_r, e_spec_r = spec.norm_spec_by_wl_region(wave_r, spec_r, "r", e_spec_r)
+
+    plot_synthetic_fit(
+        wave_r, 
+        spec_r, 
+        e_spec_r, 
+        spec_synth_r,
+        bad_px_mask_r,
+        obs_info,
+        ["teff_synth", "logg_synth", "feh_synth"], 
+        fig=fig, 
+        axis=ax_spec_r,
+        arm="r")
 
     plt.gcf().set_size_inches(16, 9)
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
@@ -559,11 +601,16 @@ def plot_synth_fit_diagnostic(
 
 def plot_all_synthetic_fits(
     spectra_r, 
-    synth_spec, 
+    synth_spec_r, 
+    bad_px_masks_r,
     observations,
-    bad_px_masks,
     label,
-    info_cat):
+    info_cat,
+    spectra_b=None, 
+    synth_spec_b=None, 
+    bad_px_masks_b=None,
+    is_tess=False,
+    ):
     """
     """
     # Make plot path if it doesn't already exist
@@ -578,11 +625,18 @@ def plot_all_synthetic_fits(
             spectra_r[i,0], 
             spectra_r[i,1], 
             spectra_r[i,2], 
-            synth_spec[i], 
-            bad_px_masks[i], 
+            synth_spec_r[i], 
+            bad_px_masks_r[i], 
             observations.iloc[i], 
             info_cat,
-            plot_path)
+            plot_path,
+            spectra_b[i,0], 
+            spectra_b[i,1], 
+            spectra_b[i,2], 
+            synth_spec_b[i], 
+            bad_px_masks_b[i],
+            is_tess=is_tess,
+            )
 
     # Merge plots
     glob_path = os.path.join(plot_path, "*TOI*")

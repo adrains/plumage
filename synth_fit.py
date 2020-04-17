@@ -25,7 +25,7 @@ bad_px_masks_r = utils.load_fits_image_hdu("bad_px", label, arm="r")
 
 # SNR metrics
 snr_ratio = 3
-snr_b_cutoff = 25
+snr_b_cutoff = 10
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -121,7 +121,7 @@ utils.save_fits_image_hdu(synth_fits_r, "synth", label, path=spec_path, arm="r")
 # Diagnostic plotting
 # -----------------------------------------------------------------------------
 # Import reference catalogue
-
+"""
 info_cat = utils.load_info_cat(
     os.path.join("data", "{}_info.tsv".format(label)))
 
@@ -133,3 +133,5 @@ pplt.plot_all_synthetic_fits(
     bad_px_masks, 
     label, 
     info_cat)
+"""
+pass
