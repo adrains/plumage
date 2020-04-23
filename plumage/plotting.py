@@ -328,17 +328,56 @@ def plot_standards(spectra, observations, catalogue):
     plt.xlim([6700, 3000])
     plt.ylim([5.1, 1])
 
+
 # -----------------------------------------------------------------------------
 # Synthetic fit diagnostics
 # ----------------------------------------------------------------------------- 
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
         obs_info, param_cols, date_id=None, save_path=None, fig=None, 
-        axis=None, save_fig=False, arm="r", plot_text=True):
+        axis=None, save_fig=False, arm="r",):
     """TODO: Sort out proper sharing of axes
 
     Parameters
     ----------
+    wave: float array
+        Wavelength scale for the spectrum.
 
+    spec_sci: float array
+        Spectrum flux vector corresponding to wave.
+
+    e_spec_sci: float array
+        Flux uncertainties corresponding to wave.
+
+    spec_synth: float array
+        Synthetic spectrum flux corresponding to wave.
+
+    bad_px_mask: boolean array
+        Array of bad pixels (i.e. bad pixels are True) corresponding to wave.
+
+    obs_info: pandas dataframe row
+        Information on observations of target in question.
+
+    param_cols: string array
+        Column names for the synthetic fit params. Generally:
+        ["teff_synth", "logg_synth", "feh_synth"]
+
+    date_id: string, default: None
+        String used to uniquely label each plot if saving. 
+
+    save_path: string, default: None
+        Where to save the resulting plot if saving.
+
+    fig: matplotlib.figure.Figure object, default: None
+        Existing figure to plot with, otherwise generate new one.
+    
+    axis: matplotlib.axes._subplots.AxesSubplot, default: None
+        Existing axis to plot on, otherwise make new one.
+
+    save_fig: bool, default: False
+        Whether to save the plot or not.
+
+    arm: string, default: 'r'
+        Arm of spectrograph, either 'b' or 'r'
     """
     # Initialise empty mask for bad pixels if none is provided
     if bad_px_mask is None:
@@ -360,7 +399,8 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
 
     # Plot residuals
-    res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", linewidth=0.2)
+    res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", 
+                  linewidth=0.2)
     res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
     axis.set_xlim(wave[0]-10, wave[-1]+10)
     axis.set_ylim(0.0, 1.7)
@@ -379,13 +419,16 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Label synthetic fit parameters
     params = obs_info[param_cols]
-    param_label = r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = {:0.2f}, [Fe/H] = {:0.2f}"
+    param_label = (r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = "
+                   r"{:0.2f}, [Fe/H] = {:0.2f}")
     param_label = param_label.format(params[0], params[1], params[2])
     axis.text(np.nanmean(wave), 1.6, param_label, horizontalalignment="center")
 
     if "rchi2_synth" in obs_info:
-        rchi2_label = r"red. $\chi^2 = {:0.0f}$".format(obs_info["rchi2_synth"])
-        axis.text(np.nanmean(wave), 1.525, rchi2_label, horizontalalignment="center")
+        rchi2_label = r"red. $\chi^2 = {:0.0f}$".format(
+            obs_info["rchi2_synth"])
+        axis.text(np.nanmean(wave), 1.525, rchi2_label, 
+                  horizontalalignment="center")
 
     # Label RVs
     rv_label = r"RV$ = {:0.2f}\pm{:0.2f}\,$km$\,$s$^{{-1}}$"
@@ -393,7 +436,9 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     axis.text(np.nanmean(wave), 1.45, rv_label, horizontalalignment="center")
 
     # Label SNR
-    snr_label = r"SNR ({}) $\sim {:0.0f}$".format(arm, obs_info["snr_{}".format(arm)])
+    snr_label = r"SNR ({}) $\sim {:0.0f}$".format(
+        arm, 
+        obs_info["snr_{}".format(arm)])
     axis.text(np.nanmean(wave), 1.375, snr_label, horizontalalignment="center")
 
     # Label date
@@ -402,7 +447,8 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
 
     # Label airmass
     airmass_label = r"Airmass = {:0.2f}".format(obs_info["airmass"])
-    axis.text(np.nanmean(wave), 1.225, airmass_label, horizontalalignment="center")
+    axis.text(np.nanmean(wave), 1.225, airmass_label, 
+              horizontalalignment="center")
 
     # Plot estimated parameters if we've been given them
     if False:
@@ -443,8 +489,60 @@ def plot_synth_fit_diagnostic(
     spec_synth_b=None,
     bad_px_mask_b=None,
     is_tess=False):
-    """Want to plot Gaia CMD (highlighting the current star) next to the 
-    synthetic fit, along with associated flags.
+    """Plots synthetic fit diagnostic plot, with three sections. Leftmost has a
+    Gaia Bp-Rp, absolute G colour magnitude diagram of all stars in info_cat
+    highlighting the star in question. On the top right is the blue spectra,
+    and the bottom right the red spectra, both with observed, synthetic, and 
+    residuals.  Diagnostic information/flags are plotted as text.
+
+    Note that if a target is not in info_cat, it is not plotted.
+
+    Parameters
+    ----------
+    wave_r: float array
+        Wavelength scale for the red spectrum.
+
+    spec_r: float array
+        The red spectrum corresponding to wave_r.
+
+    spec_r: float array
+        The red spectrum corresponding to wave_r.
+
+    spec_synth_r: float array
+        The red synthetic spectrum corresponding to wave_r.
+
+    bad_px_mask_r: boolean array
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    obs_info: pandas dataframe row
+        Information on observations of target in question.
+
+    info_cat: pandas dataframe
+        Dataframe containing photometric/literature information on each target
+
+    plot_path: string
+        Where to save the resulting plot.
+
+    wave_b: float array
+        Wavelength scale for the blue spectrum.
+
+    spec_b: float array
+        The blue spectrum corresponding to wave_b.
+
+    spec_b: float array
+        The blue spectrum corresponding to wave_b.
+
+    spec_synth_b: float array
+        The blue synthetic spectrum corresponding to wave_b.
+
+    bad_px_mask_b: boolean array
+        Array of bad pixels (i.e. bad pixels are True) for blue arm
+        corresponding to wave_b.
+
+    is_tess: bool
+        Indicates whether we the targets have literature parameters available,
+        or whether we should plot with TOI IDs.
     """
     # Initialise
     plt.close("all")
@@ -453,9 +551,6 @@ def plot_synth_fit_diagnostic(
     ax_cmd = fig.add_subplot(gs[:, 0])
     ax_spec_b = fig.add_subplot(gs[0, 1:])
     ax_spec_r = fig.add_subplot(gs[1, 1:])
-
-    #fig, (ax_cmd, ax_spec) = plt.subplots(1,2, gridspec_kw={'width_ratios': [1, 4]})
-    #fig.subplots_adjust(top=0.9)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Colour Magnitude Diagram
@@ -544,7 +639,8 @@ def plot_synth_fit_diagnostic(
     # Blue spectra
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     params = obs_info[["teff_synth", "logg_synth", "feh_synth"]]
-    spec_b, e_spec_b = spec.norm_spec_by_wl_region(wave_b, spec_b, "b", e_spec_b)
+    spec_b, e_spec_b = spec.norm_spec_by_wl_region(wave_b, spec_b, "b", 
+                                                   e_spec_b)
 
     plot_synthetic_fit(
         wave_b, 
@@ -560,8 +656,11 @@ def plot_synth_fit_diagnostic(
 
     # If lit params are known, display
     if "teff" in star_info and not is_tess:
-        lit_params = star_info[["teff", "e_teff", "logg", "feh", "e_feh"]].values
-        lit_param_label = r"Lit Params ({}, {}): $T_{{\rm eff}} = {:0.0f} \pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = {:0.2f} \pm {:0.2f}$"
+        lit_params = star_info[
+            ["teff", "e_teff", "logg", "feh", "e_feh"]].values
+        lit_param_label = (r"Lit Params ({}, {}): $T_{{\rm eff}} = {:0.0f} "
+                           r"\pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = "
+                           r"{:0.2f} \pm {:0.2f}$")
         lit_param_label = lit_param_label.format(
             str(star_info["kind"]),
             str(star_info["source"]), 
@@ -570,7 +669,8 @@ def plot_synth_fit_diagnostic(
             lit_params[2], 
             lit_params[3], 
             lit_params[4])
-        ax_spec_b.text(np.nanmean(wave_b), 0.25, lit_param_label, horizontalalignment="center")
+        ax_spec_b.text(np.nanmean(wave_b), 0.25, lit_param_label, 
+                       horizontalalignment="center")
 
     ax_spec_b.text(np.nanmean(wave_b), 0.175, 
     "both arms used in fit = {}".format(obs_info["both_arm_synth_fit"]), 
@@ -579,7 +679,8 @@ def plot_synth_fit_diagnostic(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Red spectra
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    spec_r, e_spec_r = spec.norm_spec_by_wl_region(wave_r, spec_r, "r", e_spec_r)
+    spec_r, e_spec_r = spec.norm_spec_by_wl_region(wave_r, spec_r, "r", 
+                                                   e_spec_r)
 
     plot_synthetic_fit(
         wave_r, 
@@ -595,7 +696,9 @@ def plot_synth_fit_diagnostic(
 
     plt.gcf().set_size_inches(16, 9)
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    plt_save_loc = os.path.join(plot_path, "{}_TOI{}.pdf".format(int(params[0]), sid))
+    plt_save_loc = os.path.join(
+        plot_path, 
+        "{}_TOI{}.pdf".format(int(params[0]), sid))
     plt.savefig(plt_save_loc)
 
 
@@ -609,9 +712,44 @@ def plot_all_synthetic_fits(
     spectra_b=None, 
     synth_spec_b=None, 
     bad_px_masks_b=None,
-    is_tess=False,
-    ):
-    """
+    is_tess=False,):
+    """Plots diagnostic plots of all synthetic fits and position on Gaia colour
+    magnitude diagram, saving pdfs to plots/synth_diagnostics_{label}. Plots
+    are merged into single multi-page pdf document when done.
+
+    Parameters
+    ----------
+    spectra_r: float array
+        3D numpy array of red spectra of form [N_ob, wl/spec/sigma, flux].
+
+    synth_spec_r: float array
+        3D numpy array of red synthetic spectra of form [n_ob, flux]
+
+    bad_px_masks_r: boolean array
+        3D numpy boolean bad pixel mask of form [n_ob, px]
+
+    observations: pandas dataframe
+        Dataframe containing information about each observation.
+
+    label: string
+        Unique label for set of stars (e.g. tess, std) for custom plot save 
+        folder.
+
+    info_cat: pandas dataframe
+        Dataframe containing photometric/literature information on each target
+
+    spectra_b: float array
+        3D numpy array of blue spectra of form [N_ob, wl/spec/sigma, flux].
+
+    synth_spec_b: float array
+        3D numpy array of blue synthetic spectra of form [n_ob, flux]
+
+    bad_px_masks_b: boolean array
+        3D numpy boolean blue bad pixel mask of form [n_ob, px]
+
+    is_tess: bool
+        Indicates whether we the targets have literature parameters available,
+        or whether we should plot with TOI IDs.
     """
     # Make plot path if it doesn't already exist
     plot_path = os.path.join("plots", "synth_diagnostics_{}".format(label))
