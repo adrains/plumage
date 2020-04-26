@@ -44,6 +44,7 @@ def compare_fits_to_lit(observations, std_info):
     """Compares synthetic fits to literatue values
     """
     diff = []
+    source = []
     n_matches = 0
     n_dups = 0
     dups = []
@@ -57,10 +58,12 @@ def compare_fits_to_lit(observations, std_info):
 
         if len(star_info) < 1:
             diff.append([np.nan, np.nan, np.nan])
+            source.append(["",""])
         elif len(star_info) > 1:
             diff.append([np.nan, np.nan, np.nan])
             n_dups += 1
             dups.append(sid)
+            source.append(["",""])
         else:
             n_matches += 1
             star_info = star_info.iloc[0]
@@ -68,11 +71,18 @@ def compare_fits_to_lit(observations, std_info):
                 "teff_synth", "logg_synth", "feh_synth"]].values
             lit_params = star_info[["teff", "logg", "feh"]].values
             diff.append(synth_params-lit_params)
+            source.append([star_info["kind"],star_info["source"]])
     
     print("{} matches".format(n_matches))
     print("{} duplicates".format(n_dups))
+    
+    diff = np.array(diff).astype(float)
 
-    return np.array(diff).astype(float)
+    observations["teff_diff"] = diff[:,0]
+    observations["logg_diff"] = diff[:,1] 
+    observations["feh_diff"] = diff[:,2] 
+
+    return diff, np.array(source)
 
 # -----------------------------------------------------------------------------
 # Fundamental Parameter Empirical Relations
@@ -226,3 +236,42 @@ def compute_mann_2015_teff(
     e_teffs = np.ones_like(teffs) * e_teff
 
     return teffs, e_teffs
+
+
+def compute_mann_2015_radii(k_mag_abs):
+    """Calculates stellar radii based on absolute 2MASS Ks band magnitudes
+    per the empirical relations in Table 1 of Mann et al. 2015. 
+
+    Paper:
+        https://iopscience.iop.org/article/10.1088/0004-637X/804/1/64
+    
+    Erratum:
+        https://iopscience.iop.org/article/10.3847/0004-637X/819/1/87
+
+    The implemented relation is the 3rd order polynomial fit without the 
+    dependence on [Fe/H].
+
+    Parameters
+    ----------
+    k_mag_abs: float array
+        Array of absolute 2MASS Ks band magnitudes
+
+    Returns
+    -------
+    radii: float array
+        Resulting stellar radii in solar units.
+
+    e_masses: float array
+        Uncertainties on stellar radii in solar units.
+    """
+    # Percentage uncertainty on the result
+    e_radii_pc = 0.0289
+
+    # Coefficients for 3rd order polynomial fit without [Fe/H] dependence
+    coeff = np.array([1.9515, -0.3520, 0.01680])
+
+    # Calculate radii
+    radii = polyval(k_mag_abs, coeff)
+    e_radii = radii * e_radii_pc
+
+    return radii, e_radii
