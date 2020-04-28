@@ -965,9 +965,11 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
 
     for params, ref_spec in zip(ref_params, ref_spectra):
         # Initialise bad pixel mask. Initially this mask will exclude telluric
-        # regions, emission regions (i.e. the Balmer series and Ca II H+K), any
-        # pixels that are nan (e.g. due to having possessed negative flux 
-        # values) and the very edges of the blue data
+        # regions, any pixels that are nan (e.g. due to having possessed 
+        # negative flux values) and the very edges of the blue data. Will not
+        # exclude emission regions (i.e. the Balmer series and Ca II H+K) as 
+        # these will be captured by the second pass where we exclude pixels 
+        # with large residuals
 
         # Only mask blue edges if we're dealing with blue data, otherwise leave
         # as is
@@ -976,8 +978,8 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
 
         bad_px_mask = ~make_wavelength_mask(
             sci_spectra[0],
-            mask_emission=True,
-            mask_bad_px=mask_blue_edges)
+            mask_emission=False,
+            mask_blue_edges=mask_blue_edges)
 
         # Now that we have our initial mask, OR this with the array of any nan
         # fluxes or uncertainties

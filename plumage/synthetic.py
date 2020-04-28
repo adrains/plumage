@@ -12,8 +12,7 @@ import astropy.constants as const
 from astropy import units as u
 from scipy.optimize import leastsq, least_squares
 import plumage.spectra as spec
-import plumage.plotting as pplt
-#import plotting as pplt
+
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 #------------------------------------------------------------------------------    
@@ -191,6 +190,65 @@ def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
 # -----------------------------------------------------------------------------
 # Template spectra
 # -----------------------------------------------------------------------------
+def make_synth_mask_for_bad_wl_regions(wave, rv, bcor, teff, cutoff_temp=4000):
+    """Makes a bad pixel mask corresponding to where Thomas Nordlander's 
+    synthetic MARCS models are inconsistent with observational data at cooler
+    temperatures. The wavelength is corrected to the rest frame before 
+    excluding.
+
+    Parameters
+    ----------
+    wave: float array
+        The wavelength scale in Angstroms, uncorrected for RV
+    
+    rv: float
+        The measured RV in km/s.
+
+    bcor: float
+        The measured barycentric correction in km/s
+
+    teff: float
+        The estimated temperature of the star in Kelvin
+
+    cutoff_temp: float
+        The temperature in Kelvin below which we exlclude ill-fitting synthetic
+        spectral regions
+
+    Returns
+    -------
+    bad_reg_mask: bool array
+        Bad pixel mask that is True where Thomas Nordlander's synthetic MARCS
+        models are inconsistent with observed spectra. Array of False if teff
+        is above cutoff temp
+    """
+    # Initialise mask for bad regions
+    bad_reg_mask = np.zeros_like(wave)
+
+    # Don't mask anything if we're above the cutoff temperature
+    if teff > cutoff_temp:
+        return bad_reg_mask.astype(bool)
+
+    # List of badly fitting regions for Thomas Nordlander's MARCS model library
+    # These wavelengths are in the *rest frame*
+    bad_regions = [
+        [0, 4700],      # Blue
+        [5498, 5585],   # ???
+        [5615, 5759],   # ~ TiO
+        [5809, 5840],   # ~ TiO
+        [5847, 5886],   # Na doublet blue wing
+        [5898, 5987],   # Na doublet red wing
+        [6029, 6159],]  # ~ Ca/Fe molecular line or photodissociation opacity
+    
+    # Shift wavelength vector to rest frame
+    wave_rf = wave * (1-(rv-bcor)/(const.c.si.value/1000))
+
+    for region in bad_regions:
+        bad_reg = np.logical_and(wave_rf >= region[0], wave_rf <= region[1])
+        bad_reg_mask = np.logical_or(bad_reg_mask, bad_reg)
+
+    return bad_reg_mask.astype(bool)
+    
+
 def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
                          norm="abs"):
     """Creates synthetic spectra in a given grating format to serve as RV

@@ -31,6 +31,7 @@ snr_b_cutoff = 10
 # Do fitting
 # -----------------------------------------------------------------------------
 params_fit = []
+e_params_fit = []
 fit_results = []
 synth_fits_b = []
 synth_fits_r = []
@@ -49,6 +50,16 @@ for ob_i in range(0, len(observations)):
         observations.iloc[ob_i]["feh_fit"],
         )
 
+    # Setup temperature dependent wavelength masks for regions where the 
+    # synthetic spectra are bad (e.g. missing opacities) at cool teffs
+    bad_synth_px_mask_r = synth.make_synth_mask_for_bad_wl_regions(
+        spectra_r[ob_i, 0], 
+        observations.iloc[ob_i]["rv"], 
+        observations.iloc[ob_i]["bcor"], 
+        observations.iloc[ob_i]["teff_fit"])
+
+    bad_px_mask_r = np.logical_or(bad_px_masks_r[ob_i], bad_synth_px_mask_r)
+
     # Check if we're going to fit with both red and blue specta. At low SNR, 
     # the measurement of blue SNR isn't reliable, so an approximate metric 
     # (based on comparison to the standard star set cooler than 4500 K) is that
@@ -58,7 +69,14 @@ for ob_i in range(0, len(observations)):
         wave_b = spectra_b[ob_i, 0]
         spec_b = spectra_b[ob_i, 1]
         e_spec_b = spectra_b[ob_i, 2]
-        bad_px_mask_b = bad_px_masks_b[ob_i]
+
+        bad_synth_px_mask_b = synth.make_synth_mask_for_bad_wl_regions(
+            spectra_b[ob_i, 0], 
+            observations.iloc[ob_i]["rv"], 
+            observations.iloc[ob_i]["bcor"], 
+            observations.iloc[ob_i]["teff_fit"])
+
+        bad_px_mask_b = np.logical_or(bad_px_masks_b[ob_i], bad_synth_px_mask_b)
 
     else:
         wave_b = None
@@ -81,8 +99,15 @@ for ob_i in range(0, len(observations)):
         bad_px_mask_b=bad_px_mask_b,
         )
 
+    # Calculate uncertainties
+    jac = opt_res["jac"]
+    res = opt_res["fun"]
+    cov = np.linalg.inv(jac.T.dot(jac))
+    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+
     # Record results
     params_fit.append(opt_res["x"])
+    e_params_fit.append(std)
     fit_results.append(opt_res)
     synth_fits_r.append(spec_dict["spec_synth_r"])
     spec_dicts.append(spec_dict)
@@ -102,10 +127,14 @@ for ob_i in range(0, len(observations)):
 # -----------------------------------------------------------------------------
 # Update obs table with fits
 params_fit = np.stack(params_fit)
+e_params_fit = np.stack(e_params_fit)
 
 observations["teff_synth"] = params_fit[:,0]
+observations["e_teff_synth"] = e_params_fit[:,0]
 observations["logg_synth"] = params_fit[:,1]
+observations["e_logg_synth"] = e_params_fit[:,1]
 observations["feh_synth"] = params_fit[:,2]
+observations["e_feh_synth"] = e_params_fit[:,2]
 observations["rchi2_synth"] = np.array(rchi2)
 observations["both_arm_synth_fit"] = np.array(both_arm_synth_fit)
 

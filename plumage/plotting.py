@@ -7,6 +7,7 @@ import glob
 import matplotlib.pylab as plt
 import matplotlib.colors as mplc
 import plumage.spectra as spec
+import plumage.synthetic as synth
 from tqdm import tqdm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -334,7 +335,7 @@ def plot_standards(spectra, observations, catalogue):
 # ----------------------------------------------------------------------------- 
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
         obs_info, param_cols, date_id=None, save_path=None, fig=None, 
-        axis=None, save_fig=False, arm="r",):
+        axis=None, save_fig=False, arm="r", bad_synth_px_mask=None):
     """TODO: Sort out proper sharing of axes
 
     Parameters
@@ -407,14 +408,14 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     res_ax.set_xlim(wave[0]-10, wave[-1]+10)
     res_ax.set_ylim(-0.3, 0.3)
 
-    # Plot vertical bars
-    wl_delta = (wave[1] - wave[0]) / 2
-    for xi in range(len(wave)):
-        if bad_px_mask[xi]:
-            axis.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=0, 
-                         ymax=1.7, alpha=0.05, color="red")
-            res_ax.axvspan(wave[xi]-wl_delta, wave[xi]+wl_delta, ymin=-1, 
-                           ymax=1, alpha=0.05, color="red")
+    # Shade the bad observed pixels in red
+    shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour="red",
+                           alpha=0.1)
+
+    # Shade the bad synthetic wavelengths in black
+    if bad_synth_px_mask is not None:
+        shade_excluded_regions(wave, bad_synth_px_mask, axis, res_ax, 
+                               colour="black", alpha=0.05, hatch="//")
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Label synthetic fit parameters
@@ -642,6 +643,14 @@ def plot_synth_fit_diagnostic(
     spec_b, e_spec_b = spec.norm_spec_by_wl_region(wave_b, spec_b, "b", 
                                                    e_spec_b)
 
+    # Setup temperature dependent wavelength masks for regions where the 
+    # synthetic spectra are bad (e.g. missing opacities) at cool teffs
+    bad_synth_px_mask_b = synth.make_synth_mask_for_bad_wl_regions(
+        wave_b, 
+        obs_info["rv"], 
+        obs_info["bcor"], 
+        obs_info["teff_fit"])
+
     plot_synthetic_fit(
         wave_b, 
         spec_b, 
@@ -652,7 +661,8 @@ def plot_synth_fit_diagnostic(
         ["teff_synth", "logg_synth", "feh_synth"], 
         fig=fig, 
         axis=ax_spec_b,
-        arm="b")
+        arm="b",
+        bad_synth_px_mask=bad_synth_px_mask_b)
 
     # If lit params are known, display
     if "teff" in star_info and not is_tess:
@@ -682,6 +692,14 @@ def plot_synth_fit_diagnostic(
     spec_r, e_spec_r = spec.norm_spec_by_wl_region(wave_r, spec_r, "r", 
                                                    e_spec_r)
 
+    # Setup temperature dependent wavelength masks for regions where the 
+    # synthetic spectra are bad (e.g. missing opacities) at cool teffs
+    bad_synth_px_mask_r = synth.make_synth_mask_for_bad_wl_regions(
+        wave_r, 
+        obs_info["rv"], 
+        obs_info["bcor"], 
+        obs_info["teff_fit"])
+
     plot_synthetic_fit(
         wave_r, 
         spec_r, 
@@ -692,7 +710,8 @@ def plot_synth_fit_diagnostic(
         ["teff_synth", "logg_synth", "feh_synth"], 
         fig=fig, 
         axis=ax_spec_r,
-        arm="r")
+        arm="r",
+        bad_synth_px_mask=bad_synth_px_mask_r)
 
     plt.gcf().set_size_inches(16, 9)
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
@@ -779,6 +798,72 @@ def plot_all_synthetic_fits(
     # Merge plots
     glob_path = os.path.join(plot_path, "*TOI*")
     merge_spectra_pdfs(glob_path, "plots/synthetic_fits_{}.pdf".format(label))
+
+
+def shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour, alpha, 
+                           hatch=None):
+    """Function to optimally block/shade the a given a bad pixel mask using the
+    minumum number of calls to the shading function.
+
+    Parameters
+    ----------
+    wave: float array
+        The wavelength scale for the plot (i.e. x axis)
+    
+    bad_px_mask: bool array
+        Bad pixel mask of same size as wave, with bad pixels True
+    
+    axis: matplotlib.axes._subplots.AxesSubplot
+        Axis object to plot on
+
+    res_ax: matplotlib.axes._subplots.AxesSubplot
+        Residual axis to plot on
+
+    colour: string
+        Colour of the shaded region
+
+    alpha: float
+        Alpha value of the shaded region
+
+    hatch: string, default: None
+        Hatching style to use (if applicable)
+    """
+    wl_delta = (wave[1] - wave[0]) / 2
+
+    previous_true = False
+
+    for xi in range(len(wave)):
+        # We've gotten to the end of the shaded region, draw
+        if (not bad_px_mask[xi] and previous_true
+            or xi+1 > len(bad_px_mask) and previous_true):
+            axis.axvspan(wave_min, wave_max, ymin=0, 
+                        ymax=1.7, alpha=alpha, color=colour, hatch=hatch)
+            res_ax.axvspan(wave_min, wave_max, ymin=-1, 
+                        ymax=1, alpha=alpha, color=colour, hatch=hatch)
+
+            if hatch != None:
+                axis.axvspan(wave_min, wave_max, ymin=0, 
+                        ymax=1.7, alpha=alpha, color=None, hatch=hatch)
+                res_ax.axvspan(wave_min, wave_max, ymin=-1, 
+                        ymax=1, alpha=alpha, color=None, hatch=hatch)
+
+            previous_true = False
+
+        # Start of shaded region, but hold off drawing
+        elif bad_px_mask[xi] and not previous_true:
+            wave_min = wave[xi] - wl_delta
+            wave_max = wave[xi] + wl_delta
+            previous_true = True
+        
+        # Continue to hold off drawing, but update max
+        elif bad_px_mask[xi] and previous_true:
+            # Set max
+            wave_max = wave[xi] + wl_delta
+            continue
+
+        # reset
+        else:
+            previous_true = False
 
 # -----------------------------------------------------------------------------
 # Comparisons
@@ -884,7 +969,8 @@ def plot_tess_cmd(
         tess_info[mask][colour], 
         tess_info[mask][abs_mag], 
         s=ms,
-        c=tess_info[mask]["ruwe"]>1.4,
+        #c=tess_info[mask]["ruwe"]>1.4,
+        c=np.logical_or(tess_info[mask]["blended_2mass"], tess_info[mask]["ruwe"]>1.4),
         cmap="seismic"
     )
 
