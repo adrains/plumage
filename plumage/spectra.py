@@ -1003,10 +1003,21 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
             bad_px_mask,
             bcor)
 
+        # Now that we have an initial guess for temperature, the next pass 
+        # should also take into account which synthetic pixels are bad. This
+        # can only happen here once we have an estimate of the RV
+        # TODO: rearrange functions so we don't have circular import
+        import plumage.synthetic as synth
+        bad_synth_px_mask = synth.make_synth_mask_for_bad_wl_regions(
+            sci_spectra[0], rv, bcor, params[0])
+
+        temp_bad_px_mask = np.logical_or(bad_px_mask, bad_synth_px_mask)
+
         # Now mask out any pixels that have residuals greater than the 
-        # threshold value, and fit again
+        # threshold value, and fit again. Compute this threshold value *only*
+        # from the good (i.e. non masked) pixels.
         resid = infodict["fvec"]
-        std = np.std(resid[~bad_px_mask])
+        std = np.std(resid[~temp_bad_px_mask])
         bad_px_mask[np.abs(resid) > (n_std*std)] = True
 
         # Do second fit, now with masking
@@ -1088,8 +1099,10 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     info_dicts = []
     bad_px_masks = []
 
+    desc = "Fitting RVs to {} arm".format(arm)
+
     # For every star, do template fitting
-    for star_i, sci_spec in enumerate(tqdm(sci_spectra, desc="Fitting RVs")):
+    for star_i, sci_spec in enumerate(tqdm(sci_spectra, desc=desc)):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
                  % (star_i+1, len(sci_spectra), 

@@ -419,10 +419,11 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Label synthetic fit parameters
-    params = obs_info[param_cols]
-    param_label = (r"$T_{{\rm eff}}$ = {:0.0f} K, $\log g$ = "
-                   r"{:0.2f}, [Fe/H] = {:0.2f}")
-    param_label = param_label.format(params[0], params[1], params[2])
+    params = tuple(obs_info[param_cols].values)
+    param_label = (r"$T_{{\rm eff}} = {:0.0f}\pm{:0.0f}\,$K, "
+                   r"$\log g = {:0.2f}\pm{:0.2f}$, "
+                   r"[Fe/H]$ = {:0.2f}\pm{:0.2f}$")
+    param_label = param_label.format(*params)
     axis.text(np.nanmean(wave), 1.6, param_label, horizontalalignment="center")
 
     if "rchi2_synth" in obs_info:
@@ -489,7 +490,8 @@ def plot_synth_fit_diagnostic(
     e_spec_b=None,
     spec_synth_b=None,
     bad_px_mask_b=None,
-    is_tess=False):
+    is_tess=False,
+    use_2mass_id=False):
     """Plots synthetic fit diagnostic plot, with three sections. Leftmost has a
     Gaia Bp-Rp, absolute G colour magnitude diagram of all stars in info_cat
     highlighting the star in question. On the top right is the blue spectra,
@@ -581,6 +583,16 @@ def plot_synth_fit_diagnostic(
         is_obs = info_cat["observed"].values
         star_info = info_cat[is_obs][info_cat[is_obs]["source_id"]==sid]
 
+        if not use_2mass_id:
+            
+            id_prefix = "Gaia DR2 "
+            id_col = "ID"
+            
+        else:
+            id_prefix = "2MASS J"
+            id_col = "2mass"
+            
+
         if len(star_info) < 1:
             return
         elif len(star_info) > 1:
@@ -588,8 +600,7 @@ def plot_synth_fit_diagnostic(
         else:
             star_info = star_info.iloc[0]
 
-        plt.suptitle("{}, Gaia DR2 {}".format(star_info["ID"], sid))
-    
+        plt.suptitle("{}, Gaia DR2 {}".format(star_info[id_col], sid))
 
     # Then just plot our current star
     ax_cmd.plot(star_info["Bp-Rp"], star_info["G_mag_abs"], "o", c="red")
@@ -639,7 +650,8 @@ def plot_synth_fit_diagnostic(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Blue spectra
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    params = obs_info[["teff_synth", "logg_synth", "feh_synth"]]
+    param_cols = ["teff_synth", "e_teff_synth", "logg_synth", "e_logg_synth", 
+                  "feh_synth", "e_feh_synth"]
     spec_b, e_spec_b = spec.norm_spec_by_wl_region(wave_b, spec_b, "b", 
                                                    e_spec_b)
 
@@ -658,7 +670,7 @@ def plot_synth_fit_diagnostic(
         spec_synth_b,
         bad_px_mask_b,
         obs_info,
-        ["teff_synth", "logg_synth", "feh_synth"], 
+        param_cols,
         fig=fig, 
         axis=ax_spec_b,
         arm="b",
@@ -707,7 +719,7 @@ def plot_synth_fit_diagnostic(
         spec_synth_r,
         bad_px_mask_r,
         obs_info,
-        ["teff_synth", "logg_synth", "feh_synth"], 
+        param_cols,
         fig=fig, 
         axis=ax_spec_r,
         arm="r",
@@ -717,7 +729,7 @@ def plot_synth_fit_diagnostic(
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
     plt_save_loc = os.path.join(
         plot_path, 
-        "{}_TOI{}.pdf".format(int(params[0]), sid))
+        "{}_TOI{}.pdf".format(int(obs_info["teff_synth"]), sid))
     plt.savefig(plt_save_loc)
 
 
@@ -731,7 +743,8 @@ def plot_all_synthetic_fits(
     spectra_b=None, 
     synth_spec_b=None, 
     bad_px_masks_b=None,
-    is_tess=False,):
+    is_tess=False,
+    use_2mass_id=False):
     """Plots diagnostic plots of all synthetic fits and position on Gaia colour
     magnitude diagram, saving pdfs to plots/synth_diagnostics_{label}. Plots
     are merged into single multi-page pdf document when done.
@@ -793,6 +806,7 @@ def plot_all_synthetic_fits(
             synth_spec_b[i], 
             bad_px_masks_b[i],
             is_tess=is_tess,
+            use_2mass_id=use_2mass_id,
             )
 
     # Merge plots
@@ -835,7 +849,7 @@ def shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour, alpha,
     for xi in range(len(wave)):
         # We've gotten to the end of the shaded region, draw
         if (not bad_px_mask[xi] and previous_true
-            or xi+1 > len(bad_px_mask) and previous_true):
+            or xi+1 == len(bad_px_mask) and previous_true):
             axis.axvspan(wave_min, wave_max, ymin=0, 
                         ymax=1.7, alpha=alpha, color=colour, hatch=hatch)
             res_ax.axvspan(wave_min, wave_max, ymin=-1, 

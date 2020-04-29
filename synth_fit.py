@@ -1,3 +1,11 @@
+"""Script to perform synthetic fits to observed spectra.
+
+Uncertainty formalism from:
+ 1 - https://stackoverflow.com/questions/42388139/how-to-compute-standard-
+     deviation-errors-with-scipy-optimize-least-squares
+After correcting for mistakes and scaling by variance (per the method
+employed in the RV fitting)
+"""
 from __future__ import print_function, division
 
 import os
@@ -16,7 +24,6 @@ label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
-save_folder = "fits/std"
 
 # Load science spectra and bad pixel masks
 spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
@@ -41,7 +48,8 @@ both_arm_synth_fit = []
 
 # For every star, do synthetic fitting
 for ob_i in range(0, len(observations)):
-    print("-"*40, "\n{}\n".format(ob_i), "-"*40)
+    ln = "-"*40
+    print("{}\n{} - {}\n{}".format(ln, ob_i, observations.iloc[ob_i]["id"],ln))
 
     # Initialise parameters based on best fitting RV template
     params_init = (

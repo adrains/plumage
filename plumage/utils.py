@@ -827,14 +827,24 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
 # -----------------------------------------------------------------------------
 # Loading in literature info (e.g. photometry)
 # ----------------------------------------------------------------------------- 
-def load_info_cat(path="data/tess_info.tsv"):
+def load_info_cat(path="data/tess_info.tsv", clean=True):
     """
     """
-    # Do initial import
-    info_cat = pd.read_csv(path, sep="\t", dtype={"source_id":str})
+    # If loading a fits file, can't start with pandas
+    if ".fits" in path:
+        with fits.open(path, mode="readonly") as fits_file:
+            fits_tab = Table(fits_file[1].data)
+            info_cat = fits_tab.to_pandas()
+
+        info_cat["source_id"] = info_cat["source_id"].astype(str)
+
+    # Otherwise import using pandas
+    else:
+        info_cat = pd.read_csv(path, sep="\t", dtype={"source_id":str})
 
     # Clean
-    info_cat["observed"] = info_cat["observed"] == "yes"
+    if clean:
+        info_cat["observed"] = info_cat["observed"] == "yes"
 
     # Make new boolean column for planet candidates or known planets
     if "TOI" in info_cat:
@@ -847,8 +857,14 @@ def load_info_cat(path="data/tess_info.tsv"):
         info_cat["pc"] = pc_mask
 
     # Make boolean for blended 2MASS photometry
-    b2m_mask = info_cat["blended_2mass"] == "yes"
-    info_cat["blended_2mass"] = b2m_mask
+    if "blended_2mass" in info_cat:
+        b2m_mask = info_cat["blended_2mass"] == "yes"
+        info_cat["blended_2mass"] = b2m_mask
+    else:
+        info_cat["blended_2mass"] = np.nan
+
+    if "wife_obs" not in info_cat:
+        info_cat["wife_obs"] = 1
 
     # Compute distance and absolute magnitudes
     info_cat["dist"] = 1000 / info_cat["plx"]
