@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import plumage.spectra as spec
 from numpy.polynomial.polynomial import polyval as polyval
+from scipy.interpolate import LinearNDInterpolator
 
 def compare_to_standard_spectrum(spec_sci, spec_std):
     """
@@ -83,6 +84,76 @@ def compare_fits_to_lit(observations, std_info):
     observations["feh_diff"] = diff[:,2] 
 
     return diff, np.array(source)
+
+# -----------------------------------------------------------------------------
+# Limb darkening
+# -----------------------------------------------------------------------------
+def load_claret17_ldc_grid(path="data/claret_4_term_ld.tsv"):
+    """Paremeters
+    ----------
+    grid: pandas dataframe, default: None
+        Pandas dataframe of grid (if already imported)
+
+    Returns
+    -------
+    path: string, default: "data/claret_4_term_ld.tsv"
+        Where to import the grid from if not provided
+    """
+    grid = pd.read_csv("data/claret_4_term_ld.tsv", sep="\t", comment="#")
+
+    return grid
+
+
+def get_claret17_limb_darkening_coeff(teff, logg, feh, grid=None, 
+                                      path="data/claret_4_term_ld.tsv"):
+    """Function to interpolate the four-term nonlinear limb darkening 
+    coefficients given values of Teff, logg, & [Fe/H], which are specific to
+    the TESS filter.
+    
+    Note: presently using PHOENIX model limb darkening grid which have only 
+    been sampled at solar [Fe/H], so any metallicity value passed in is not
+    used.
+
+    TODO: consider non-linear interpolator
+
+    The interpolated grid is from Claret 2017:
+     - https://ui.adsabs.harvard.edu/abs/2017A%26A...600A..30C/abstract
+    
+    Parameters
+    ----------
+    teff: float or float array
+        Stellar effective temperature in Kelvin
+
+    logg: float or float array
+        Stellar surface gravity
+        
+    feh: float or float array
+        Stellar metallicity, [Fe/H] (relative to Solar)
+        
+    grid: pandas dataframe, default: None
+        Pandas dataframe of grid (if already imported)
+        
+    path: string, default: "data/claret_4_term_ld.tsv"
+        Where to import the grid from if not provided
+        
+    Returns
+    -------
+    ldc: float or floar array
+        Four term limb darkening coefficients
+    """
+    # Load in grid if not provided
+    if grid is None:
+        grid = load_claret17_ldc_grid(path)
+    
+    # Interpolate along logg and Teff for all entries for filter
+    calc_ldc = LinearNDInterpolator(
+        grid[["Teff", "logg"]],#, "Z"]], 
+        grid[["a1LSM", "a2LSM", "a3LSM", "a4LSM"]])
+    
+    # Calculate and return
+    ldc = calc_ldc(np.array(teff), np.array(logg))#, np.array(feh))
+    
+    return ldc
 
 # -----------------------------------------------------------------------------
 # Fundamental Parameter Empirical Relations
