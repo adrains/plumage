@@ -4,6 +4,7 @@ import os
 import numpy as np
 import lightkurve as lk
 import batman as bm
+from scipy.optimize import least_squares
 
 # Ensure the lightcurves folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -42,47 +43,76 @@ def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # -----------------------------------------------------------------------------
-def compute_lc_resid(params, bjds, lc_flux, e_lc_flux, t0, period, ldm, ldc):
+def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, return_dict):
     """
     """
     # Initialise transit model
-    params = batman.TransitParams()
-    params.t0 = t0                      # time of inferior conjunction (days)
-    params.per = period                 # orbital period (days)
-    params.rp = params[0]               # planet radius (stellar radii)
-    params.a = params[1]                # semi-major axis (stellar radii)
-    params.inc = params[2]              # orbital inclination (degrees)
-    params.ecc = params[3]              # eccentricity
-    params.w = params[4]                # longitude of periastron (degrees)
-    params.limb_dark = ldm              # limb darkening model
-    params.u = ldc                      # limb darkening coeff [u1, u2, u3, u4]
+    bm_params = bm.TransitParams()
+    bm_params.t0 = t0                      # time of inferior conjunction (days)
+    bm_params.per = 1                 # orbital period (days)
+    bm_params.rp = params[0]               # planet radius (stellar radii)
+    bm_params.a = params[1]                # semi-major axis (stellar radii)
+    bm_params.inc = params[2]              # orbital inclination (degrees)
+    bm_params.ecc = params[3]              # eccentricity
+    bm_params.w = params[4]                # longitude of periastron (degrees)
+    bm_params.limb_dark = ldm              # limb darkening model
+    bm_params.u = ldc                      # limb darkening coeff [u1, u2, u3, u4]
 
-    lc_model = batman.TransitModel(params, bjds)
+    xx = folded_lc.time# * period
 
-    resid = (lc_flux - lc_model) / e_lc_flux
+    bm_model = bm.TransitModel(bm_params, xx)
+    lc_model = bm_model.light_curve(bm_params)
+
+    # Clean flux and uncertainties
+    flux = folded_lc.flux
+    e_flux = folded_lc.flux_err
+
+    bad_flux_mask = ~np.isfinite(flux)
+
+    e_flux[bad_flux_mask] = np.inf
+    flux[bad_flux_mask] = 1
+
+    # Calculate scaled residuals
+    resid = (folded_lc.flux - lc_model) / folded_lc.flux_err
+
+    # Save best fit transit model
+    return_dict["bm_params"] = bm_params
+    return_dict["bm_model"] = bm_model
+    return_dict["lc_model"] = lc_model
+
+    # Only consider the residuals in the middle
+    if True:
+        npoints = len(flux)
+        points = np.arange(npoints)
+        mask = np.logical_and(points > npoints*3//8, points < npoints*5//8)
+
+        resid[~mask] = 0
 
     return resid
 
 
-def fit_light_curve(bjds, lc_flux, e_lc_flux, t0, period, ld_coeff, ld_model="quadratic"):
+def fit_light_curve(light_curve, t0, period, ld_coeff, ld_model="nonlinear"):
     """
     """
     # Phase fold the light curve
-    fslc = slc.fold(period=1.80081, t0=efi.loc[200]["Epoch (BJD)"]-2457000)
+    folded_lc = light_curve.remove_outliers(sigma=6).fold(period=period, t0=t0)#-2457000)
+
+    return_dict = {}
 
     # Initialise transit params
     # [rp, semi-major axis, inclination, eccentricity, longitude periastron]
-    params = np.array([0.1, 10, 90, 0, 90])
-    args = (bjds, lc_data, e_lc_data, t0, period, ld_model, ld_coeff)
+    init_params = np.array([0.1, 10, 90, 0, 90])
+    bounds = ((0, 0, 60, 0, 0), (1, 10000, 120, 1, 360))
 
-    bounds = ((0, 0, 0, 0, 0), (1, 10000, 360, 1, 360))
+    args = (folded_lc, 0, period, ld_model, ld_coeff, return_dict)
+
     #scale = (1, 1, 1)
     #step = (10, 0.1, 0.1)
 
     # Do fit
-    optimize_result = least_squares(
+    opt_res = least_squares(
         compute_lc_resid, 
-        params, 
+        init_params, 
         jac="3-point",
         bounds=bounds,
         #x_scale=scale,
@@ -90,7 +120,16 @@ def fit_light_curve(bjds, lc_flux, e_lc_flux, t0, period, ld_coeff, ld_model="qu
         args=args, 
     )
 
-    # Calculate parameter uncertanties
+    print("Rp/R* = {:0.4f}".format(opt_res["x"][0]))
+    print("a = {:0.4f}".format(opt_res["x"][1]))
+    print("i = {:0.4f}".format(opt_res["x"][2]))
+    print("e = {:0.4f}".format(opt_res["x"][3]))
+    print("w = {:0.4f}".format(opt_res["x"][4]))
 
-    # Prep for LS fitting
-    pass
+    # Calculate parameter uncertanties
+    #jac = opt_res["jac"]
+    #res = opt_res["fun"]
+    #cov = np.linalg.inv(jac.T.dot(jac))
+    #opt_res["std"] = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+
+    return opt_res, return_dict
