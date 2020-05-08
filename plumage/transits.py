@@ -13,6 +13,11 @@ plot_dir = os.path.abspath(os.path.join(here_path, "..", "lightcurves"))
 if not os.path.isdir(plot_dir):
     os.mkdir(plot_dir)
 
+
+def my_custom_corrector_func(lc):
+    corrected_lc = lc.normalize().flatten(window_length=401)
+    return corrected_lc
+
 def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
     """
     https://docs.lightkurve.org/tutorials/01-lightcurve-files.html
@@ -31,7 +36,7 @@ def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
     # Download all the light curves
     print("Downloading light curves for {} sectors...".format(len(search_res)))
     lcfs = search_res.download_all()
-    stitched_lc = lcfs.PDCSAP_FLUX.stitch()
+    stitched_lc = lcfs.PDCSAP_FLUX.stitch()#corrector_func=my_custom_corrector_func)
 
     # Save the light curve
     save_file = os.path.join(save_path, "tess_lc_tic_{}.fits".format(tic_id))
@@ -40,15 +45,22 @@ def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
     return stitched_lc
 
 
+def download_lc_all_tics(tic_ids):
+    """
+    """
+
+
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # -----------------------------------------------------------------------------
-def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, return_dict):
+def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur, 
+                     return_dict):
     """
     """
-    # Initialise transit model
+    # Initialise transit model. Note that since we've already phase folded the
+    # light curve, t0 is at 0, and the period is 1
     bm_params = bm.TransitParams()
-    bm_params.t0 = t0                      # time of inferior conjunction (days)
+    bm_params.t0 = 0                      # time of inferior conjunction (days)
     bm_params.per = 1                 # orbital period (days)
     bm_params.rp = params[0]               # planet radius (stellar radii)
     bm_params.a = params[1]                # semi-major axis (stellar radii)
@@ -80,22 +92,31 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, return_dict):
     return_dict["bm_model"] = bm_model
     return_dict["lc_model"] = lc_model
 
-    # Only consider the residuals in the middle
-    if True:
-        npoints = len(flux)
-        points = np.arange(npoints)
-        mask = np.logical_and(points > npoints*3//8, points < npoints*5//8)
+    # Only consider the transit duration itself, x1 on either side (so 3x 
+    # transit duration in total). Need to convert the transit duration to units
+    # of phase
+    td = transit_dur / period
 
-        resid[~mask] = 0
+    mask = np.logical_and(
+        folded_lc.time > -1.5*td, 
+        folded_lc.time < 1.5*td)
+
+    resid[~mask] = 0
 
     return resid
 
 
-def fit_light_curve(light_curve, t0, period, ld_coeff, ld_model="nonlinear"):
+def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff, 
+                    ld_model="nonlinear"):
     """
     """
+    btjd_offset = 2457000
+
+    if t0 > btjd_offset:
+        t0 -= btjd_offset
+
     # Phase fold the light curve
-    folded_lc = light_curve.remove_outliers(sigma=6).fold(period=period, t0=t0)#-2457000)
+    folded_lc = light_curve.remove_outliers(sigma=6).fold(period=period, t0=t0)
 
     return_dict = {}
 
@@ -104,7 +125,7 @@ def fit_light_curve(light_curve, t0, period, ld_coeff, ld_model="nonlinear"):
     init_params = np.array([0.1, 10, 90, 0, 90])
     bounds = ((0, 0, 60, 0, 0), (1, 10000, 120, 1, 360))
 
-    args = (folded_lc, 0, period, ld_model, ld_coeff, return_dict)
+    args = (folded_lc, t0, period, ld_model, ld_coeff, transit_dur, return_dict)
 
     #scale = (1, 1, 1)
     #step = (10, 0.1, 0.1)
@@ -133,3 +154,4 @@ def fit_light_curve(light_curve, t0, period, ld_coeff, ld_model="nonlinear"):
     #opt_res["std"] = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
 
     return opt_res, return_dict
+
