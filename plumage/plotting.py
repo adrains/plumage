@@ -420,9 +420,9 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Label synthetic fit parameters
     params = tuple(obs_info[param_cols].values)
-    param_label = (r"$T_{{\rm eff}} = {:0.0f}\pm{:0.0f}\,$K, "
-                   r"$\log g = {:0.2f}\pm{:0.2f}$, "
-                   r"[Fe/H]$ = {:0.2f}\pm{:0.2f}$")
+    param_label = (r"$T_{{\rm eff}} = {:0.0f}\pm {:0.0f}\,$K, "
+                   r"$\log g = {:0.2f}\pm {:0.2f}$, "
+                   r"[Fe/H]$ = {:0.2f}\pm {:0.2f}$")
     param_label = param_label.format(*params)
     axis.text(np.nanmean(wave), 1.6, param_label, horizontalalignment="center")
 
@@ -476,6 +476,68 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
         plt.savefig(save_path)
 
 
+def plot_cmd(colours, abs_mags, ruwe_mask, target_colour, target_abs_mag, 
+             target_ruwe, ax, xlabel, y_label, text_min=None):
+    """Plots a colour magnitude diagram, outlining those stars with high
+    values for Gaia DR2 RUWE (>1.4) and highlighting the current target star.
+
+    Parameters
+    ----------
+    colours: float array
+        CMD colour for the x-axis.
+    
+    abs_mags: float array
+        CMD absolute magnitudes for the y-axis
+
+    ruwe_mask: boolean array
+        Boolean mask that is true where RUWE > 1.4 (i.e. flagging bad stars)
+
+    target_colour: float
+        CMD colour for the current target
+
+    target_abs_mag: float array
+        CMD absolute magnitude for the current target
+
+    target_ruwe: float
+        RUWE value for the target
+
+    ax: matplotlib.axes._subplots.AxesSubplot
+        Axis to plot on
+    
+    xlabel, ylabel: string
+        Labels for the x and y axis (can include LaTeX formatting)
+
+    text_min: float
+        Y value to be included in limits
+    """
+    face_colours = ["blue"]*len(colours)
+    edge_colours = ["red" if ruwe else "blue" for ruwe in ruwe_mask]
+
+    # First plot all the points
+    ax.scatter(colours, abs_mags, c=face_colours, edgecolors=edge_colours)
+
+    # Now just the target
+    if target_ruwe < 1.4:
+        ax.scatter(target_colour, target_abs_mag, c="gold")
+    else:
+        ax.scatter(target_colour, target_abs_mag, c="gold", edgecolors="red")
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(y_label)
+
+    # Flip magnitude axis
+    ymin, ymax = ax.get_ylim()
+
+    # Consider text when setting limits
+    if text_min is None:
+        text_min = ymin
+
+    if ymin > text_min - 0.5:
+        ymin = text_min - 0.5
+
+    ax.set_ylim((ymax, ymin))
+
+
 def plot_synth_fit_diagnostic(
     wave_r,
     spec_r,
@@ -491,7 +553,8 @@ def plot_synth_fit_diagnostic(
     spec_synth_b=None,
     bad_px_mask_b=None,
     is_tess=False,
-    use_2mass_id=False):
+    use_2mass_id=False,
+    text_min=4.0):
     """Plots synthetic fit diagnostic plot, with three sections. Leftmost has a
     Gaia Bp-Rp, absolute G colour magnitude diagram of all stars in info_cat
     highlighting the star in question. On the top right is the blue spectra,
@@ -551,7 +614,8 @@ def plot_synth_fit_diagnostic(
     plt.close("all")
     fig = plt.figure()#constrained_layout=True)
     gs = fig.add_gridspec(nrows=2, ncols=5)
-    ax_cmd = fig.add_subplot(gs[:, 0])
+    ax_cmd_gaia = fig.add_subplot(gs[0, 0])
+    ax_cmd_2mass = fig.add_subplot(gs[1, 0])
     ax_spec_b = fig.add_subplot(gs[0, 1:])
     ax_spec_r = fig.add_subplot(gs[1, 1:])
 
@@ -563,15 +627,7 @@ def plot_synth_fit_diagnostic(
     else:
         mask = info_cat["observed"]
 
-    # First plot all the points
-    ax_cmd.plot(
-        info_cat[mask]["Bp-Rp"], 
-        info_cat[mask]["G_mag_abs"], 
-        "o",
-        c="blue",
-    )
-
-    # ID
+    # Get the ID and info about the target
     if is_tess:
         sid = float(obs_info["id"].replace("TOI",""))
         star_info = info_cat[info_cat["TOI"]==sid].iloc[0]
@@ -602,50 +658,64 @@ def plot_synth_fit_diagnostic(
 
         plt.suptitle("{}, Gaia DR2 {}".format(star_info[id_col], sid))
 
-    # Then just plot our current star
-    ax_cmd.plot(star_info["Bp-Rp"], star_info["G_mag_abs"], "o", c="red")
+    # Plot Gaia CMD
+    plot_cmd(
+        info_cat[mask]["Bp-Rp"],
+        info_cat[mask]["G_mag_abs"],
+        info_cat[mask]["ruwe"] > 1.4,
+        star_info["Bp-Rp"],
+        star_info["G_mag_abs"],
+        star_info["ruwe"],
+        ax_cmd_gaia,
+        r"$B_P-R_P$",
+        r"$G_{\rm abs}$",
+        text_min=text_min)
+    
+    # Plot 2MASS CMD
+    plot_cmd(
+        info_cat[mask]["J-K"],
+        info_cat[mask]["K_mag_abs"],
+        info_cat[mask]["ruwe"] > 1.4,
+        star_info["J-K"], 
+        star_info["K_mag_abs"],
+        star_info["ruwe"],
+        ax_cmd_2mass, 
+        r"$J-K$",
+        r"$K_{\rm abs}$")
 
-    ax_cmd.set_xlabel(r"$B_P-R_P$")
-    ax_cmd.set_ylabel(r"$G_{\rm abs}$")
+    centre_bprp = np.mean(ax_cmd_gaia.get_xlim())   
+    centre_jk = np.mean(ax_cmd_2mass.get_xlim())   
 
-    # Plot diagnostic info
-    ax_cmd.text(2.4, 5.4, "RUWE = {:.2f}".format(float(star_info["ruwe"])),
+    # Plot diagnostic info for top CMD
+    ax_cmd_gaia.text(centre_bprp, text_min, 
+        "RUWE = {:.2f}".format(float(star_info["ruwe"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 5.6, 
+    ax_cmd_gaia.text(centre_bprp, 4.5, 
         r"$T_{{{{\rm eff}}, (B_p-R_p)}}  = {:.0f} \pm {:.0f}\,K$".format(
             float(star_info["teff_m15_bprp"]), 
             float(star_info["e_teff_m15_bprp"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 5.8, 
+    ax_cmd_gaia.text(centre_bprp, 5.0, 
         r"$T_{{{{\rm eff}}, (B_p-R_p, J-H)}} = {:.0f} \pm {:.0f}\,K$".format(
             float(star_info["teff_m15_bprp_jh"]), 
             float(star_info["e_teff_m15_bprp_jh"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 6.00, 
+    ax_cmd_gaia.text(centre_bprp, 5.5, 
         r"$M_{{K_s}} = {:.2f} \pm {:.2f}\,M_{{\odot}}$".format(
             float(star_info["mass_m19"]), 
             float(star_info["e_mass_m19"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 6.20, 
-        "Blended 2MASS = {}".format(bool(int(star_info["blended_2mass"]))),
-        horizontalalignment="center")
-    ax_cmd.text(2.4, 6.4, 
+    ax_cmd_gaia.text(centre_bprp, 6.0, 
         "# Obs = {}".format(int(star_info["wife_obs"])),
         horizontalalignment="center")
-    ax_cmd.text(2.4, 6.6, 
+    ax_cmd_gaia.text(centre_bprp, 6.5, 
         "Dist. = {:.2f} pc".format(float(star_info["dist"])),
         horizontalalignment="center")
 
-    # Flip magnitude axis
-    ymin, ymax = ax_cmd.get_ylim()
-
-    # Consider text when setting limits
-    text_min = 5.4
-
-    if ymin > text_min:
-        ymin = text_min - 0.2
-
-    ax_cmd.set_ylim((ymax, ymin))
+    # And bottom CMD
+    ax_cmd_2mass.text(centre_jk, 3.5, 
+        "Blended 2MASS = {}".format(bool(int(star_info["blended_2mass"]))),
+        horizontalalignment="center")
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Blue spectra
@@ -729,7 +799,7 @@ def plot_synth_fit_diagnostic(
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
     plt_save_loc = os.path.join(
         plot_path, 
-        "{}_TOI{}.pdf".format(int(obs_info["teff_synth"]), sid))
+        "{}_{}.pdf".format(int(obs_info["teff_synth"]), sid))
     plt.savefig(plt_save_loc)
 
 
@@ -788,6 +858,12 @@ def plot_all_synthetic_fits(
 
     if not os.path.isdir(plot_path):
         os.mkdir(plot_path)
+    
+    # If it does, clear out pdfs
+    else:
+        pdfs = glob.glob(os.path.join(plot_path, "*.pdf"))
+        for pdf in pdfs:
+            os.remove(pdf)
 
     # Plot diagnostics pdf for every spectrum
     for i in tqdm(range(len(observations)), desc="Plotting diagnostics"):
@@ -810,7 +886,7 @@ def plot_all_synthetic_fits(
             )
 
     # Merge plots
-    glob_path = os.path.join(plot_path, "*TOI*")
+    glob_path = os.path.join(plot_path, "*.pdf")
     merge_spectra_pdfs(glob_path, "plots/synthetic_fits_{}.pdf".format(label))
 
 

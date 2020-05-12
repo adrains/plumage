@@ -827,7 +827,8 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
 # -----------------------------------------------------------------------------
 # Loading in literature info (e.g. photometry)
 # ----------------------------------------------------------------------------- 
-def load_info_cat(path="data/tess_info.tsv", clean=True):
+def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False, 
+                  only_observed=False):
     """
     """
     # If loading a fits file, can't start with pandas
@@ -855,6 +856,12 @@ def load_info_cat(path="data/tess_info.tsv", clean=True):
                 info_cat["TESS Disposition"] == "KP")
         )
         info_cat["pc"] = pc_mask
+
+        if remove_fp:
+            info_cat = info_cat[pc_mask]
+
+        if only_observed:
+            info_cat = info_cat[info_cat["observed"]]
 
     # Make boolean for blended 2MASS photometry
     if "blended_2mass" in info_cat:
@@ -900,3 +907,14 @@ def load_info_cat(path="data/tess_info.tsv", clean=True):
     info_cat["e_mass_m19"] = e_mass
 
     return info_cat
+
+
+def load_exofop_toi_cat():
+    """
+    """
+    # Load in tess info cat and use to clean efi
+    ti = utils.load_info_cat(remove_fp=True, only_observed=True)
+    efi = pd.read_csv("data/exofop_tess_tois.csv",quoting=1,comment="#")
+
+    return efi[np.isin(efi["TIC ID"], ti["TIC"])]
+
