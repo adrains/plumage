@@ -335,7 +335,8 @@ def plot_standards(spectra, observations, catalogue):
 # ----------------------------------------------------------------------------- 
 def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
         obs_info, param_cols, date_id=None, save_path=None, fig=None, 
-        axis=None, save_fig=False, arm="r", bad_synth_px_mask=None):
+        axis=None, save_fig=False, arm="r", bad_synth_px_mask=None,
+        spec_synth_lit=None):
     """TODO: Sort out proper sharing of axes
 
     Parameters
@@ -379,6 +380,11 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
 
     arm: string, default: 'r'
         Arm of spectrograph, either 'b' or 'r'
+    
+    spec_synth_lit: float array, default: None
+        Synthetic spectra generated at literature values (for standard stars).
+        Of shape same shape as wave if provided, otherwise defaults to
+        None and not plotted.
     """
     # Initialise empty mask for bad pixels if none is provided
     if bad_px_mask is None:
@@ -398,6 +404,11 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
     axis.errorbar(wave, spec_sci, yerr=e_spec_sci, label="sci", linewidth=0.2,
                   elinewidth=0.2, barsabove=True, capsize=0.3, capthick=0.1)
     axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
+
+    # Plot the literature synthetic spectrum if it has been provided
+    if not spec_synth_lit is None:
+        axis.plot(wave, spec_synth_lit, "-.", label="synth (lit)", 
+                  linewidth=0.2)
 
     # Plot residuals
     res_ax.hlines(0, wave[0]-100, wave[-1]+100, linestyles="dotted", 
@@ -554,9 +565,11 @@ def plot_synth_fit_diagnostic(
     bad_px_mask_b=None,
     is_tess=False,
     use_2mass_id=False,
-    text_min=4.0):
-    """Plots synthetic fit diagnostic plot, with three sections. Leftmost has a
-    Gaia Bp-Rp, absolute G colour magnitude diagram of all stars in info_cat
+    text_min=4.0,
+    spec_synth_lit_b=None,
+    spec_synth_lit_r=None):
+    """Plots synthetic fit diagnostic plot, with four sections. Leftmost has
+    Gaia Bp-Rp, absolute G, and 2MASS J-K - absolute K CMD of stars in info_cat
     highlighting the star in question. On the top right is the blue spectra,
     and the bottom right the red spectra, both with observed, synthetic, and 
     residuals.  Diagnostic information/flags are plotted as text.
@@ -609,6 +622,11 @@ def plot_synth_fit_diagnostic(
     is_tess: bool
         Indicates whether we the targets have literature parameters available,
         or whether we should plot with TOI IDs.
+
+    spec_synth_lit_b, spec_synth_lit_r: float array, default: None
+        Synthetic spectra generated at literature values (for standard stars).
+        Of shape same shape as wave_b/wave_r if provided, otherwise defaults to
+        None and not plotted.
     """
     # Initialise
     plt.close("all")
@@ -744,7 +762,8 @@ def plot_synth_fit_diagnostic(
         fig=fig, 
         axis=ax_spec_b,
         arm="b",
-        bad_synth_px_mask=bad_synth_px_mask_b)
+        bad_synth_px_mask=bad_synth_px_mask_b,
+        spec_synth_lit=spec_synth_lit_b)
 
     # If lit params are known, display
     if "teff" in star_info and not is_tess:
@@ -793,7 +812,8 @@ def plot_synth_fit_diagnostic(
         fig=fig, 
         axis=ax_spec_r,
         arm="r",
-        bad_synth_px_mask=bad_synth_px_mask_r)
+        bad_synth_px_mask=bad_synth_px_mask_r,
+        spec_synth_lit=spec_synth_lit_r)
 
     plt.gcf().set_size_inches(16, 9)
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
@@ -814,10 +834,12 @@ def plot_all_synthetic_fits(
     synth_spec_b=None, 
     bad_px_masks_b=None,
     is_tess=False,
-    use_2mass_id=False):
-    """Plots diagnostic plots of all synthetic fits and position on Gaia colour
-    magnitude diagram, saving pdfs to plots/synth_diagnostics_{label}. Plots
-    are merged into single multi-page pdf document when done.
+    use_2mass_id=False,
+    spec_synth_lit_b=None,
+    spec_synth_lit_r=None,):
+    """Plots diagnostic plots of all synthetic fits and position on Gaia/2MASS, 
+    colour magnitude diagram, saving pdfs to plots/synth_diagnostics_{label}. 
+    Plots are merged into single multi-page pdf document when done.
 
     Parameters
     ----------
@@ -852,6 +874,11 @@ def plot_all_synthetic_fits(
     is_tess: bool
         Indicates whether we the targets have literature parameters available,
         or whether we should plot with TOI IDs.
+    
+    spec_synth_lit_b, spec_synth_lit_r: float array, default: None
+        Synthetic spectra generated at literature values (for standard stars).
+        Of shape [n_ob, px] if provided, otherwise defaults to None and not
+        plotted.
     """
     # Make plot path if it doesn't already exist
     plot_path = os.path.join("plots", "synth_diagnostics_{}".format(label))
@@ -867,6 +894,16 @@ def plot_all_synthetic_fits(
 
     # Plot diagnostics pdf for every spectrum
     for i in tqdm(range(len(observations)), desc="Plotting diagnostics"):
+        # If we haven't been given literature synthetic spectra, pass through
+        # None
+        if spec_synth_lit_b is None or spec_synth_lit_r is None:
+            spec_synth_lit_b_i = None
+            spec_synth_lit_r_i = None
+        else:
+            spec_synth_lit_b_i = spec_synth_lit_b[i]
+            spec_synth_lit_r_i = spec_synth_lit_r[i]
+
+        # Do plotting
         plot_synth_fit_diagnostic(
             spectra_r[i,0], 
             spectra_r[i,1], 
@@ -883,6 +920,8 @@ def plot_all_synthetic_fits(
             bad_px_masks_b[i],
             is_tess=is_tess,
             use_2mass_id=use_2mass_id,
+            spec_synth_lit_b=spec_synth_lit_b_i,
+            spec_synth_lit_r=spec_synth_lit_r_i,
             )
 
     # Merge plots

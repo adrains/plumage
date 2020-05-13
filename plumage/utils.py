@@ -725,6 +725,7 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
         "sigma":("SIGMA_", float),
         "bad_px":("BAD_PX_MASK_", bool),
         "synth":("SYNTH_FIT_", float),
+        "synth_lit":("SYNTH_LIT_", float),
     }
 
     if extension not in valid_ext.keys():
