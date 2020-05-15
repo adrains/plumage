@@ -39,26 +39,43 @@ def idl_init(grid_choice="full"):
     
     return idl
     
-def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution, 
-                     norm="abs", do_resample=False, wl_per_pixel=None):
+def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, 
+                     resolution=None, norm="abs", do_resample=False, 
+                     wl_per_pixel=None, rv_bcor=0):
     """
     Parameters
     ----------
     idl: pidly.IDL
-        IDL wrapper.
+        IDL wrapper
+
     teff: int
-        Temperature of the star in K.
+        Temperature of the star in K
+
     logg: float
-        Log base 10 surface gravity of the star in cgs units.
+        Log base 10 surface gravity of the star in cgs units
+
     feh: float
-        Metallicity of the star relative to Solar, [Fe/H].  
-    wl_min: int
-        Minimum wavelength in Angstroms.
-    wl_max: int
-        Maximum wavelenth in Angstroms.
-    resolution: int
-        Spectral resolution.
-    norm: str 
+        Metallicity of the star relative to Solar, [Fe/H]
+    
+    wl_min: float
+        Minimum wavelength in Angstroms
+
+    wl_max: float
+        Maximum wavelenth in Angstroms
+
+    ipres: float
+        Spectral resolution for constant-velocity broadening. Note that this is
+        a mutually exclusive option to wavelength-constant broadening. If a 
+        value is provided for resolution, will use wavelength-constant 
+        broadening.
+
+    resolution: float, default: None
+        Width of broadening kernel in Angstroms for wavelength-constant 
+        broadening. Note that this is a mutually exclusive option to constant-
+        velocity broadening set by ipres, and will run if resolution is not
+        None.
+
+    norm: str, default: 'abs'
         'abs': absolute flux, i.e. the normalised flux is multiplied by the 
            absolute continuum flux
         'norm': normalised flux only
@@ -66,7 +83,18 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution,
         'abs_norm': absolute flux, normalised to the central-wavelength 
             absolute flux large values: absolute flux, normalised to the  
             wavelength "norm"
-        
+    
+    do_resample: bool
+        Whether to resample onto custom wavelength scale.
+
+    wl_per_pixel: bool
+        Wavelength per pixel of new wavelength grid.
+
+    rv_bcor: float, default: 0
+        The velocity offset (km/s) for the synthetic spectrum, 0 by default. If 
+        matching observations, this should be the total velocity offset, that
+        is both the RV and barcentric offset.
+
     Returns
     -------
     wave: 1D float array
@@ -97,9 +125,19 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, resolution,
     norm_val = NORM_VALS[norm]
 
     idl("CFe = 0. ;")
-    cmd = ("spectrum = get_spec(%d, %f, %f, !null, CFe, %i, %i, ipres=%i, "
-           "norm=%i, grid=grid, wave=wave)" % (teff, logg, feh, wl_min, wl_max, 
-                                               resolution, norm_val))
+
+    # Default behaviour is constant-velocity broadening, unless a value has 
+    # been provided for resolution
+    if resolution is None:
+        cmd = ("spectrum = get_spec(%d, %f, %f, !null, CFe, %f, %f, ipres=%f, "
+               "norm=%i, grid=grid, wave=wave, vrad=%f)" 
+               % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor))
+    # Otherwise do constant-wavelength broadening
+    else:
+        cmd = ("spectrum = get_spec(%d, %f, %f, !null, CFe, %f, %f, norm=%i, "
+               "resolution=%f, grid=grid, wave=wave, vrad=%f)" 
+               % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
+                  rv_bcor))
     
     idl(cmd)
     
