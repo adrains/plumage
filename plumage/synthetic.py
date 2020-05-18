@@ -40,9 +40,11 @@ def idl_init(grid_choice="full"):
     return idl
     
 def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, 
-                     resolution=None, norm="abs", do_resample=False, 
-                     wl_per_pixel=None, rv_bcor=0):
-    """
+                     resolution=None, norm="abs", do_resample=True, 
+                     wl_per_px=None, rv_bcor=0):
+    """Calls Thomas Nordlander's IDL routines to generate a synthetic MARCS
+    model spectrum at the requested parameters.
+
     Parameters
     ----------
     idl: pidly.IDL
@@ -84,10 +86,10 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
             absolute flux large values: absolute flux, normalised to the  
             wavelength "norm"
     
-    do_resample: bool
+    do_resample: bool, default: True
         Whether to resample onto custom wavelength scale.
 
-    wl_per_pixel: bool
+    wl_per_px: bool, default: None
         Wavelength per pixel of new wavelength grid.
 
     rv_bcor: float, default: 0
@@ -126,28 +128,34 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
 
     idl("CFe = 0. ;")
 
+    # If resampling, initialise the output wavelength scale
+    if do_resample:
+        idl("wout = [%f:%f:%f]" % (wl_min, wl_max, wl_per_px))
+        wout = ", wout=wout"
+    else:
+        wout = ""
+
     # Default behaviour is constant-velocity broadening, unless a value has 
     # been provided for resolution
     if resolution is None:
-        cmd = ("spectrum = get_spec(%d, %f, %f, !null, CFe, %f, %f, ipres=%f, "
-               "norm=%i, grid=grid, wave=wave, vrad=%f)" 
-               % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor))
+        cmd = ("spectrum = get_spec(%f, %f, %f, !null, CFe, %f, %f, ipres=%f, "
+               "norm=%i, grid=grid, wave=wave, vrad=%f%s)"
+               % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
+                  wout))
     # Otherwise do constant-wavelength broadening
     else:
-        cmd = ("spectrum = get_spec(%d, %f, %f, !null, CFe, %f, %f, norm=%i, "
-               "resolution=%f, grid=grid, wave=wave, vrad=%f)" 
+        cmd = ("spectrum = get_spec(%f, %f, %f, !null, CFe, %f, %f, norm=%i, "
+               "resolution=%f, grid=grid, wave=wave, vrad=%f%s)" 
                % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
-                  rv_bcor))
-    
+                  rv_bcor, wout))
+    # Run
     idl(cmd)
     
     if do_resample:
-        idl("waveout = [%i+%f:%i-2*%f:%f]" 
-            % (wl_min, wl_per_pixel, wl_max, wl_per_pixel, wl_per_pixel))
-        idl("spectrum = resamp(double(wave), double(spectrum), double(waveout))")
-        idl("wave = waveout")
-    
-    return idl.wave, idl.spectrum
+        return idl.wout, idl.spectrum
+    else:
+        return idl.wave, idl.spectrum
+
 
 # Retrieve list of standards    
 def retrieve_standards(idl):
@@ -170,7 +178,7 @@ def retrieve_standards(idl):
         print(star_i)
         wave, spec = get_idl_spectrum(idl, row["teff"], row["logg"], row["feh"], 
                                       wl_min, wl_max, resolution, 1, True, 
-                                      wl_per_pixel)
+                                      wl_per_px)
                                   
         spectra.append(spec)
     
@@ -187,7 +195,7 @@ def retrieve_standards(idl):
 
 
 def get_idl_spectra(idl, teffs, loggs, fehs, wl_min, wl_max, resolution, norm,
-                    do_resample, wl_per_pixel):
+                    do_resample, wl_per_px):
     """Call get_idl_spectrum multiple times
     """
     spectra = []
@@ -195,7 +203,7 @@ def get_idl_spectra(idl, teffs, loggs, fehs, wl_min, wl_max, resolution, norm,
     for star_i, (teff, logg, feh) in enumerate(zip(teffs, loggs, fehs)):
         print("Star %i, [%i, %0.2f, %0.2f]" % (star_i, teff, logg, feh))
         wave, spec = get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, 
-                                      resolution, norm, True, wl_per_pixel)
+                                      resolution, norm, True, wl_per_px)
         spectra.append(spec)
     
     spectra = np.array(spectra)
@@ -338,12 +346,14 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
         wl_max = 7000
         resolution = 7000
         n_px = 3637
+        wl_per_px = 0.44
 
     elif setting == "B3000":
         wl_min = 3500
         wl_max = 5700
         resolution = 3000
         n_px = 2858
+        wl_per_px = 0.77
 
     else:
         raise ValueError("Unknown grating - choose either B3000 or R7000")
@@ -359,9 +369,6 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
             eff_rs.append(eff_r)
         else:
             eff_rs.append(resolution)
-
-    # Calculate the wavelength spacing
-    wl_per_pixel = (wl_max - wl_min) / n_px 
 
     # Load in the IDL object
     idl = idl_init()
@@ -383,7 +390,7 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
                         eff_r, 
                         norm=norm,
                         do_resample=True, 
-                        wl_per_pixel=wl_per_pixel)
+                        wl_per_px=wl_per_px)
                 
                     spectra.append((spec))
 
@@ -569,15 +576,15 @@ def calc_synth_fit_resid_one_arm(
         wl_min = 5400
         wl_max = 7000
         n_px = 3637
+        wl_per_px = 0.44
     elif arm == "b":
         res = 3000
         wl_min = 3500
         wl_max = 5700
         n_px = 2858
+        wl_per_px = 0.77
     else:
         raise ValueError("Must be either r or b")
-
-    wl_per_px = (wl_max - wl_min) / n_px
 
     # Get the template spectrum
     wave_synth, spec_synth = get_idl_spectrum(
@@ -590,7 +597,7 @@ def calc_synth_fit_resid_one_arm(
         res, 
         norm="abs",
         do_resample=True, 
-        wl_per_pixel=wl_per_px,
+        wl_per_px=wl_per_px,
         )
 
     # The grid we put our new synthetic spectrum on should be put in the same
