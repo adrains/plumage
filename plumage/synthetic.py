@@ -41,7 +41,8 @@ def idl_init(grid_choice="full"):
     
 def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, 
                      resolution=None, norm="abs", do_resample=True, 
-                     wl_per_px=None, rv_bcor=0, wave_pad=50,):
+                     wl_per_px=None, rv_bcor=0, wave_pad=50, abund_alpha=None,
+                     abund_CFe=None,):
     """Calls Thomas Nordlander's IDL routines to generate a synthetic MARCS
     model spectrum at the requested parameters.
 
@@ -103,6 +104,10 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
         RV shifting and without interpolation. 50 A by default, as a star would
         need to have an RV of 2,000+ km/s to shift outside this.
 
+    abund_alpha, abund_CFe: float or None, default: None
+        Alpha element and [C/Fe] abundance respectively, uses Nordlander IDL
+        defaults when set to None.
+
     Returns
     -------
     wave: 1D float array
@@ -126,13 +131,22 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
 
     if wl_min > wl_max or wl_max > 200000 or wl_min < 2000:
         raise ValueError("Wavelengths must be 2,000 <= lambda (A) <= 60,000")
-        
+
     if norm not in NORM_VALS:
         raise ValueError("Invalid normalisation value, see NORM_VALS.")
     
     norm_val = NORM_VALS[norm]
 
-    idl("CFe = 0. ;")
+    # Initialise abundance parameters
+    if abund_alpha is None:
+        idl("alpha = !null;")
+    else:
+        idl("alpha = {};".format(abund_alpha))
+
+    if abund_CFe is None:
+        idl("CFe = 0.0;")
+    else:
+        idl("CFe = {};".format(abund_CFe))
 
     # If resampling, initialise the output wavelength scale
     if do_resample:
@@ -148,13 +162,13 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
     # Default behaviour is constant-velocity broadening, unless a value has 
     # been provided for resolution
     if resolution is None:
-        cmd = ("spectrum = get_spec(%f, %f, %f, !null, CFe, %f, %f, ipres=%f, "
+        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, ipres=%f, "
                "norm=%i, grid=grid, wave=wave, vrad=%f%s)"
                % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
                   wout))
     # Otherwise do constant-wavelength broadening
     else:
-        cmd = ("spectrum = get_spec(%f, %f, %f, !null, CFe, %f, %f, norm=%i, "
+        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
                "resolution=%f, grid=grid, wave=wave, vrad=%f%s)" 
                % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
                   rv_bcor, wout))
