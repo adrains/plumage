@@ -831,8 +831,6 @@ def calc_rv_shift_residual(rv, wave, spec, e_spec, ref_spec_interp, bcor):
     # Return loss
     resid_vect = (spec - ref_spec) / e_spec
 
-    #chi_sq = np.nansum(resid_vect**2)
-
     return resid_vect
 
 
@@ -874,22 +872,18 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bad_px_mask,
     # Make interpolation function
     ref_spec_interp = ius(ref_wl, ref_spec)
 
-    # Mask the science data by setting the masked regions to nans
-    sci_wl_m = sci_wl.copy()
+    # Mask the science data by setting uncertainties on the masked regions to
+    # infinity (thereby setting the inverse variance to zero), as well as 
+    # putting the bad pixels themselves to one so there are no nans involved in
+    # calculation of the residuals
     sci_spec_m = sci_spec.copy()
-    e_sci_spec_m = e_sci_spec.copy()
-
-    #sci_wl_m = sci_wl_m[bad_px_mask]
-    #sci_spec_m = sci_spec_m[bad_px_mask]
     sci_spec_m[bad_px_mask] = 1
-    e_sci_spec_m[bad_px_mask] = 1E30
-
-    e_sci_spec_m[np.isnan(sci_spec_m)] = 1E30
-    sci_spec_m[np.isnan(sci_spec_m)] = 1
+    e_sci_spec_m = e_sci_spec.copy()
+    e_sci_spec_m[bad_px_mask] = np.inf
 
     # Do fit, have initial RV guess be 0 km/s
     rv = 0
-    args = (sci_wl_m, sci_spec_m, e_sci_spec_m, ref_spec_interp, bcor)
+    args = (sci_wl, sci_spec_m, e_sci_spec_m, ref_spec_interp, bcor)
     rv_fit, cov, infodict, mesg, ier = leastsq(calc_rv_shift_residual, rv, 
                                             args=args, full_output=True)
 
@@ -903,7 +897,7 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bad_px_mask,
 
     # Add extra parameters to infodict
     infodict["template_spec"] = ref_spec_interp(
-        sci_wl_m * (1-(float(rv_fit)-bcor)/(const.c.si.value/1000)))
+        sci_wl * (1-(float(rv_fit)-bcor)/(const.c.si.value/1000)))
     infodict["cov"] = cov
     infodict["mesg"] = mesg
     infodict["ier"] = ier

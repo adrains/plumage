@@ -41,7 +41,7 @@ def idl_init(grid_choice="full"):
     
 def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, 
                      resolution=None, norm="abs", do_resample=True, 
-                     wl_per_px=None, rv_bcor=0):
+                     wl_per_px=None, rv_bcor=0, wave_pad=50,):
     """Calls Thomas Nordlander's IDL routines to generate a synthetic MARCS
     model spectrum at the requested parameters.
 
@@ -97,6 +97,12 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
         matching observations, this should be the total velocity offset, that
         is both the RV and barcentric offset.
 
+    wave_pad: float, default: 50
+        Padding in Angstroms added to either end of the requested wavelength 
+        scale to account for the initial wavelength limits being applied before
+        RV shifting and without interpolation. 50 A by default, as a star would
+        need to have an RV of 2,000+ km/s to shift outside this.
+
     Returns
     -------
     wave: 1D float array
@@ -110,17 +116,17 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
 
     # Checks
     if teff > 8000 or teff < 2500:
-        raise ValueError("Temperature must be 2500 <="
-                                            " Teff (K) <= 8000")
+        raise ValueError("Temperature must be 2500 <= Teff (K) <= 8000")
+
     if logg > 5.5 or logg < -1:
-        raise ValueError("Surface gravity must be -1 <="
-                                            " logg (cgs) <= 5.5")
+        raise ValueError("Surface gravity must be -1 <= logg (cgs) <= 5.5")
+
     if feh > 1.0 or feh < -5:
-        raise ValueError("Metallicity must be -5 <="
-                                            " [Fe/H] (dex) <= 1")
+        raise ValueError("Metallicity must be -5 <= [Fe/H] (dex) <= 1")
+
     if wl_min > wl_max or wl_max > 200000 or wl_min < 2000:
-        raise ValueError("Wavelengths must be 2,000 <="
-                                            " lambda (A) <= 60,000")                
+        raise ValueError("Wavelengths must be 2,000 <= lambda (A) <= 60,000")
+        
     if norm not in NORM_VALS:
         raise ValueError("Invalid normalisation value, see NORM_VALS.")
     
@@ -132,6 +138,10 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
     if do_resample:
         idl("wout = [%f:%f:%f]" % (wl_min, wl_max, wl_per_px))
         wout = ", wout=wout"
+
+        # Incorporate padding *after* we've set our output scale
+        wl_min -= wave_pad
+        wl_max += wave_pad
     else:
         wout = ""
 
@@ -565,20 +575,60 @@ def calc_synth_fit_resid_one_arm(
     rv, 
     bcor, 
     idl,
-    arm,
-    ):
-    """
+    arm,):
+    """Calculates residuals between observed science spectrum, and MARCS model
+    synthetic spectrum for a single arm of the spectrograph.
+
+    Parameters
+    ----------
+    params: float array
+        Initial parameter guess of form (teff, logg, [Fe/H])
+
+    wave_sci: float array
+        Wavelength scale corresponding to spec_sci.
+
+    spec_sci: float array
+        The science spectrum corresponding to wave_sci.
+
+    e_spec_sci: float array
+        Uncertainties on science spectrum.
+
+    bad_px_mask: boolean array
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    rv: float
+        Radial velocity in km/s
+
+    bcor: float:
+        Barycentric velocity in km/s
+
+    idl: pidly.IDL
+        pidly.IDL object to interface with Thomas Nordlander's synthetic 
+        MARCS spectra through IDL.
+
+    arm: string
+        Arm of spectrograph used to acquire spec_sci, either 'b' or 'r'.
+
+    Returns
+    -------
+    resid_vect: float array
+        Uncertainty weighted residual vector between science and synthetic
+        spectra.
+
+    spec_synth: float array
+        Best fitting synthetic spectrum.
     """
     # Initialise details of synthetic wavelength scale
     # TODO - Generalise this
     if arm == "r":
-        res = 7000
+        inst_res_pow = 7000
         wl_min = 5400
         wl_max = 7000
         n_px = 3637
         wl_per_px = 0.44
     elif arm == "b":
-        res = 3000
+        inst_res_pow = 3000
         wl_min = 3500
         wl_max = 5700
         n_px = 2858
@@ -594,30 +644,40 @@ def calc_synth_fit_resid_one_arm(
         params[2], 
         wl_min, 
         wl_max, 
-        res, 
+        ipres=inst_res_pow,
+        resolution=wl_per_px,
         norm="abs",
         do_resample=True, 
         wl_per_px=wl_per_px,
+        rv_bcor=(rv-bcor),
         )
 
-    # The grid we put our new synthetic spectrum on should be put in the same
-    # RV frame as the science spectrum
-    wave_rv_scale = 1 - (rv - bcor)/(const.c.si.value/1000)
-    ref_spec_interp = ius(wave_synth, spec_synth)
-
-    wave_synth = wave_sci * wave_rv_scale
-    spec_synth = ref_spec_interp(wave_synth)
-
     # Normalise spectra by wavelength region before fit
-    spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(wave_sci, spec_sci, arm, e_spec_sci)
-    spec_synth = spec.norm_spec_by_wl_region(wave_sci, spec_synth, arm)
+    spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(
+        wave_sci, 
+        spec_sci, 
+        arm, 
+        e_spec_sci)
+
+    # Normalise the synthetic spectrum only if it is non-zero. An array of 
+    # zeros means that we generated a synthetic spectrum at non-physical values
+    # and returned with zero flux, but our parameters were still inside the 
+    # grid bounds. If it is composed of zeros, the residuals should be bad 
+    # anyway.
+    if np.sum(spec_synth) > 0:
+        spec_synth = spec.norm_spec_by_wl_region(wave_sci, spec_synth, arm)
+
+    # Mask the spectra by setting uncertainties on bad pixels to infinity 
+    # (thereby setting the inverse variances to zero), as well as putting the
+    # bad pixels themselves to one so there are no nans involved in calculation
+    # of the residuals (as this breaks the least squares fitting)
+    spec_sci_m = spec_sci.copy()
+    spec_sci_m[bad_px_mask] = 1
+    e_spec_sci_m = e_spec_sci.copy()
+    e_spec_sci_m[bad_px_mask] = np.inf
 
     # Calculate the residual
-    resid_vect = (spec_sci[~bad_px_mask] 
-                  - spec_synth[~bad_px_mask]) / e_spec_sci[~bad_px_mask]
-
-    if not np.isfinite(np.sum(resid_vect)):
-        resid_vect = np.ones_like(resid_vect) * 1E30
+    resid_vect = (spec_sci_m - spec_synth) / e_spec_sci_m
 
     return resid_vect, spec_synth
 
@@ -635,9 +695,7 @@ def calc_synth_fit_resid_both_arms(
     spec_b, 
     e_spec_b, 
     bad_px_mask_b,
-    best_fit_spec_dict,
-    #norm_range
-    ):
+    best_fit_spec_dict,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
     band spectrum related arrays are None, will just fit for red spectra. This
@@ -734,10 +792,6 @@ def calc_synth_fit_resid_both_arms(
         resid_vect = resid_vect_r
     
     # Save the best fit normalised spectra
-    #best_fit_spec_dict["wave"] = wave_r
-    #best_fit_spec_dict["wl_mask"] = ~bad_px_mask_r
-    #best_fit_spec_dict["spec_sci"] = spec_r
-    #best_fit_spec_dict["e_spec_sci"] = e_spec_r
     best_fit_spec_dict["spec_synth_b"] = spec_synth_b
     best_fit_spec_dict["spec_synth_r"] = spec_synth_r
 
