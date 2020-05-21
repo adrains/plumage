@@ -12,7 +12,8 @@ import astropy.constants as const
 from astropy import units as u
 from scipy.optimize import leastsq, least_squares
 import plumage.spectra as spec
-
+from scipy.interpolate import interp1d
+from scipy.integrate import simps
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 #------------------------------------------------------------------------------    
@@ -907,3 +908,126 @@ def do_synthetic_fit(
     )
 
     return optimize_result, best_fit_spec_dict
+
+# -----------------------------------------------------------------------------
+# Synthetic Photometry
+# -----------------------------------------------------------------------------
+def load_filter_profile(
+    filt, 
+    min_wl=1200, 
+    max_wl=30000, 
+    gaia_filt_path="data/GaiaDR2_Passbands.dat",
+    tmass_filt_path="data/2mass_{}_profile.txt"):
+    """Load in the specified filter profile and zero pad both ends in 
+    preparation for feeding into an interpolation function.
+
+    Parameters
+    ----------
+
+
+    Returns
+    -------
+
+    """
+    filt = filt.upper()
+
+    filters_gaia = np.array(["G", "BP", "RP"])
+    filters_2mass = np.array(["J", "H", "K"])
+
+    if filt not in filters_gaia and filt not in filters_2mass:
+        raise ValueError("Filter must be either {} or {}".format(
+            filters_gaia, filters_2mass))
+
+    # 2MASS filter profiles
+    if filt in filters_2mass:
+        # Load the filter profile, and convert to Angstroms
+        tmpb = pd.read_csv(tmass_filt_path.format(filt), delim_whitespace=True)
+
+        wl = tmpb["wl"].values * 10**4
+        filt_profile = tmpb["pb"].values
+    
+    # Gaia filter profiles
+    elif filt in filters_gaia:
+        # Import Gaia passbands
+        gpb = pd.read_csv(gaia_filt_path, header=0, delim_whitespace=True)
+
+        # Set the undefined passband values to 0
+        gpb[gpb[["G_pb", "BP_pb", "RP_pb"]]==99.99] = 0   
+        
+        wl = gpb["wl"].values * 10
+        filt_profile = gpb["{}_pb".format(filt)].values
+    
+    # Pre- and post- append zeros from min_wl to max_wl
+    prepad_wl = np.arange(min_wl, wl[0], 1000)
+    prepad = np.zeros_like(prepad_wl)
+    
+    postpad_wl = np.arange(wl[-1], max_wl, 1000)[1:]
+    postpad = np.zeros_like(postpad_wl)
+    
+    wl_filt = np.concatenate((prepad_wl, wl, postpad_wl))
+    filt_profile = np.concatenate((prepad, filt_profile, postpad))
+    
+    return wl_filt, filt_profile
+
+
+def calc_synth_mag(wl_sci, fluxes, filt):
+    """Function to put a given filter profile on a different wavelength scale, 
+    and compute the fluxes given a spectrum. 
+    """
+    # Input checking
+    filt = filt.upper()
+
+    filters_gaia = np.array(["G", "BP", "RP"])
+    filters_2mass = np.array(["J", "H", "K"])
+
+    if filt not in filters_gaia and filt not in filters_2mass:
+        raise ValueError("Filter must be either {} or {}".format(
+            filters_gaia, filters_2mass))
+
+    # Load in filter profile
+    wl_filt, filt_profile = load_filter_profile(filt)
+
+    # Set up the interpolator for the filter profile
+    calc_filt_profile = ius(wl_filt, filt_profile)#, kind="linear")
+                                 
+    # Interpolate the filter profile onto the science wavelength scale
+    filt_profile_sci = calc_filt_profile(wl_sci)
+    
+    # Assume solar radii for synthetic fluxes/star, and scale to 10 pc distance
+    r_sun = 6.95700*10**8        # metres
+    d_10pc = 10 * 3.0857*10**16  # metres
+    
+    #flux = (r_sun / d_10pc)**2 * fluxes
+
+    # Compute the flux density of the star
+    #ean_flux_density = (simps(fluxes*filt_profile_sci*wl_sci, wl_sci)
+    #                     / simps(filt_profile_sci*wl_sci, wl_sci))
+
+    mean_flux_density = simps(fluxes*filt_profile_sci*wl_sci, wl_sci)
+    
+    # Gaia filter zeropoints from: 
+    # https://www.cosmos.esa.int/web/gaia/iow_20180316
+    gaia_pa = 0.7278 # m^2
+    zps_gaia = {"G":(25.6883657251, 0.0017850023),
+                "BP":(25.3513881707, 0.0013918258),
+                "RP":(24.7619199882, 0.0019145719)}
+
+    # Define Vega fluxes (erg s^-1 cm^-2 A^-1) and zeropoints for each filter
+    # Vega fluxes from Casagrande & VendenBerg 2014, Table 1
+    # Band zeropoints from Bessell, Castelli, & Plez 1998, Table A2
+    zps_2mass = {"J":[3.129* 10**-10, 0.899], 
+                 "H":[1.113* 10**-10, 1.379], 
+                 "K":[4.283* 10**-11, 1.886]}  # erg cm-2 s-1 A-1
+    
+    # Calculate Gaia mags
+    # mag_star = -2.5 log10(I) + ZP
+    if filt in filters_gaia:
+        i_zeta = gaia_pa/(const.c.value*const.h.value*10**9) * mean_flux_density
+        mag = -2.5 * np.log10(i_zeta) + zps_gaia[filt][0]
+    
+    # Calculate the magnitude of each star w.r.t. Vega
+    # mag_star = -2.5 log10(F_star / F_vega) + zero-point
+    else:
+        mag = -2.5 * np.log10(mean_flux_density/zps_2mass[filt][0]) + zps_2mass[filt][1]
+    
+    return mag
