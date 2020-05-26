@@ -15,6 +15,7 @@ import plumage.spectra as spec
 from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
+from scipy.interpolate import LinearNDInterpolator
 
 #------------------------------------------------------------------------------    
 # Setup IDL
@@ -697,6 +698,50 @@ def calc_synth_fit_resid_one_arm(
     return resid_vect, spec_synth
 
 
+def calc_colour_resid(
+    params,
+    rv,
+    bcor,
+    idl,
+    colours,
+    e_colours,
+    colour_bands=["RP-J", "J-H", "H-K"],
+    wl_min=3000,
+    wl_max=30000,
+    inst_res_pow=2000,
+    wl_per_px=1,
+    ):
+    """
+    """
+    # Input checking
+    if len(colours) != len(e_colours) or len(e_colours) != len(colour_bands):
+        raise ValueError("colours, e_colours, and colour_bands should all have"
+                         " the same length")
+
+    # Get a low resolution spectrum to integrate over
+    wave, spec_synth = get_idl_spectrum(
+        idl, 
+        params[0], 
+        params[1], 
+        params[2], 
+        wl_min, 
+        wl_max, 
+        ipres=inst_res_pow,
+        norm="abs",
+        do_resample=True, 
+        wl_per_px=wl_per_px,
+        rv_bcor=(rv-bcor),
+        )
+
+    # Calculate a set of synthetic colours
+    synth_colours = calc_synth_colour_array(wave, spec_synth, colour_bands)
+
+    # Calculate the residuals
+    resid = (colours - synth_colours) / e_colours
+
+    return resid
+
+
 def calc_synth_fit_resid_both_arms(
     params, 
     wave_r, 
@@ -920,14 +965,6 @@ def load_filter_profile(
     tmass_filt_path="data/2mass_{}_profile.txt"):
     """Load in the specified filter profile and zero pad both ends in 
     preparation for feeding into an interpolation function.
-
-    Parameters
-    ----------
-
-
-    Returns
-    -------
-
     """
     filt = filt.upper()
 
@@ -970,9 +1007,18 @@ def load_filter_profile(
     return wl_filt, filt_profile
 
 
-def calc_synth_mag(wl_sci, fluxes, filt):
+def calc_synth_mag(wave, fluxes, filt):
     """Function to put a given filter profile on a different wavelength scale, 
     and compute the fluxes given a spectrum. 
+
+    NOTE: Wrong formalism, colour are wrong!!!!
+
+    Parameters
+    ----------
+    wave: float array
+        Wavelengths in A.
+    fluxes: float array
+        Spectral fluxes in cgs wavelength-units (erg/s/A)
     """
     # Input checking
     filt = filt.upper()
@@ -991,11 +1037,11 @@ def calc_synth_mag(wl_sci, fluxes, filt):
     calc_filt_profile = ius(wl_filt, filt_profile)#, kind="linear")
                                  
     # Interpolate the filter profile onto the science wavelength scale
-    filt_profile_sci = calc_filt_profile(wl_sci)
+    filt_profile_sci = calc_filt_profile(wave)
     
     # Assume solar radii for synthetic fluxes/star, and scale to 10 pc distance
     r_sun = 6.95700*10**8        # metres
-    d_10pc = 10 * 3.0857*10**16  # metres
+    #d_10pc = 10 * 3.0857*10**16  # metres
     
     #flux = (r_sun / d_10pc)**2 * fluxes
 
@@ -1003,31 +1049,295 @@ def calc_synth_mag(wl_sci, fluxes, filt):
     #ean_flux_density = (simps(fluxes*filt_profile_sci*wl_sci, wl_sci)
     #                     / simps(filt_profile_sci*wl_sci, wl_sci))
 
-    mean_flux_density = simps(fluxes*filt_profile_sci*wl_sci, wl_sci)
+    #mean_flux_density = simps(fluxes*filt_profile_sci*wl_sci, wl_sci)
     
-    # Gaia filter zeropoints from: 
-    # https://www.cosmos.esa.int/web/gaia/iow_20180316
-    gaia_pa = 0.7278 # m^2
-    zps_gaia = {"G":(25.6883657251, 0.0017850023),
-                "BP":(25.3513881707, 0.0013918258),
-                "RP":(24.7619199882, 0.0019145719)}
-
-    # Define Vega fluxes (erg s^-1 cm^-2 A^-1) and zeropoints for each filter
-    # Vega fluxes from Casagrande & VendenBerg 2014, Table 1
-    # Band zeropoints from Bessell, Castelli, & Plez 1998, Table A2
-    zps_2mass = {"J":[3.129* 10**-10, 0.899], 
-                 "H":[1.113* 10**-10, 1.379], 
-                 "K":[4.283* 10**-11, 1.886]}  # erg cm-2 s-1 A-1
-    
-    # Calculate Gaia mags
-    # mag_star = -2.5 log10(I) + ZP
     if filt in filters_gaia:
-        i_zeta = gaia_pa/(const.c.value*const.h.value*10**9) * mean_flux_density
+        # Gaia filter zeropoints from: 
+        # https://www.cosmos.esa.int/web/gaia/iow_20180316
+        gaia_pa = 0.7278 # m^2
+        zps_gaia = {"G":(25.6883657251, 0.0017850023),
+                    "BP":(25.3513881707, 0.0013918258),
+                    "RP":(24.7619199882, 0.0019145719)}
+
+        # mag_star = -2.5 log10(I) + ZP
+        flux_int = simps(wave*fluxes*filt_profile_sci)
+
+        i_zeta = gaia_pa/(const.c.value*const.h.value*10**9) * flux_int
         mag = -2.5 * np.log10(i_zeta) + zps_gaia[filt][0]
-    
-    # Calculate the magnitude of each star w.r.t. Vega
-    # mag_star = -2.5 log10(F_star / F_vega) + zero-point
+
     else:
-        mag = -2.5 * np.log10(mean_flux_density/zps_2mass[filt][0]) + zps_2mass[filt][1]
+        # Define Vega fluxes (erg s^-1 cm^-2 A^-1) & zeropoints for each filter
+        # Vega fluxes from Casagrande & VendenBerg 2014, Table 1
+        # Band zeropoints from Bessell, Castelli, & Plez 1998, Table A2
+        zps_2mass = {"J":[3.129* 10**-10, 0.899], 
+                    "H":[1.113* 10**-10, 1.379], 
+                    "K":[4.283* 10**-11, 1.886]}  # erg cm-2 s-1 A-1
+
+        #fluxes /= 4*np.pi#*(r_sun*10)**2
+
+        # 2MASS filter profiles (T_zeta) are from Cohen et al. 2003 
+        # (2003AJ....126.1090C), and have already been normalised by lambda
+        wmf = simps(fluxes*filt_profile_sci, wave)
+              # / simps(filt_profile_sci, wave))
+
+        # Calculate the magnitude of each star w.r.t. Vega
+        # mag_star = -2.5 log10(F_star / F_vega) + zero-point
+        mag = -2.5 * np.log10(wmf/zps_2mass[filt][0]) + zps_2mass[filt][1]
     
     return mag
+
+
+def calc_synth_colour(wave, fluxes, filt_1, filt_2):
+    """Calculates a synthetic stellar colour of form (mag_1 - mag_2) where 
+    mag_1 and mag_2 are from filt_1 and filt_2 respectively.
+    """
+    # Input checking
+    filt_1 = filt_1.upper()
+    filt_2 = filt_2.upper()
+
+    filters = np.array(["G", "BP", "RP", "J", "H", "K"])
+
+    if filt_1 not in filters or filt_2 not in filters:
+        raise ValueError("Filters must both be in {}".format(filters))
+    
+    mag_1 = calc_synth_mag(wave, fluxes, filt_1)
+    mag_2 = calc_synth_mag(wave, fluxes, filt_2)
+
+    colour = mag_1 - mag_2
+
+    return colour
+
+
+def calc_synth_colour_array(wave, fluxes, colour_bands):
+    """
+    """
+    colours = []
+
+    # For every colour band specified, calculate the colour
+    for colour_band in colour_bands:
+        filt_1 = colour_band.split("-")[0]
+        filt_2 = colour_band.split("-")[1]
+
+        colours.append(calc_synth_colour(wave, fluxes, filt_1, filt_2))
+
+    return np.array(colours)
+
+
+# -----------------------------------------------------------------------------
+# Working with Casagrande BC code
+# ----------------------------------------------------------------------------- 
+def generate_casagrande_bc_grid(
+    teff_lims=(2800, 6000),
+    logg_lims=(4.0, 5.5),
+    feh_lims=(-2.0, 0.5),
+    ebv_lims=None,
+    delta_teff=100,
+    delta_logg=0.1,
+    delta_feh=0.1,
+    delta_ebv=None,
+    filters=["Bp", "Rp", "J", "H", "K"],
+    bc_path="/Users/adamrains/code/bolometric-corrections/"):
+    """Setup grid of stellar parameters for use with the bolometric correction
+    code from Casagrande & VandenBerg (2014, 2018a, 2018b):
+    
+    https://github.com/casaluca/bolometric-corrections
+    
+    Check that selectbc.data looks like this to compute Bp, Rp, J, H, K:
+        1  = ialf (= [alpha/Fe] variation: select from choices listed below)
+        5  = nfil (= number of filter bandpasses to be considered; maximum = 5)
+        27 86  =  photometric system and filter (select from menu below)
+        27 88  =  photometric system and filter (select from menu below)
+        1 1  =  photometric system and filter (select from menu below)
+        1 2  =  photometric system and filter (select from menu below)
+        1 3  =  photometric system and filter (select from menu below)
+
+    For simplicity (but mostly to avoid errors), this function does not run 
+    bcgo, but the file is in an acceptable format to do so from a terminal.
+
+    Parameters
+    ----------
+    teff_lims: float array, default: (2800, 6000)
+        Limits on the temperature grid of form (teff_min, teff_max) in K.
+
+    logg_lims: float array, default: (4.0, 5.5)
+        Limits on the surface gravity grid of form (logg_min, logg_max).
+
+    feh_lims: float array, default: (-2.0, 0.5)
+        Limits on the metallicity grid of form (feh_min, feh_max).
+
+    ebv_lims: float array, default: None
+        Limits on the E(B-V) grid of form (ebv_min, ebv_max). If None, no
+        reddening is assumed.
+
+    delta_teff: float, default: 100
+        Grid step in temperature dimension.
+
+    delta_logg: float, default: 0.1
+        Grid step in gravity dimension.
+
+    delta_feh: float, default: 0.1
+        Grid step in metallicity dimension.
+
+    delta_ebv: float, default: None
+        Grid step in E(B-V) dimension.
+
+    filters: string array, default: ["Bp", "Rp", "J", "H", "K"]
+        Filters to compute colours for.
+
+    bc_path: string, default: "/Users/adamrains/code/bolometric-corrections/"
+        Path to save grid value file to.
+    """
+    # Initialise arrays
+    teffs = np.arange(teff_lims[0], teff_lims[1], delta_teff)
+    loggs = np.arange(logg_lims[0], logg_lims[1], delta_logg)
+    fehs = np.arange(feh_lims[0], feh_lims[1], delta_feh)
+
+    if ebv_lims is None or delta_ebv is None:
+        ebvs = [0]
+    else:
+        ebvs = np.arange(ebv_lims[0], ebv_lims[1], delta_ebv)
+
+    # Make grid
+    grid = []
+    point_i = 0
+
+    for logg in loggs:
+        for feh in fehs:
+            for teff in teffs:
+                for ebv in ebvs:
+                    if not (teff > 4000 and logg > 5):
+                        grid.append(
+                            ["i{:05d}".format(point_i), logg, feh, teff, ebv])
+                        #grid.append([logg, feh, teff])
+
+                    point_i += 1
+
+    grid = np.stack(grid)
+
+    # Save
+    in_bc_path = os.path.join(bc_path, "input.sample.all")
+    np.savetxt(in_bc_path, grid, delimiter=" ", fmt="%s")
+
+    # Run
+    #os.system("cd {}; ./bcall".format(bc_path))
+    #os.system("cd {}; ./bcgo".format(bc_path))
+
+
+def initialise_casagrande_bc_grid(
+    filters=["Bp", "Rp", "J", "H", "K"],
+    bc_path="/Users/adamrains/code/bolometric-corrections/",
+    save_path="data/synth_colour_grid.csv"):
+    """Initialise a grid of stellar parameters, bolometric corrections, and 
+    synthetic colours based on the output of the bolometric-corrections code.
+
+    Parameters
+    ----------
+    filters: string array, default: ["Bp", "Rp", "J", "H", "K"]
+        Filters to compute colours for.
+
+    bc_path: string, default: "/Users/adamrains/code/bolometric-corrections/"
+        Path to load bolometric correction results from
+    """
+    # Read in
+    out_bc_path = os.path.join(bc_path, "output.file.all")
+    bc_grid = pd.read_csv(out_bc_path, delim_whitespace=True)
+
+    bc_cols = ["BC_{}".format(filt) for filt in filters]
+    colour_cols = ["{}-{}".format(f1, f2) 
+                   for f1, f2 in zip(filters[:-1], filters[1:])]
+
+    bc_grid.columns = ["id", "logg", "feh", "teff", "ebv"] + bc_cols
+
+    bc_values = bc_grid[bc_cols].values
+
+    # Calculate the colours, noting that we have to do the subtraction 
+    # 'backwards' to calculate a colour from a BC
+    colours = pd.DataFrame(
+        data=np.stack([bc_values[:,i+1]-bc_values[:,i] 
+                       for i in range(bc_values.shape[1]-1)]).T,
+        columns=colour_cols)
+
+    bc_grid = pd.concat((bc_grid,colours), axis=1)
+
+    bc_grid.to_csv(save_path)
+
+    return bc_grid
+
+
+def load_casagrade_colour_grid(load_path="data/synth_colour_grid.csv"):
+    """Import the constructed grid, with columns [id, logg, feh, teff, ebv,
+     BC_Bp, BC_Rp, BC_J, BC_H, BC_K, Bp-Rp, Rp-J, J-H, H-K].
+
+    Parameters
+    ----------
+    load_path: string, default: 'data/synth_colour_grid.csv'
+        Where to load the grid from.
+    """
+    bc_grid = pd.read_csv(load_path, index_col=0)
+
+    return bc_grid
+
+
+class SyntheticColourInterpolator():
+    """Class to interpolate synthetic colours, meaning that you don't need to
+    reload and set up the interpolator every time as you would with a function.
+    """
+    def __init__(self):
+        """Constructor
+        """
+        param_cols = ["teff", "logg", "feh"]
+
+        self.bc_grid = import_casagrande_bc_grid()
+        self.VALID_COLOURS = ["Bp", "Rp", "J", "H", "K"]
+
+        # Setup interpolators for each possible colour
+        self.calc_bprp =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["Bp-Rp"].values)
+
+        self.calc_rpj =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["Rp-J"].values)
+
+        self.calc_jh =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["J-H"].values)
+
+        self.calc_hk =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["H-K"].values)
+
+
+    def compute_colour(self, params, colour_bands):
+        """Computes a synthetic colour based on params and provided colour band
+
+        Parameters
+        ------
+        params: float array
+            Stellar parameters of form (teff, logg, [Fe/H]).
+
+        colour_bands: string
+            The stellar colour, either 'Bp-Rp', 'Rp-J', 'J-H', or 'H-K'.
+
+        Returns
+        -------
+        colour: float array
+            Resulting synthetic stellar colour.
+        """
+        if colour_bands == "Bp-Rp":
+            colour = self.calc_bprp(params[0], params[1], params[2])
+
+        elif colour_bands == "Rp-J":
+            colour = self.calc_rpj(params[0], params[1], params[2])
+
+        elif colour_bands == "J-H":
+            colour = self.calc_jh(params[0], params[1], params[2])
+
+        elif colour_bands == "H-K":
+            colour = self.calc_hk(params[0], params[1], params[2])
+
+        else:
+            raise ValueError("Invalid colour, must be in {}".format(
+                self.VALID_COLOURS))
+
+        return colour
