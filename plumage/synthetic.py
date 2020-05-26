@@ -700,41 +700,45 @@ def calc_synth_fit_resid_one_arm(
 
 def calc_colour_resid(
     params,
-    rv,
-    bcor,
-    idl,
-    colours,
-    e_colours,
-    colour_bands=["RP-J", "J-H", "H-K"],
-    wl_min=3000,
-    wl_max=30000,
-    inst_res_pow=2000,
-    wl_per_px=1,
-    ):
-    """
+    stellar_colours,
+    e_stellar_colours,
+    colour_bands,
+    sc_interp,):
+    """Calculates the residuals between observed and synthetic colours.
+
+    Parameters
+    ----------
+    params: float array
+        Initial parameter guess of form (teff, logg, [Fe/H])
+    
+    stellar_colours: float array, default: None
+        Array of observed stellar colour corresponding to colour_bands. If None
+        photometry is not used in the fit.
+
+    e_stellar_colours: float array, default: None
+        Array of observed stellar colour uncertainties. If None photometry is 
+        not used in the fit.
+
+    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
+        Colour bands to use in the fit.
+
+    sc_interp: SyntheticColourInterpolator
+        SyntheticColourInterpolator object able to interpolate synth colours.
+
+    Returns
+    -------
+    resid: float array
+        Uncertainty weighted residual vector between observed and synthetic
+        colours.
     """
     # Input checking
-    if len(colours) != len(e_colours) or len(e_colours) != len(colour_bands):
-        raise ValueError("colours, e_colours, and colour_bands should all have"
-                         " the same length")
-
-    # Get a low resolution spectrum to integrate over
-    wave, spec_synth = get_idl_spectrum(
-        idl, 
-        params[0], 
-        params[1], 
-        params[2], 
-        wl_min, 
-        wl_max, 
-        ipres=inst_res_pow,
-        norm="abs",
-        do_resample=True, 
-        wl_per_px=wl_per_px,
-        rv_bcor=(rv-bcor),
-        )
+    if (len(stellar_colours) != len(e_cstellar_colours) 
+        or len(e_cstellar_colours) != len(colour_bands)):
+        raise ValueError("stellar_colours, e_stellar_colours, and colour_bands"
+                         "  should all have the same length")
 
     # Calculate a set of synthetic colours
-    synth_colours = calc_synth_colour_array(wave, spec_synth, colour_bands)
+    synth_colours = np.array([sc_interp(params,cb) for cb in colour_bands])
 
     # Calculate the residuals
     resid = (colours - synth_colours) / e_colours
@@ -755,6 +759,10 @@ def calc_synth_fit_resid_both_arms(
     spec_b, 
     e_spec_b, 
     bad_px_mask_b,
+    stellar_colours,
+    e_stellar_colours,
+    colour_bands,
+    sc_interp,
     best_fit_spec_dict,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
@@ -802,6 +810,20 @@ def calc_synth_fit_resid_both_arms(
         Array of bad pixels (i.e. bad pixels are True) for red arm
         corresponding to wave_r.
 
+    stellar_colours: float array, default: None
+        Array of observed stellar colour corresponding to colour_bands. If None
+        photometry is not used in the fit.
+
+    e_stellar_colours: float array, default: None
+        Array of observed stellar colour uncertainties. If None photometry is 
+        not used in the fit.
+
+    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
+        Colour bands to use in the fit.
+
+    sc_interp: SyntheticColourInterpolator
+        SyntheticColourInterpolator object able to interpolate synth colours.
+
     best_fit_spec_dict: dict
         Initially empty dictionary used to return normalised science spectrum 
         and best fit synthetic spectrum.
@@ -827,8 +849,8 @@ def calc_synth_fit_resid_both_arms(
         "r")
     
     # Do blue if we've been given it
-    if ((not wave_b is None) or (not spec_b is None) or (not e_spec_b is None) 
-        or (not bad_px_mask_b is None)):
+    if ((wave_b is not None) or (spec_b is not None) or (e_spec_b is not None) 
+        or (bad_px_mask_b is not None)):
         # Determine blue residuals
         resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
             params, 
@@ -851,6 +873,18 @@ def calc_synth_fit_resid_both_arms(
         # Just use red residual vector
         resid_vect = resid_vect_r
     
+    # Do photometric fit if we've been given data
+    if sc_interp is not None:
+        colour_resid = calc_colour_resid(
+            params,
+            stellar_colours,
+            e_stellar_colours,
+            colour_bands,
+            sc_interp)
+        
+        # Append this residual vector to the one from our spectra
+        resid_vect = np.concatenate((resid_vect, resid_vect_colour))
+
     # Save the best fit normalised spectra
     best_fit_spec_dict["spec_synth_b"] = spec_synth_b
     best_fit_spec_dict["spec_synth_r"] = spec_synth_r
@@ -869,7 +903,10 @@ def do_synthetic_fit(
     wave_b=None, 
     spec_b=None, 
     e_spec_b=None, 
-    bad_px_mask_b=None,):
+    bad_px_mask_b=None,
+    stellar_colours=None,
+    e_stellar_colours=None,
+    colour_bands=['Rp-J', 'J-H', 'H-K']):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
@@ -912,6 +949,17 @@ def do_synthetic_fit(
         Array of bad pixels (i.e. bad pixels are True) for red arm
         corresponding to wave_r.
 
+    stellar_colours: float array, default: None
+        Array of observed stellar colour corresponding to colour_bands. If None
+        photometry is not used in the fit.
+
+    e_stellar_colours: float array, default: None
+        Array of observed stellar colour uncertainties. If None photometry is 
+        not used in the fit.
+
+    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
+        Colour bands to use in the fit.
+
     Returns
     -------
     optimize_result: dict
@@ -925,12 +973,21 @@ def do_synthetic_fit(
     # initialise IDL
     idl = idl_init()
 
+    # If no photometry, no need to initialise synthetic colour interpolator
+    if stellar_colours is None or e_stellar_colours is None:
+        sc_interp = None
+
+    # If we've been given photometry, initialise synthetic colour interpolator
+    else:
+        sc_interp = synth.SyntheticColourInterpolator()
+
     # Parameter to store best fit synthetic spectra
     best_fit_spec_dict = {}
 
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-            wave_b, spec_b, e_spec_b, bad_px_mask_b, best_fit_spec_dict)
+            wave_b, spec_b, e_spec_b, bad_px_mask_b, stellar_colours,
+            e_stellar_colours, colour_bands, sc_interp, best_fit_spec_dict)
     bounds = ((2500, -1, -5), (7900, 5.5, 1))
     scale = (1, 1, 1)
     step = (10, 0.1, 0.1)

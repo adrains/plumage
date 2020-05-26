@@ -34,6 +34,16 @@ bad_px_masks_r = utils.load_fits_image_hdu("bad_px", label, arm="r")
 snr_ratio = 3
 snr_b_cutoff = 10
 
+# Whether to include photometry in fit
+include_photometry = False
+colour_bands = ['Rp-J', 'J-H', 'H-K']
+e_colour_bands = ['e_Rp-J', 'e_J-H', 'e_H-K']
+
+# Literature information (including photometry)
+info_cat_path = "data/std_info.tsv"
+info_cat = utils.load_info_cat(info_cat_path) 
+only_fit_info_cat_stars = True
+
 # -----------------------------------------------------------------------------
 # Do fitting
 # -----------------------------------------------------------------------------
@@ -45,11 +55,44 @@ synth_fits_r = []
 spec_dicts = []
 rchi2 = []
 both_arm_synth_fit = []
+fit_used_colours = []
 
 # For every star, do synthetic fitting
 for ob_i in range(0, len(observations)):
     ln = "-"*40
     print("{}\n{} - {}\n{}".format(ln, ob_i, observations.iloc[ob_i]["id"],ln))
+
+    # Match the star with its literature info
+    star_info = info_cat[info_cat["source_id"]==observations.iloc[ob_i]["uid"]]
+    if len(star_info) == 0:
+        star_info = None
+    elif len(star_info) > 0:
+        star_info = star_info.iloc[0]
+
+    # Check if we're only fitting for a subset of the standards
+    if only_fit_info_cat_stars and star_info is None:
+        params_fit.append([np.nan, np.nan, np.nan,])
+        e_params_fit.append([np.nan, np.nan, np.nan,])
+        fit_results.append(None)
+        synth_fits_b.append(np.ones_like(spectra_b[ob_i, 0])*np.nan)
+        synth_fits_r.append(np.ones_like(spectra_r[ob_i, 0])*np.nan)
+        spec_dicts.append(None)
+        rchi2.append(np.nan)
+        fit_used_colours.append(False)
+
+        continue
+    
+    # Now get the colours to be included in the fit if:
+    #  A) We're including photometry in the fit and
+    #  B) We actually have photometry
+    if include_photometry and star_info is not None:
+        colours = star_info[colour_bands]
+        e_colours = star_info[e_colour_bands]
+        fit_used_colours.append(True)
+    else:
+        colours = None
+        e_colours = None
+        fit_used_colours.append(False)
 
     # Initialise parameters based on best fitting RV template
     params_init = (
@@ -105,6 +148,9 @@ for ob_i in range(0, len(observations)):
         spec_b=spec_b, 
         e_spec_b=e_spec_b, 
         bad_px_mask_b=bad_px_mask_b,
+        stellar_colours=colours,
+        e_stellar_colours=e_colours,
+        colour_bands=colour_bands,
         )
 
     # Calculate uncertainties
@@ -145,6 +191,7 @@ observations["feh_synth"] = params_fit[:,2]
 observations["e_feh_synth"] = e_params_fit[:,2]
 observations["rchi2_synth"] = np.array(rchi2)
 observations["both_arm_synth_fit"] = np.array(both_arm_synth_fit)
+observations["fit_used_colours"] = np.array(fit_used_colours)
 
 utils.update_fits_obs_table(observations, label, path=spec_path)
 
