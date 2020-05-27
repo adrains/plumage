@@ -732,16 +732,17 @@ def calc_colour_resid(
         colours.
     """
     # Input checking
-    if (len(stellar_colours) != len(e_cstellar_colours) 
-        or len(e_cstellar_colours) != len(colour_bands)):
+    if (len(stellar_colours) != len(e_stellar_colours) 
+        or len(e_stellar_colours) != len(colour_bands)):
         raise ValueError("stellar_colours, e_stellar_colours, and colour_bands"
                          "  should all have the same length")
 
     # Calculate a set of synthetic colours
-    synth_colours = np.array([sc_interp(params,cb) for cb in colour_bands])
+    synth_colours = np.array([sc_interp.compute_colour(params,cb) 
+                              for cb in colour_bands])
 
     # Calculate the residuals
-    resid = (colours - synth_colours) / e_colours
+    resid = (stellar_colours - synth_colours) / e_stellar_colours
 
     return resid
 
@@ -875,13 +876,26 @@ def calc_synth_fit_resid_both_arms(
     
     # Do photometric fit if we've been given data
     if sc_interp is not None:
-        colour_resid = calc_colour_resid(
+        resid_vect_colour = calc_colour_resid(
             params,
             stellar_colours,
             e_stellar_colours,
             colour_bands,
             sc_interp)
-        
+    
+        print("Medians: {}, {}, {}".format(
+            np.median(np.abs(resid_vect_b)),
+            np.median(np.abs(resid_vect_r)),
+            np.median(np.abs(resid_vect_colour))))
+
+        print("Mins: {}, {}, {}".format(
+            np.min(np.abs(resid_vect_b)),
+            np.min(np.abs(resid_vect_r)),
+            np.min(np.abs(resid_vect_colour))))
+
+        if not np.sum(np.isfinite(resid_vect_colour)):
+            resid_vect_colour = np.ones_like(resid_vect_colour) * 1E30
+
         # Append this residual vector to the one from our spectra
         resid_vect = np.concatenate((resid_vect, resid_vect_colour))
 
@@ -979,7 +993,7 @@ def do_synthetic_fit(
 
     # If we've been given photometry, initialise synthetic colour interpolator
     else:
-        sc_interp = synth.SyntheticColourInterpolator()
+        sc_interp = SyntheticColourInterpolator()
 
     # Parameter to store best fit synthetic spectra
     best_fit_spec_dict = {}
@@ -1344,7 +1358,7 @@ class SyntheticColourInterpolator():
         """
         param_cols = ["teff", "logg", "feh"]
 
-        self.bc_grid = import_casagrande_bc_grid()
+        self.bc_grid = load_casagrade_colour_grid()
         self.VALID_COLOURS = ["Bp", "Rp", "J", "H", "K"]
 
         # Setup interpolators for each possible colour

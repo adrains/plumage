@@ -862,12 +862,12 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
         if remove_fp:
             info_cat = info_cat[pc_mask]
 
-        if only_observed:
-            info_cat = info_cat[info_cat["observed"]]
+    if only_observed:
+        info_cat = info_cat[info_cat["observed"]]
 
     # Make boolean for blended 2MASS photometry
     if "blended_2mass" in info_cat:
-        b2m_mask = info_cat["blended_2mass"] == "yes"
+        b2m_mask = np.isin("yes", info_cat["blended_2mass"].values)
         info_cat["blended_2mass"] = b2m_mask
     else:
         info_cat["blended_2mass"] = np.nan
@@ -881,10 +881,23 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
 
     # Compute additional colours
-    info_cat["G-K"] = info_cat["G_mag"] - info_cat["K_mag"]
+    info_cat["Rp-J"] = info_cat["Rp_mag"] - info_cat["J_mag"]
     info_cat["J-H"] = info_cat["J_mag"] - info_cat["H_mag"]
+    info_cat["H-K"] = info_cat["H_mag"] - info_cat["K_mag"]
+
+    info_cat["G-K"] = info_cat["G_mag"] - info_cat["K_mag"]
     info_cat["J-K"] = info_cat["J_mag"] - info_cat["K_mag"]
 
+    # Compute colour uncertainties (assuming no cross-correlation)
+    info_cat["e_Bp-Rp"] = np.sqrt(info_cat["e_Bp_mag"]**2
+                                 + info_cat["e_Rp_mag"]**2)
+    info_cat["e_Rp-J"] = np.sqrt(info_cat["e_Rp_mag"]**2 
+                                 + info_cat["e_J_mag"]**2)
+    info_cat["e_J-H"] = np.sqrt(info_cat["e_J_mag"]**2 
+                                 + info_cat["e_H_mag"]**2)
+    info_cat["e_H-K"] = np.sqrt(info_cat["e_H_mag"]**2
+                                 + info_cat["e_K_mag"]**2)
+                                 
     # Compute Mann 2015 temperatures
     # Bp-Rp
     teffs, e_teffs = params.compute_mann_2015_teff(

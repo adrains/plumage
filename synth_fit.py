@@ -41,7 +41,7 @@ e_colour_bands = ['e_Rp-J', 'e_J-H', 'e_H-K']
 
 # Literature information (including photometry)
 info_cat_path = "data/std_info.tsv"
-info_cat = utils.load_info_cat(info_cat_path) 
+info_cat = utils.load_info_cat(info_cat_path, only_observed=True) 
 only_fit_info_cat_stars = True
 
 # -----------------------------------------------------------------------------
@@ -86,8 +86,8 @@ for ob_i in range(0, len(observations)):
     #  A) We're including photometry in the fit and
     #  B) We actually have photometry
     if include_photometry and star_info is not None:
-        colours = star_info[colour_bands]
-        e_colours = star_info[e_colour_bands]
+        colours = star_info[colour_bands].values.astype(float)
+        e_colours = star_info[e_colour_bands].values.astype(float)
         fit_used_colours.append(True)
     else:
         colours = None
