@@ -764,7 +764,8 @@ def calc_synth_fit_resid_both_arms(
     e_stellar_colours,
     colour_bands,
     sc_interp,
-    best_fit_spec_dict,):
+    best_fit_spec_dict,
+    feh_offset,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
     band spectrum related arrays are None, will just fit for red spectra. This
@@ -829,13 +830,22 @@ def calc_synth_fit_resid_both_arms(
         Initially empty dictionary used to return normalised science spectrum 
         and best fit synthetic spectrum.
 
+    feh_offset: float, default: 10
+        Arbitrary offset to add to [Fe/H] so that it never goes below zero to
+        improve compatability with diff_step.
+
     Returns
     -------
     resid_vect: float array
         Uncertainty weighted residual vector between science and synthetic
         spectra.
     """
-    print(params)
+    # Unscale [Fe/H]
+    params = params - np.array([0,0,feh_offset])
+
+    # Initialise boolean flags to indicate which residuals are included in the
+    # fit - blue spectra, red spectra, and photometry
+    brc = [False, True, False]
 
     # Fit red
     resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
@@ -866,6 +876,8 @@ def calc_synth_fit_resid_both_arms(
         
         # Combine residual vectors
         resid_vect = np.concatenate((resid_vect_b, resid_vect_r))
+
+        brc[0] = True
     
     else:
         # Default blue synth spec
@@ -882,22 +894,21 @@ def calc_synth_fit_resid_both_arms(
             e_stellar_colours,
             colour_bands,
             sc_interp)
-    
-        print("Medians: {}, {}, {}".format(
-            np.median(np.abs(resid_vect_b)),
-            np.median(np.abs(resid_vect_r)),
-            np.median(np.abs(resid_vect_colour))))
-
-        print("Mins: {}, {}, {}".format(
-            np.min(np.abs(resid_vect_b)),
-            np.min(np.abs(resid_vect_r)),
-            np.min(np.abs(resid_vect_colour))))
 
         if not np.sum(np.isfinite(resid_vect_colour)):
             resid_vect_colour = np.ones_like(resid_vect_colour) * 1E30
+        else:
+            brc[2] = True
 
         # Append this residual vector to the one from our spectra
         resid_vect = np.concatenate((resid_vect, resid_vect_colour))
+
+    # Print updates
+    print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}".format(
+        params[0], params[1], params[2]), "\t{}".format(brc), end="")
+    
+    rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
+    print("\t--> rchi^2 = {:0.1f}".format(rchi2))
 
     # Save the best fit normalised spectra
     best_fit_spec_dict["spec_synth_b"] = spec_synth_b
@@ -914,13 +925,15 @@ def do_synthetic_fit(
     params, 
     rv, 
     bcor,
+    idl,
     wave_b=None, 
     spec_b=None, 
     e_spec_b=None, 
     bad_px_mask_b=None,
     stellar_colours=None,
     e_stellar_colours=None,
-    colour_bands=['Rp-J', 'J-H', 'H-K']):
+    colour_bands=['Rp-J', 'J-H', 'H-K'],
+    feh_offset=10,):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
@@ -949,6 +962,10 @@ def do_synthetic_fit(
 
     bcor: float:
         Barycentric velocity in km/s
+    
+    idl: pidly.IDL
+        pidly.IDL object to interface with Thomas Nordlander's synthetic 
+        MARCS spectra through IDL.
 
     wave_b: float array, optional
         Wavelength scale for the blue spectrum.
@@ -974,6 +991,10 @@ def do_synthetic_fit(
     colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
         Colour bands to use in the fit.
 
+    feh_offset: float, default: 10
+        Arbitrary offset to add to [Fe/H] so that it never goes below zero to
+        improve compatability with diff_step.
+
     Returns
     -------
     optimize_result: dict
@@ -984,9 +1005,6 @@ def do_synthetic_fit(
         Dictionary containing normalised science spectrum and best fit 
         synthetic spectrum
     """
-    # initialise IDL
-    idl = idl_init()
-
     # If no photometry, no need to initialise synthetic colour interpolator
     if stellar_colours is None or e_stellar_colours is None:
         sc_interp = None
@@ -1001,13 +1019,14 @@ def do_synthetic_fit(
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
             wave_b, spec_b, e_spec_b, bad_px_mask_b, stellar_colours,
-            e_stellar_colours, colour_bands, sc_interp, best_fit_spec_dict)
-    bounds = ((2500, -1, -5), (7900, 5.5, 1))
+            e_stellar_colours, colour_bands, sc_interp, best_fit_spec_dict,
+            feh_offset)
+    bounds = ((2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset))
     scale = (1, 1, 1)
-    step = (10, 0.1, 0.1)
+    step = (0.1, 0.1, 0.1)
     
     # Make sure initial teff guess isn't out of bounds, assign default if so
-    params = np.array(params)
+    params = np.array(params) + np.array([0,0,feh_offset])
 
     if params[0] < bounds[0][0] or params[0] > bounds[1][0]:
         params[0] = 5250
@@ -1022,6 +1041,9 @@ def do_synthetic_fit(
         diff_step=step,
         args=args, 
     )
+
+    # Unscale [Fe/H]
+    optimize_result["x"] = optimize_result["x"] - np.array([0,0,feh_offset])
 
     return optimize_result, best_fit_spec_dict
 
@@ -1259,9 +1281,9 @@ def generate_casagrande_bc_grid(
         Path to save grid value file to.
     """
     # Initialise arrays
-    teffs = np.arange(teff_lims[0], teff_lims[1], delta_teff)
-    loggs = np.arange(logg_lims[0], logg_lims[1], delta_logg)
-    fehs = np.arange(feh_lims[0], feh_lims[1], delta_feh)
+    teffs = np.arange(teff_lims[0], teff_lims[1]+delta_teff, delta_teff)
+    loggs = np.arange(logg_lims[0], logg_lims[1]+delta_logg, delta_logg)
+    fehs = np.arange(feh_lims[0], feh_lims[1]+delta_feh, delta_feh)
 
     if ebv_lims is None or delta_ebv is None:
         ebvs = [0]

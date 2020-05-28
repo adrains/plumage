@@ -35,7 +35,7 @@ snr_ratio = 3
 snr_b_cutoff = 10
 
 # Whether to include photometry in fit
-include_photometry = False
+include_photometry = True
 colour_bands = ['Rp-J', 'J-H', 'H-K']
 e_colour_bands = ['e_Rp-J', 'e_J-H', 'e_H-K']
 
@@ -56,6 +56,9 @@ spec_dicts = []
 rchi2 = []
 both_arm_synth_fit = []
 fit_used_colours = []
+
+# initialise IDL
+idl = synth.idl_init()
 
 # For every star, do synthetic fitting
 for ob_i in range(0, len(observations)):
@@ -144,6 +147,7 @@ for ob_i in range(0, len(observations)):
         params_init, 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
+        idl,
         wave_b=wave_b, 
         spec_b=spec_b, 
         e_spec_b=e_spec_b, 
@@ -165,7 +169,7 @@ for ob_i in range(0, len(observations)):
     fit_results.append(opt_res)
     synth_fits_r.append(spec_dict["spec_synth_r"])
     spec_dicts.append(spec_dict)
-    rchi2.append(np.sum(opt_res["fun"]**2) / (len(opt_res["fun"])-len(params_init)))
+    rchi2.append(np.sum(res**2) / (len(res)-len(params_init)))
 
     # Append blue synthetic spectrum if used, otherwise an array of nans. Also
     # save a boolean indicating whether both arms were used in the fit
@@ -176,6 +180,16 @@ for ob_i in range(0, len(observations)):
         synth_fits_b.append(np.ones_like(spectra_b[ob_i, 0])*np.nan)
         both_arm_synth_fit.append(False)
 
+    print("\n---Result---")
+    print("Teff = {:0.0f} +/- {:0.0f} K,".format(params_fit[-1][0], 
+                                                e_params_fit[-1][0]), 
+          "logg = {:0.2f} +/- {:0.2f},".format(params_fit[-1][1], 
+                                                e_params_fit[-1][1]),
+          "[Fe/H] = {:+0.2f} +/- {:0.2f}\n".format(params_fit[-1][2], 
+                                                e_params_fit[-1][2]))
+
+    import pdb
+    pdb.set_trace()
 # -----------------------------------------------------------------------------
 # Save results
 # -----------------------------------------------------------------------------
