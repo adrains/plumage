@@ -3,6 +3,7 @@
 import os
 import pandas as pd
 import numpy as np
+import plumage.utils as utils
 from collections import OrderedDict
 # Ensure the plotting folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -19,7 +20,13 @@ def make_table_final_results():
     derived fundamental parameters.
     """
     # Load in the TESS target info (TODO: function for this)
-    tess_info = pd.read_csv("data/tess_info.tsv", sep="\t")    
+    tess_info = pd.read_csv(
+        "data/tess_info.tsv", 
+        sep="\t", 
+        dtype={"source_id":str, "observed":bool},
+        true_values=["yes"]
+    )
+
     exp_scale = -8
     
     columns = OrderedDict([
@@ -202,4 +209,67 @@ def make_table_targets():
     
     # Write the table
     np.savetxt("paper/table_targets.tex", table_rows, fmt="%s")
+
+
+def make_table_observations():
+    """Make the table to summarise the observations.
+    """
+    # Load in the TESS target info (TODO: function for this)
+    _, _, observations = utils.load_fits("TESS", path="spectra")
+    exp_scale = -8
+    
+    columns = OrderedDict([
+        #("TIC", ""),
+        #("TOI", ""),
+        ("Gaia DR2", ""),
+        ("UT Date", ""), 
+        ("airmass", ""), 
+        ("exp", "(sec)"), 
+        ("SNR (B)", ""), 
+        ("SNR (R)", ""), 
+    ])      
+    
+    table_rows = []
+    
+    # Construct the header of the table
+    table_rows.append("\\begin{landscape}")
+    table_rows.append("\\begin{table}")
+    table_rows.append("\\centering")
+    table_rows.append("\\caption{Science targets}")
+    table_rows.append("\\label{tab:science_targets}")
+    
+    table_rows.append("\\begin{tabular}{%s}" % ("c"*len(columns)))
+    table_rows.append("\hline")
+    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.keys()))
+    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.values()))
+    table_rows.append("\hline")
+    
+    ref_i = 0
+    references = []
+    
+    # Populate the table for every science target
+    for star_i, star in observations.iterrows():
+        table_row = ""
+        
+        # Step through column by column
+        table_row += "%s & " % star["uid"]
+        table_row += "%s & " % star["date"].split("T")[0]
+        table_row += "%0.1f & " % star["airmass"]
+        table_row += "%0.0f & " % star["exp_time"]
+        table_row += "%0.0f & " % star["snr_b"]
+        table_row += "%0.0f " % star["snr_r"]
+
+        # Remove the final comma and append (Replace any nans with '-')
+        table_rows.append(table_row[:-1].replace("nan", "-")  + r"\\")
+         
+    # Finish the table
+    table_rows.append("\\hline")
+    table_rows.append("\\end{tabular}")
+    
+    #table_rows.append("\\end{minipage}")
+    table_rows.append("\\end{table}")
+    table_rows.append("\\end{landscape}")
+    
+    # Write the table
+    np.savetxt("paper/table_observations.tex", table_rows, fmt="%s")
 

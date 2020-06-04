@@ -18,7 +18,20 @@ def my_custom_corrector_func(lc):
     corrected_lc = lc.normalize().flatten(window_length=401)
     return corrected_lc
 
-def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
+def download_target_px_file(tic_id):
+    """
+    """
+    sr = lk.search_tesscut("TIC {}".format(tic_id))
+    lcfs = sr.download_all()
+    tpf = lcfs[0]
+
+    aperture_mask = tpf.create_threshold_mask(threshold=7)
+    lc = tpf.to_lightcurve(aperture_mask=aperture_mask)     
+
+    return lc
+
+def download_lc_all_sectors(tic_id, source_id, save_fits=True, 
+                            save_path="lightcurves"):
     """
     https://docs.lightkurve.org/tutorials/01-lightcurve-files.html
 
@@ -29,7 +42,12 @@ def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
     search_res = lk.search_lightcurvefile("TIC {}".format(tic_id), 
                                           mission="TESS")
 
-    # Raise exception if we don't match with a target
+    # If we didn't get as match with the TIC ID, try the source ID
+    if len(search_res) == 0:
+        search_res = lk.search_lightcurvefile("Gaia DR2 {}".format(source_id), 
+                                              mission="TESS")
+
+    # Raise exception if we still don't have a match
     if len(search_res) == 0:
         raise(ValueError("Target not resolved"))
     
@@ -45,10 +63,21 @@ def download_lc_all_sectors(tic_id, save_fits=True, save_path="lightcurves"):
     return stitched_lc
 
 
+def save_light_curve(lc, path=""):
+    """Function to save a fits light curve in
+    """
+    pass
+
+
+def load_light_curve(tic_id, path=""):
+    """Function to load a fits light curve in
+    """
+    pass
+
 def download_lc_all_tics(tic_ids):
     """
     """
-
+    pass
 
 # -----------------------------------------------------------------------------
 # Light curve fitting

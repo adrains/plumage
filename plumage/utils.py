@@ -856,7 +856,7 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
             np.logical_or(
                 info_cat["TESS Disposition"] == "PC",
                 info_cat["TESS Disposition"] == "KP")
-        )
+        ).values
         info_cat["pc"] = pc_mask
 
         if remove_fp:
@@ -867,8 +867,8 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
 
     # Make boolean for blended 2MASS photometry
     if "blended_2mass" in info_cat:
-        b2m_mask = np.isin("yes", info_cat["blended_2mass"].values)
-        info_cat["blended_2mass"] = b2m_mask
+        info_cat["blended_2mass"] = [True if xx == "yes" else False 
+                                    for xx in info_cat["blended_2mass"].values]
     else:
         info_cat["blended_2mass"] = np.nan
 
@@ -928,7 +928,7 @@ def load_exofop_toi_cat():
     """
     """
     # Load in tess info cat and use to clean efi
-    ti = utils.load_info_cat(remove_fp=True, only_observed=True)
+    ti = load_info_cat(remove_fp=True, only_observed=True)
     efi = pd.read_csv("data/exofop_tess_tois.csv",quoting=1,comment="#")
 
     return efi[np.isin(efi["TIC ID"], ti["TIC"])]
