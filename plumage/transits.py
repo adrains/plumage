@@ -4,6 +4,7 @@ import os
 import numpy as np
 import lightkurve as lk
 import batman as bm
+from tqdm import tqdm
 from scipy.optimize import least_squares
 
 # Ensure the lightcurves folder exists to save to
@@ -63,21 +64,68 @@ def download_lc_all_sectors(tic_id, source_id, save_fits=True,
     return stitched_lc
 
 
-def save_light_curve(lc, path=""):
-    """Function to save a fits light curve in
+def load_light_curve(tic_id, path="lightcurves", prefix="tess_lc_tic"):
+    """Function to load a fits light curve fits file in
+
+    Parameters
+    ----------
+    tic_id: int
+        TIC id of the target.
+    
+    path: str
+        Path to directory where fits light curves are saved.
+
+    prefix: str, default: 'tess_lc_tic'
+        Prefix of the light curve fits file, format is taken to be
+        '<prefix>_{}.fits'.format(tic_id)
+
+    Returns
+    -------
+    lc: lightkurve.lightcurve.TessLightCurve
+        Loaded light curve.
+
+    Raises
+    ------
+    FileNotFoundError:
+        Raised if no light curve file exists for the given TIC ID.
     """
-    pass
+    # Load in the light curve initially as a TessLightCurveFile, then convert
+    path = os.path.join(path, prefix + "_{}.fits".format(tic_id))
+    lcf = lk.lightcurvefile.TessLightCurveFile(path)
+    lcf.targetid = tic_id
+    lc = lcf.FLUX
+    
+    return lc
 
 
-def load_light_curve(tic_id, path=""):
-    """Function to load a fits light curve in
+def load_all_light_curves(tic_ids):
     """
-    pass
+    Parameters
+    ----------
+    tic_ids: int array
+        TIC IDs of all target.
 
-def download_lc_all_tics(tic_ids):
+    Returns
+    -------
+    light_curves: array of lightkurve.lightcurve.TessLightCurve
+        Loaded light curves.
     """
-    """
-    pass
+    light_curves = []
+    unsuccessful = []
+
+    # Load in light curves for for the TIC IDs specified, returning Non for 
+    # those IDs without corresponding files
+    for tic_id in tqdm(tic_ids, desc="Light curves loaded"):
+        try:
+            lc = load_light_curve(tic_id)
+            light_curves.append(lc)
+        except FileNotFoundError:
+            light_curves.append(None)
+            unsuccessful.append(tic_id)
+    
+    print("No light curve files found for TICs {}".format(unsuccessful))
+
+    return light_curves
 
 # -----------------------------------------------------------------------------
 # Light curve fitting
@@ -89,15 +137,15 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur,
     # Initialise transit model. Note that since we've already phase folded the
     # light curve, t0 is at 0, and the period is 1
     bm_params = bm.TransitParams()
-    bm_params.t0 = 0                      # time of inferior conjunction (days)
+    bm_params.t0 = 0                  # time of inferior conjunction (days)
     bm_params.per = 1                 # orbital period (days)
-    bm_params.rp = params[0]               # planet radius (stellar radii)
-    bm_params.a = params[1]                # semi-major axis (stellar radii)
-    bm_params.inc = params[2]              # orbital inclination (degrees)
-    bm_params.ecc = params[3]              # eccentricity
-    bm_params.w = params[4]                # longitude of periastron (degrees)
-    bm_params.limb_dark = ldm              # limb darkening model
-    bm_params.u = ldc                      # limb darkening coeff [u1, u2, u3, u4]
+    bm_params.rp = params[0]          # planet radius (stellar radii)
+    bm_params.a = params[1]           # semi-major axis (stellar radii)
+    bm_params.inc = params[2]         # orbital inclination (degrees)
+    bm_params.ecc = 0                 # eccentricity
+    bm_params.w = 0                   # longitude of periastron (degrees)
+    bm_params.limb_dark = ldm         # limb darkening model
+    bm_params.u = ldc                 # limb darkening coeff [u1, u2, u3, u4]
 
     xx = folded_lc.time# * period
 
@@ -139,20 +187,21 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
                     ld_model="nonlinear"):
     """
     """
-    btjd_offset = 2457000
+    BTJD_OFFSET = 2457000
 
-    if t0 > btjd_offset:
-        t0 -= btjd_offset
+    if t0 > BTJD_OFFSET:
+        t0 -= BTJD_OFFSET
 
     # Phase fold the light curve
     folded_lc = light_curve.remove_outliers(sigma=6).fold(period=period, t0=t0)
 
     return_dict = {}
 
-    # Initialise transit params
-    # [rp, semi-major axis, inclination, eccentricity, longitude periastron]
-    init_params = np.array([0.1, 10, 90, 0, 90])
-    bounds = ((0, 0, 60, 0, 0), (1, 10000, 120, 1, 360))
+    # Initialise transit params. Ftting for: [rp, semi-major axis, inclination]
+    # and assuming a circular orbit, so eccentricity=1, & longitude periastron
+    # isn't relevant
+    init_params = np.array([0.1, 10, 90,])
+    bounds = ((0, 0, 60,), (1, 10000, 120,))
 
     args = (folded_lc, t0, period, ld_model, ld_coeff, transit_dur, return_dict)
 
