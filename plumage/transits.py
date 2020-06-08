@@ -110,7 +110,7 @@ def load_all_light_curves(tic_ids):
     light_curves: array of lightkurve.lightcurve.TessLightCurve
         Loaded light curves.
     """
-    light_curves = []
+    light_curves = {}
     unsuccessful = []
 
     # Load in light curves for for the TIC IDs specified, returning Non for 
@@ -118,9 +118,9 @@ def load_all_light_curves(tic_ids):
     for tic_id in tqdm(tic_ids, desc="Light curves loaded"):
         try:
             lc = load_light_curve(tic_id)
-            light_curves.append(lc)
+            light_curves[tic_id] = lc
         except FileNotFoundError:
-            light_curves.append(None)
+            light_curves[tic_id] = None
             unsuccessful.append(tic_id)
     
     print("No light curve files found for TICs {}".format(unsuccessful))
@@ -219,11 +219,11 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
         args=args, 
     )
 
-    print("Rp/R* = {:0.4f}".format(opt_res["x"][0]))
-    print("a = {:0.4f}".format(opt_res["x"][1]))
-    print("i = {:0.4f}".format(opt_res["x"][2]))
-    print("e = {:0.4f}".format(opt_res["x"][3]))
-    print("w = {:0.4f}".format(opt_res["x"][4]))
+    print("\tRp/R* = {:0.4f}".format(opt_res["x"][0]))
+    print("\ta = {:0.4f}".format(opt_res["x"][1]))
+    print("\ti = {:0.4f}".format(opt_res["x"][2]))
+    #print("e = {:0.4f}".format(opt_res["x"][3]))
+    #print("w = {:0.4f}".format(opt_res["x"][4]))
 
     # Calculate parameter uncertanties
     #jac = opt_res["jac"]
@@ -231,5 +231,9 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
     #cov = np.linalg.inv(jac.T.dot(jac))
     #opt_res["std"] = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
 
-    return opt_res, return_dict
+    opt_res["bm_params"] = return_dict["bm_params"]
+    opt_res["bm_model"] = return_dict["bm_model"]
+    opt_res["lc_model"] = return_dict["lc_model"]
+
+    return opt_res
 

@@ -2,6 +2,7 @@
 """
 import numpy as np
 import pandas as pd
+import astropy.constants as const
 import plumage.spectra as spec
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
@@ -346,3 +347,17 @@ def compute_mann_2015_radii(k_mag_abs):
     e_radii = radii * e_radii_pc
 
     return radii, e_radii
+
+# -----------------------------------------------------------------------------
+# Other params
+# -----------------------------------------------------------------------------
+def compute_semi_major_axis(mass, period):
+    """
+    """
+    G = const.G.si.value
+    period = period * 60 * 60 * 24          # Convert days to seconds
+    mass = mass * const.M_sun.si.value      # Convert M_sun units to kg
+
+    sma = ((G*mass*period**2) / (4*np.pi**2))**(1/3)
+
+    return sma

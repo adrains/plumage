@@ -916,6 +916,11 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["teff_m15_bprp_jh"] = teffs
     info_cat["e_teff_m15_bprp_jh"] = e_teffs
 
+    # Mann radii
+    radii, e_radii = params.compute_mann_2015_radii(info_cat["K_mag_abs"])
+    info_cat["radii_m19"] = radii
+    info_cat["e_radii_m19"] = e_radii
+
     # And Mann 2015 masses
     mass, e_mass = params.compute_mann_2019_masses(info_cat["K_mag_abs"]) 
     info_cat["mass_m19"] = mass
@@ -925,11 +930,17 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
 
 
 def load_exofop_toi_cat():
-    """
+    """Imports the catalogue of TOIs from NASA ExoFOP, pre-selected on the 
+    website to only have TOIs for the TIC IDs we are interested in.
+
+    Returns
+    -------
+    efi: pandas.core.frame.DataFrame
+        ExoFOP info dataframe
     """
     # Load in tess info cat and use to clean efi
     ti = load_info_cat(remove_fp=True, only_observed=True)
     efi = pd.read_csv("data/exofop_tess_tois.csv",quoting=1,comment="#")
 
-    return efi[np.isin(efi["TIC ID"], ti["TIC"])]
+    return efi[np.isin(efi["TIC"], ti["TIC"])]
 
