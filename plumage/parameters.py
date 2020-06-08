@@ -360,4 +360,4 @@ def compute_semi_major_axis(mass, period):
 
     sma = ((G*mass*period**2) / (4*np.pi**2))**(1/3)
 
-    return sma
+    return sma, np.nan

@@ -131,7 +131,7 @@ def load_all_light_curves(tic_ids):
 # Light curve fitting
 # -----------------------------------------------------------------------------
 def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur, 
-                     return_dict):
+                     return_dict, verbose=True):
     """
     """
     # Initialise transit model. Note that since we've already phase folded the
@@ -175,10 +175,18 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur,
     td = transit_dur / period
 
     mask = np.logical_and(
-        folded_lc.time > -1.5*td, 
-        folded_lc.time < 1.5*td)
+        folded_lc.time > -1.0*td, 
+        folded_lc.time < 1.0*td)
 
     resid[~mask] = 0
+
+    # Print updates
+    if verbose:
+        print("Rp/R* = {:0.5f}, a = {:0.05f}, i = {:0.05f}".format(
+            params[0], params[1], params[2]), end="")
+        
+        rchi2 = np.sum(resid**2) / (np.sum(mask)-len(params))
+        print("\t--> rchi^2 = {:0.5f}".format(rchi2))
 
     return resid
 
@@ -206,7 +214,7 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
     args = (folded_lc, t0, period, ld_model, ld_coeff, transit_dur, return_dict)
 
     #scale = (1, 1, 1)
-    #step = (10, 0.1, 0.1)
+    step = (0.01, 0.01, 0.01)
 
     # Do fit
     opt_res = least_squares(
@@ -215,13 +223,11 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
         jac="3-point",
         bounds=bounds,
         #x_scale=scale,
-        #diff_step=step,
+        diff_step=step,
         args=args, 
     )
 
-    print("\tRp/R* = {:0.4f}".format(opt_res["x"][0]))
-    print("\ta = {:0.4f}".format(opt_res["x"][1]))
-    print("\ti = {:0.4f}".format(opt_res["x"][2]))
+    
     #print("e = {:0.4f}".format(opt_res["x"][3]))
     #print("w = {:0.4f}".format(opt_res["x"][4]))
 

@@ -940,7 +940,11 @@ def load_exofop_toi_cat():
     """
     # Load in tess info cat and use to clean efi
     ti = load_info_cat(remove_fp=True, only_observed=True)
-    efi = pd.read_csv("data/exofop_tess_tois.csv",quoting=1,comment="#")
+    efi = pd.read_csv(
+        "data/exofop_tess_tois.csv", 
+        quoting=1, 
+        comment="#",
+        index_col="TOI",)
 
     return efi[np.isin(efi["TIC"], ti["TIC"])]
 
