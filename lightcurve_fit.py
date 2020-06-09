@@ -43,7 +43,7 @@ for ldc_i, ldd_col in enumerate(ldd_cols):
 # Do fitting
 # -----------------------------------------------------------------------------
 # Initialise array to hold dictionaries from fit
-all_fits = []
+all_fits = {}
 
 # Initialise new dataframe to hold results, which will be appended to 
 # toi_info and saved once we're done
@@ -73,12 +73,14 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
 
     if len(obs_info) == 0:
         print("No source ID")
+        all_fits[toi] = None
         continue
     else:
         obs_info = obs_info.iloc[0]
     
     if light_curves[tic] is None:
         print("No light curve")
+        all_fits[toi] = None
         continue
 
     # Calculate semi-major axis
@@ -97,7 +99,7 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
             ld_model="nonlinear")
     except:
         print("Fitting/Batman failure, skipping")
-        all_fits.append(None)
+        all_fits[toi] = None
         continue
 
     # Calclate the planet radii
@@ -128,17 +130,17 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
         std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
 
     # Record fit dictionaries
-    all_fits.append(opt_res)
+    all_fits[toi] = opt_res
 
     # Save calculated params + uncertainties
     result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
     result_df.loc[toi][["radius_fit", "e_radius_fit"]] = [radius, e_radius]
 
     # Save fitted parameters
-    param_cols = ["rp_rstar_fit", "sma_fit", "inclination_fit"]
+    param_cols = ["rp_rstar_fit", "sma_rstar_fit", "inclination_fit"]
     result_df.loc[toi][param_cols] = opt_res["x"]
 
-    e_param_cols = ["e_rp_rstar_fit", "e_sma_fit", "e_inclination_fit"]
+    e_param_cols = ["e_rp_rstar_fit", "e_sma_rstar_fit", "e_inclination_fit"]
     result_df.loc[toi][e_param_cols] = std
 
     print("\n---Result---")
@@ -154,3 +156,5 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
 
 # Concatenate our two dataframes
 toi_info = pd.concat((toi_info, result_df), axis=1)
+
+toi_info.to_csv("data/exofop_tess_tois2.csv", quoting=1)

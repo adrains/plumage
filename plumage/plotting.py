@@ -4,10 +4,12 @@ from __future__ import print_function, division
 import os
 import numpy as np
 import glob
+import batman as bm
 import matplotlib.pylab as plt
 import matplotlib.colors as mplc
 import plumage.spectra as spec
 import plumage.synthetic as synth
+import plumage.transits as transit
 from tqdm import tqdm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -1204,3 +1206,136 @@ def plot_label_comparison(
         # Sort the array
         #mm = np.isin(observations["uid"], std_info[std_info["source"]==source]["source_id"])  
         #obs = observations[mm]
+
+# -----------------------------------------------------------------------------
+# Light curve fitting
+# ----------------------------------------------------------------------------- 
+def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model, 
+    bm_lightcurve, period, t0, trans_dur):
+    """
+    """
+    BTJD_OFFSET = 2457000
+
+    plt.close("all")
+    fig = plt.figure()
+    gs = fig.add_gridspec(nrows=3, ncols=1)
+    ax_lc_unfolded = fig.add_subplot(gs[0, :])
+    ax_lc_folded_all = fig.add_subplot(gs[1, :])
+    ax_lc_folded_transit = fig.add_subplot(gs[2, :])
+
+    # First plot unfolded light curve
+    lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1)
+
+    # Plot lines where the transits occur
+    transits = np.arange(t0-BTJD_OFFSET, lightcurve.time[-1], period)
+
+    for transit in transits:
+        ax_lc_unfolded.vlines(transit, 0.95, 1.05, colors="red", 
+            linestyles="dashed", linewidth=0.2, alpha=1.0)
+
+    ax_lc_unfolded.set_xlim((lightcurve.time[0], lightcurve.time[-1]))
+
+    # Plot entire folded lightcurve
+    folded_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1)
+    ax_lc_folded_all.plot(folded_lc.time, bm_lightcurve)
+    ax_lc_folded_all.set_xlim((-0.5, 0.5))
+
+    # Now plot just the transit
+    folded_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2)
+    ax_lc_folded_transit.plot(folded_lc.time, bm_lightcurve)
+
+    ax_lc_folded_transit.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
+
+    # Figure out our y limits
+    lim = np.nanstd(folded_lc.flux)*5 + np.nanmean(folded_lc.flux_err)
+
+    ax_lc_unfolded.set_ylim((1-lim, 1+lim))
+    ax_lc_folded_all.set_ylim((1-lim, 1+lim))
+    ax_lc_folded_transit.set_ylim((1-lim, 1+lim))
+
+
+def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,):
+    """
+    """
+    # Make plot path if it doesn't already exist
+    plot_path = os.path.join("plots", "lc_diagnostics")
+
+    if not os.path.isdir(plot_path):
+        os.mkdir(plot_path)
+    
+    # If it does, clear out pdfs
+    else:
+        pdfs = glob.glob(os.path.join(plot_path, "*.pdf"))
+        for pdf in pdfs:
+            os.remove(pdf)
+
+    BTJD_OFFSET = 2457000
+
+    for toi_i, (toi, toi_row) in enumerate(
+        tqdm(toi_info.iterrows(), desc="Plotting")):
+        # Look up TIC ID in tess_info
+        tic = toi_row["TIC"]
+
+        # Get the literature info
+        tic_info = tess_info[tess_info["TIC"]==tic].iloc[0]
+
+        source_id = tic_info["source_id"]
+
+        obs_info = observations[observations["uid"]==source_id].iloc[0]
+
+        # Skip if period is undefined or lightcurve is None
+        if np.isnan(toi_row["Period (days)"]) or lightcurves[tic] is None:
+            continue
+
+        # Fold lightcurve
+        lightcurve = lightcurves[tic].remove_outliers(sigma=6).remove_nans()
+        folded_lc = lightcurve.fold(
+            period=toi_row["Period (days)"], 
+            t0=toi_row["Epoch (BJD)"]-BTJD_OFFSET)
+
+        # Generate batman model
+        bm_params, bm_model, bm_lightcurve = transit.initialise_bm_model(
+            t0=0, 
+            period=1, 
+            rp_rstar=toi_row["rp_rstar_fit"], 
+            sma_rstar=toi_row["sma_rstar_fit"], 
+            inclination=toi_row["inclination_fit"], 
+            ecc=0, 
+            omega=0, 
+            ldm="nonlinear", 
+            ldc=obs_info[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
+            time=folded_lc.time,)
+
+        # Make plots
+        plot_lightcurve_fit(
+            lightcurve,
+            folded_lc, 
+            bm_params,
+            bm_model, 
+            bm_lightcurve, 
+            toi_row["Period (days)"], 
+            toi_row["Epoch (BJD)"], 
+            toi_row["Duration (hours)"]/24,)
+
+        # Set title
+        title = (r"TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,R_E$, "
+                 r"$\frac{{R_p}}{{R_*}} = {:0.5f}$, $\frac{{a}}{{R_*}} = "
+                 r"{:0.2f}$, $i = {:0.2f}]$")
+
+        #import pdb
+        #pdb.set_trace()
+        title = title.format(toi, 
+                     obs_info["teff_synth"], 
+                     tic_info["radii_m19"],
+                     toi_row["rp_rstar_fit"],
+                     toi_row["sma_rstar_fit"],
+                     toi_row["inclination_fit"],)
+        plt.suptitle(title)
+
+        # Set size and save
+        plt.gcf().set_size_inches(16, 9)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        plt_save_loc = os.path.join(
+            plot_path, 
+            "lc_fit_{}_{}.pdf".format(toi, tic))
+        plt.savefig(plt_save_loc)

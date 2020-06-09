@@ -130,27 +130,46 @@ def load_all_light_curves(tic_ids):
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # -----------------------------------------------------------------------------
+def initialise_bm_model(t0, period, rp_rstar, sma_rstar, inclination, ecc, 
+    omega, ldm, ldc, time):
+    """
+    """
+    # Initialise transit model
+    bm_params = bm.TransitParams()
+    bm_params.t0 = t0               # time of inferior conjunction (days/phase)
+    bm_params.per = period          # orbital period (days/phase)
+    bm_params.rp = rp_rstar         # planet radius (stellar radii)
+    bm_params.a = sma_rstar         # semi-major axis (stellar radii)
+    bm_params.inc = inclination     # orbital inclination (degrees)
+    bm_params.ecc = ecc             # eccentricity
+    bm_params.w = omega             # longitude of periastron (degrees)
+    bm_params.limb_dark = ldm       # limb darkening model
+    bm_params.u = ldc               # limb darkening coeff [u1, u2, u3, u4]
+
+    bm_model = bm.TransitModel(bm_params, time)
+    bm_lightcurve = bm_model.light_curve(bm_params)
+
+    return bm_params, bm_model, bm_lightcurve
+
+
 def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur, 
                      return_dict, verbose=True):
     """
     """
     # Initialise transit model. Note that since we've already phase folded the
-    # light curve, t0 is at 0, and the period is 1
-    bm_params = bm.TransitParams()
-    bm_params.t0 = 0                  # time of inferior conjunction (days)
-    bm_params.per = 1                 # orbital period (days)
-    bm_params.rp = params[0]          # planet radius (stellar radii)
-    bm_params.a = params[1]           # semi-major axis (stellar radii)
-    bm_params.inc = params[2]         # orbital inclination (degrees)
-    bm_params.ecc = 0                 # eccentricity
-    bm_params.w = 0                   # longitude of periastron (degrees)
-    bm_params.limb_dark = ldm         # limb darkening model
-    bm_params.u = ldc                 # limb darkening coeff [u1, u2, u3, u4]
-
-    xx = folded_lc.time# * period
-
-    bm_model = bm.TransitModel(bm_params, xx)
-    lc_model = bm_model.light_curve(bm_params)
+    # light curve, t0 is at 0, and the period is 1. We're also assuming a 
+    # circular orbit, so e=0, and omega=0 (but is irrelevant)
+    bm_params, bm_model, bm_lightcurve = initialise_bm_model(
+        t0=0, 
+        period=1, 
+        rp_rstar=params[0], 
+        sma_rstar=params[1], 
+        inclination=params[2], 
+        ecc=0, 
+        omega=0, 
+        ldm=ldm, 
+        ldc=ldc, 
+        time=folded_lc.time,)
 
     # Clean flux and uncertainties
     flux = folded_lc.flux
@@ -162,12 +181,12 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur,
     flux[bad_flux_mask] = 1
 
     # Calculate scaled residuals
-    resid = (folded_lc.flux - lc_model) / folded_lc.flux_err
+    resid = (folded_lc.flux - bm_lightcurve) / folded_lc.flux_err
 
     # Save best fit transit model
     return_dict["bm_params"] = bm_params
     return_dict["bm_model"] = bm_model
-    return_dict["lc_model"] = lc_model
+    return_dict["lc_model"] = bm_lightcurve
 
     # Only consider the transit duration itself, x1 on either side (so 3x 
     # transit duration in total). Need to convert the transit duration to units
