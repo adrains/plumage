@@ -14,6 +14,16 @@ plot_dir = os.path.abspath(os.path.join(here_path, "..", "lightcurves"))
 if not os.path.isdir(plot_dir):
     os.mkdir(plot_dir)
 
+class BatmanError(Exception):
+    """Exception to throw when batman raises a generic exception. Mostly trying
+    to catch this:
+
+    'Exception: Convergence failure in calculation of scale factor for 
+    integration step size'
+    
+    https://github.com/lkreidberg/batman/issues/27
+    """
+    pass
 
 def my_custom_corrector_func(lc):
     corrected_lc = lc.normalize().flatten(window_length=401)
@@ -131,8 +141,56 @@ def load_all_light_curves(tic_ids):
 # Light curve fitting
 # -----------------------------------------------------------------------------
 def initialise_bm_model(t0, period, rp_rstar, sma_rstar, inclination, ecc, 
-    omega, ldm, ldc, time):
-    """
+    omega, ld_model, ld_coeff, time):
+    """Generates batman params, model, and light curve given orbital 
+    parameters. Note that units can either be in time or phase, so long as they
+    are consistent.
+
+    Parameters
+    ----------
+    t0: float
+        Epoch (i.e time of transit). Should be set to zero if using units of 
+        phase.
+    
+    period: float
+        Period of transit. Should be set to one if using units of phase.
+
+    rp_star: float
+        Planetary radii in units of stellar radius.
+
+    sma_rstar: float
+        Semi-major axis in units of stellar radius.
+
+    inclination: float
+        Inclination in degrees, with 90 deg being edge on,
+
+    ecc: float
+        Eccentricity, with 0 indicating a circular orbit.
+
+    omega: float
+        Longitude of periastron in degrees. Note that this parameter is only
+        relevant for eccentric orbits.
+
+    ld_model: str
+        Limb darkening model compatible with batman.
+
+    ld_coeff: float array
+        Vector of limb darkening coefficients associated with ld_model.
+
+    time: float array
+        Observed time vector to generate model transit at. In units of either
+        days or phase.
+
+    Returns
+    -------
+    bm_params: batman.transitmodel.TransitParams
+        Batman transit parameter + time object.
+
+    bm_model: batman.transitmodel.TransitModel
+        Batman transit model.
+
+    bm_lightcurve: float array
+        Batman transit model fluxes associated with time.
     """
     # Initialise transit model
     bm_params = bm.TransitParams()
@@ -143,18 +201,65 @@ def initialise_bm_model(t0, period, rp_rstar, sma_rstar, inclination, ecc,
     bm_params.inc = inclination     # orbital inclination (degrees)
     bm_params.ecc = ecc             # eccentricity
     bm_params.w = omega             # longitude of periastron (degrees)
-    bm_params.limb_dark = ldm       # limb darkening model
-    bm_params.u = ldc               # limb darkening coeff [u1, u2, u3, u4]
+    bm_params.limb_dark = ld_model  # limb darkening model
+    bm_params.u = ld_coeff          # limb darkening coeff [u1, u2, u3, u4]
 
-    bm_model = bm.TransitModel(bm_params, time)
-    bm_lightcurve = bm_model.light_curve(bm_params)
+    # Batman unfortunately doesn't have custom exceptions, and is known to just
+    # raise the default exception, making it difficult to catch. By wrapping
+    # calls as such, we can raise (and thus catch) our own batman exceptions.
+    try:
+        bm_model = bm.TransitModel(bm_params, time)
+        bm_lightcurve = bm_model.light_curve(bm_params)
+    except:
+        raise BatmanError(
+            "Batman unhappy with model generation at specified parameters.")
 
     return bm_params, bm_model, bm_lightcurve
 
 
-def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur, 
-                     return_dict, verbose=True):
-    """
+def compute_lc_resid(params, folded_lc, t0, period, ld_model, ld_coeff, 
+                     trans_dur, verbose=True, n_trans_dur=2):
+    """Computes residuals between the folded light curve provided, and a batman
+    model transit light curve generated using params.
+
+    Parameters
+    ----------
+    params: float array
+        Array of form [rp_rstar, sma_rstar, inclination].
+    
+    folded_lc: lightkurve.lightcurve.FoldedLightCurve
+        TESS light curve folded about the planet transit epoch and period. Note
+        that this means the new 'period' is 1, and the 'epoch' (i.e. time of
+        transit is 0).
+
+    t0: float
+        Epoch, i.e. time of first transit, in days.
+    
+    period: float
+        Period of the planet in days.
+
+    ld_model: str
+        Limb darkening model compatible with batman.
+
+    ld_coeff: float array
+        Vector of limb darkening coefficients associated with ld_model.
+
+    trans_dur: float
+        Transit duration in days.
+    
+    verbose: boolean, default: True
+        Whether to print information about each iteration of fitting.
+
+    n_trans_dur: float, default: 2
+        Specifies the window width, in units of transit duration, that  
+        residuals should be computed for. e.g. a value of 2 means that there
+        is 0.5x transit_dur on either side of the transit worth of points.
+        
+    Returns
+    -------
+    resid: float array
+        Vector of uncertainty weighted residuals, set to zero outside the 
+        region set by trans_dur and n_trans_dur.
     """
     # Initialise transit model. Note that since we've already phase folded the
     # light curve, t0 is at 0, and the period is 1. We're also assuming a 
@@ -167,8 +272,8 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur,
         inclination=params[2], 
         ecc=0, 
         omega=0, 
-        ldm=ldm, 
-        ldc=ldc, 
+        ld_model=ld_model, 
+        ld_coeff=ld_coeff, 
         time=folded_lc.time,)
 
     # Clean flux and uncertainties
@@ -183,19 +288,13 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur,
     # Calculate scaled residuals
     resid = (folded_lc.flux - bm_lightcurve) / folded_lc.flux_err
 
-    # Save best fit transit model
-    return_dict["bm_params"] = bm_params
-    return_dict["bm_model"] = bm_model
-    return_dict["lc_model"] = bm_lightcurve
-
-    # Only consider the transit duration itself, x1 on either side (so 3x 
-    # transit duration in total). Need to convert the transit duration to units
-    # of phase
-    td = transit_dur / period
+    # Only consider the transit duration itself. Need to convert the transit 
+    # duration to units of phase
+    td = trans_dur / period
 
     mask = np.logical_and(
-        folded_lc.time > -1.0*td, 
-        folded_lc.time < 1.0*td)
+        folded_lc.time > -0.5*n_trans_dur*td, 
+        folded_lc.time < 0.5*n_trans_dur*td)
 
     resid[~mask] = 0
 
@@ -210,10 +309,37 @@ def compute_lc_resid(params, folded_lc, t0, period, ldm, ldc, transit_dur,
     return resid
 
 
-def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff, 
+def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff, 
                     ld_model="nonlinear"):
+    """Perform least squares fitting on the provided light curve to determine
+    Rp/R*, a/R*, and inclination.
+
+    Parameters
+    ----------
+    light_curve: lightkurve.lightcurve.TessLightCurve
+        Lightkurve object containing TESS time-series photometry from NASA.
+
+    t0: float
+        Time of first transit in Barycentric Julian Day (BJD).
+
+    period: float
+        Transit period in days.
+
+    transit_duration: float
+        Transit duration in days.
+
+    ld_coeff: float array
+        Vector of limb darkening coefficients of form ld_model.
+
+    ld_model: str, default: 'nonlinear'
+        Kind of limb darkening model to use.
+
+    Returns
+    -------
+    opt_res: dict
+        Dictionary of least squares fit results.
     """
-    """
+    # Convert between BJD and TESS BJD
     BTJD_OFFSET = 2457000
 
     if t0 > BTJD_OFFSET:
@@ -222,15 +348,13 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
     # Phase fold the light curve
     folded_lc = light_curve.remove_outliers(sigma=6).fold(period=period, t0=t0)
 
-    return_dict = {}
-
     # Initialise transit params. Ftting for: [rp, semi-major axis, inclination]
     # and assuming a circular orbit, so eccentricity=1, & longitude periastron
     # isn't relevant
     init_params = np.array([0.1, 10, 90,])
     bounds = ((0, 0, 60,), (1, 10000, 120,))
 
-    args = (folded_lc, t0, period, ld_model, ld_coeff, transit_dur, return_dict)
+    args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur,)
 
     #scale = (1, 1, 1)
     step = (0.01, 0.01, 0.01)
@@ -246,19 +370,46 @@ def fit_light_curve(light_curve, t0, period, transit_dur, ld_coeff,
         args=args, 
     )
 
+    # Calculate uncertainties
+    jac = opt_res["jac"]
+    res = opt_res["fun"]
     
-    #print("e = {:0.4f}".format(opt_res["x"][3]))
-    #print("w = {:0.4f}".format(opt_res["x"][4]))
+    # If jacobian is entire 0, something went wrong entire with the fit. Set 
+    # statistical uncertainties to nan
+    if np.sum(jac) == 0:
+        print("\nWarning, singular matrix!")
+        std = np.full(3, np.nan)
+    
+    # If just the inclination axis of the jacobian is 0, then ignore this when
+    # computing uncertainties and set nan
+    elif np.sum(jac[:,2]) == 0:
+        cov = np.linalg.inv(jac[:,:2].T.dot(jac[:,:2]))
+        std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+        std = np.concatenate((std, np.atleast_1d(np.nan)))
 
-    # Calculate parameter uncertanties
-    #jac = opt_res["jac"]
-    #res = opt_res["fun"]
-    #cov = np.linalg.inv(jac.T.dot(jac))
-    #opt_res["std"] = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+    # Everthing is behaving normally!
+    else:
+        cov = np.linalg.inv(jac.T.dot(jac))
+        std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
 
-    opt_res["bm_params"] = return_dict["bm_params"]
-    opt_res["bm_model"] = return_dict["bm_model"]
-    opt_res["lc_model"] = return_dict["lc_model"]
+    # Generate and save batman model at optimal params
+    bm_params, bm_model, bm_lightcurve = initialise_bm_model(
+        t0=0, 
+        period=1, 
+        rp_rstar=opt_res["x"][0], 
+        sma_rstar=opt_res["x"][1], 
+        inclination=opt_res["x"][2], 
+        ecc=0, 
+        omega=0, 
+        ld_model=ld_model, 
+        ld_coeff=ld_coeff, 
+        time=folded_lc.time,)
+
+    # Add extra info to fit dictionary
+    opt_res["std"] = std
+    opt_res["bm_params"] = bm_params
+    opt_res["bm_model"] = bm_model
+    opt_res["bm_lightcurve"] = bm_lightcurve
 
     return opt_res
 

@@ -47,9 +47,9 @@ all_fits = {}
 
 # Initialise new dataframe to hold results, which will be appended to 
 # toi_info and saved once we're done
-result_cols = ["sma", "e_sma", "rp_rstar_fit", "e_rp_rstar_fit", "sma_fit", 
-               "e_sma_fit", "inclination_fit", "e_inclination_fit", 
-               "radius_fit", "e_radius_fit", ]
+result_cols = ["sma", "e_sma", "rp_rstar_fit", "e_rp_rstar_fit", 
+               "sma_rstar_fit", "e_sma_rstar_fit", "inclination_fit", 
+               "e_inclination_fit", "radius_fit", "e_radius_fit", ]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
@@ -62,7 +62,7 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
     tic = toi_row["TIC"]
 
     print("{}\n{}/{} - TOI {} (TIC {})\n{}".format(
-        "-"*40, toi_i, len(toi_info), toi, tic, "-"*40))
+        "-"*40, toi_i+1, len(toi_info), toi, tic, "-"*40))
 
     # Get the literature info
     tic_info = tess_info[tess_info["TIC"]==tic].iloc[0]
@@ -88,7 +88,7 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
         tic_info["radii_m19"], 
         toi_row["Period (days)"])
 
-    # Fit light light curve
+    # Fit light light curve, but catch and handle any errors with batman
     try:
         opt_res = transit.fit_light_curve(
             light_curves[tic], 
@@ -97,37 +97,22 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
             toi_row["Duration (hours)"] / 24,  # convert to days 
             obs_info[ldd_cols].values,
             ld_model="nonlinear")
-    except:
-        print("Fitting/Batman failure, skipping")
+
+    except transit.BatmanError:
+        print("\nBatman failure, skipping\n")
         all_fits[toi] = None
+        continue
+
+    # Before we go any further, check we actually got uncertainties out - 
+    # otherwise this was a singular matrix, and something is wrong. In this
+    # case, we shouldn't save any of the fitted parameters
+    if np.all(np.isnan(opt_res["std"])):
         continue
 
     # Calclate the planet radii
     radius = (opt_res["x"][0] * tic_info["radii_m19"]
               * const.R_sun.si.value / const.R_earth.si.value)
     e_radius = np.nan
-
-    # Calculate uncertainties
-    jac = opt_res["jac"]
-    res = opt_res["fun"]
-    
-    # If jacobian is entire 0, something went wrong entire with the fit. Set 
-    # statistical uncertainties to nan
-    if np.sum(jac) == 0:
-        print("\nWarning, singular matrix!")
-        std = np.full(3, np.nan)
-    
-    # If just the inclination axis of the jacobian is 0, then ignore this when
-    # computing uncertainties and set nan
-    elif np.sum(jac[:,2]) == 0:
-        cov = np.linalg.inv(jac[:,:2].T.dot(jac[:,:2]))
-        std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
-        std = np.concatenate((std, np.atleast_1d(np.nan)))
-
-    # Everthing is behaving normally!
-    else:
-        cov = np.linalg.inv(jac.T.dot(jac))
-        std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
 
     # Record fit dictionaries
     all_fits[toi] = opt_res
@@ -141,15 +126,15 @@ for toi_i, (toi, toi_row) in enumerate(toi_info.iterrows()):
     result_df.loc[toi][param_cols] = opt_res["x"]
 
     e_param_cols = ["e_rp_rstar_fit", "e_sma_rstar_fit", "e_inclination_fit"]
-    result_df.loc[toi][e_param_cols] = std
+    result_df.loc[toi][e_param_cols] = opt_res["std"]
 
     print("\n---Result---")
     print("Rp/R* = {:0.5f} +/- {:0.5f},".format(
             result_df.loc[toi]["rp_rstar_fit"], 
             result_df.loc[toi]["e_rp_rstar_fit"]), 
           "\na = {:0.2f} +/- {:0.2f},".format(
-            result_df.loc[toi]["sma_fit"], 
-            result_df.loc[toi]["e_sma_fit"]), 
+            result_df.loc[toi]["sma_rstar_fit"], 
+            result_df.loc[toi]["e_sma_rstar_fit"]), 
           "\ni = {:0.2f} +/- {:0.2f}\n".format(
             result_df.loc[toi]["inclination_fit"], 
             result_df.loc[toi]["e_inclination_fit"]),)

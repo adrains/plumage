@@ -1212,7 +1212,36 @@ def plot_label_comparison(
 # ----------------------------------------------------------------------------- 
 def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model, 
     bm_lightcurve, period, t0, trans_dur):
-    """
+    """Plot PDF of TESS light curve fit.
+
+    Parameters
+    ----------
+    lightcurve: lightkurve.lightcurve.TessLightCurve
+        Undfolded TESS light curve.
+    
+    folded_lc: lightkurve.lightcurve.FoldedLightCurve
+        TESS light curve folded about the planet transit epoch and period. Note
+        that this means the new 'period' is 1, and the 'epoch' (i.e. time of
+        transit is 0).
+
+    bm_params: batman.transitmodel.TransitParams
+        Batman transit parameter + time object.
+
+    bm_model: batman.transitmodel.TransitModel
+        Batman transit model.
+
+    bm_lightcurve: float array
+        Batman transit model fluxes associated with time.
+
+    period: float
+        Period of transit. Should be set to one if using units of phase.
+
+    t0: float
+        Epoch (i.e time of transit). Should be set to zero if using units of 
+        phase.
+
+    trans_dur: float
+        Transit duration in days.
     """
     BTJD_OFFSET = 2457000
 
@@ -1247,15 +1276,34 @@ def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model,
     ax_lc_folded_transit.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
 
     # Figure out our y limits
-    lim = np.nanstd(folded_lc.flux)*5 + np.nanmean(folded_lc.flux_err)
+    lim = np.nanstd(folded_lc.flux)*5.5 + np.nanmean(folded_lc.flux_err)
 
     ax_lc_unfolded.set_ylim((1-lim, 1+lim))
     ax_lc_folded_all.set_ylim((1-lim, 1+lim))
     ax_lc_folded_transit.set_ylim((1-lim, 1+lim))
 
 
-def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,):
-    """
+def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
+        binsize=4):
+    """Plot PDFs of all TESS light curve fits.
+
+    Parameters
+    ----------
+    lightcurves: dict of lightkurve.lightcurve.TessLightCurve
+        Dictionary matching lightcurves to TIC IDs.
+    
+    toi_info: pandas.core.frame.DataFrame
+        Dataframe containing information about each TOI from NASA ExoFOP.
+
+    tess_info: pandas.core.frame.DataFrame
+        Dataframe containing literature info on each TIC (e.g. photometry).
+
+    observations: pandas.core.frame.DataFrame
+        Dataframe containing info on spectroscopic observations of each TIC, 
+        plus results of synthetic fitting.
+
+    binsize: int, default: 4
+        Binning to use when plotting light curves.
     """
     # Make plot path if it doesn't already exist
     plot_path = os.path.join("plots", "lc_diagnostics")
@@ -1271,8 +1319,8 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,):
 
     BTJD_OFFSET = 2457000
 
-    for toi_i, (toi, toi_row) in enumerate(
-        tqdm(toi_info.iterrows(), desc="Plotting")):
+    for toi_i, (toi, toi_row) in zip(
+        tqdm(range(len(toi_info)),desc="Plotting"), toi_info.iterrows()):
         # Look up TIC ID in tess_info
         tic = toi_row["TIC"]
 
@@ -1281,14 +1329,23 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,):
 
         source_id = tic_info["source_id"]
 
-        obs_info = observations[observations["uid"]==source_id].iloc[0]
+        obs_info = observations[observations["uid"]==source_id]
 
-        # Skip if period is undefined or lightcurve is None
-        if np.isnan(toi_row["Period (days)"]) or lightcurves[tic] is None:
+        if len(obs_info) > 0:
+            obs_info = observations[observations["uid"]==source_id].iloc[0]
+        else:
             continue
 
-        # Fold lightcurve
+        param_cols = ["rp_rstar_fit", "sma_rstar_fit", "inclination_fit"]
+
+        # Skip if period is nan, lightcurve is None, or all params are nan
+        if (np.isnan(toi_row["Period (days)"]) or lightcurves[tic] is None
+            or np.all(np.isnan(toi_row[param_cols].astype(float)))):
+            continue
+
+        # Load in, clean, bin, and fold lightcurve
         lightcurve = lightcurves[tic].remove_outliers(sigma=6).remove_nans()
+        lightcurve = lightcurve.bin(binsize=binsize)
         folded_lc = lightcurve.fold(
             period=toi_row["Period (days)"], 
             t0=toi_row["Epoch (BJD)"]-BTJD_OFFSET)
@@ -1302,8 +1359,8 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,):
             inclination=toi_row["inclination_fit"], 
             ecc=0, 
             omega=0, 
-            ldm="nonlinear", 
-            ldc=obs_info[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
+            ld_model="nonlinear", 
+            ld_coeff=obs_info[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
             time=folded_lc.time,)
 
         # Make plots
@@ -1318,9 +1375,9 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,):
             toi_row["Duration (hours)"]/24,)
 
         # Set title
-        title = (r"TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,R_E$, "
-                 r"$\frac{{R_p}}{{R_*}} = {:0.5f}$, $\frac{{a}}{{R_*}} = "
-                 r"{:0.2f}$, $i = {:0.2f}]$")
+        title = (r"TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,"
+                 r"R_\odot$, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
+                 r"$\frac{{a}}{{R_*}} = {:0.2f}$, $i = {:0.2f}]$")
 
         #import pdb
         #pdb.set_trace()
