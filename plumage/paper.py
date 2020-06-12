@@ -91,44 +91,56 @@ def make_table_final_results():
 
         
 
-def make_table_targets():
-    """Make the table to summarise the target information.
+def make_table_targets(break_row=45):
+    """Make the LaTeX table to summarise the target information.
+
+    Parameters
+    ----------
+    break_row: int
+        Which row to break table 1 at and start table 2.
     """
     # Load in the TESS target info (TODO: function for this)
-    tess_info = pd.read_csv("data/tess_info.tsv", sep="\t")    
+    tess_info = utils.load_info_cat(remove_fp=True, only_observed=True)
     exp_scale = -8
     
-    columns = OrderedDict([
-        ("TIC", ""),
-        ("TOI", ""),
+    cols = OrderedDict([
+        ("TIC$^a$", ""),
         ("2MASS", ""),
-        ("Gaia DR2", ""),
-        ("RA$^a$", "(hh mm ss.ss)"),
-        ("DEC$^a$", "(dd mm ss.ss)"),
-        ("$G$", "(mag)"), 
-        ("${B_p-R_p}$", "(mag)"),
-        ("Plx$^a$", "(mas)"),
-        ("ruwe$^a$", ""),
-        (r"N$_{\rm pc}$", "")
-    ])      
+        ("Gaia DR2$^b$", ""),
+        ("RA$^b$", "(hh mm ss.ss)"),
+        ("DEC$^b$", "(dd mm ss.ss)"),
+        ("$G^b$", "(mag)"), 
+        ("${B_p-R_p}^b$", "(mag)"),
+        ("Plx$^b$", "(mas)"),
+        ("ruwe$^b$", ""),
+        (r"N$_{\rm pc}^c$", "")
+    ])
     
+    header = []
+    header_1 = []
+    header_2 = []
     table_rows = []
+    footer = []
+    notes = []
     
     # Construct the header of the table
-    table_rows.append("\\begin{landscape}")
-    table_rows.append("\\begin{table}")
-    table_rows.append("\\centering")
-    table_rows.append("\\caption{Science targets}")
-    table_rows.append("\\label{tab:science_targets}")
+    header.append("\\begin{landscape}")
+    header.append("\\begin{table}")
+    header.append("\\centering")
+    header.append("\\label{tab:science_targets}")
     
-    table_rows.append("\\begin{tabular}{%s}" % ("c"*len(columns)))
-    table_rows.append("\hline")
-    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.keys()))
-    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.values()))
-    table_rows.append("\hline")
+    header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
+    header.append("\hline")
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
+    header.append("\hline")
     
-    ref_i = 0
-    references = []
+    # Now add the separate info for the two tables
+    header_1 = header.copy()
+    header_1.insert(3, "\\caption{Science targets}")
+
+    header_2 = header.copy()
+    header_2.insert(3, "\\contcaption{Science targets}")
     
     # Populate the table for every science target
     for star_i, star in tess_info.iterrows():
@@ -142,16 +154,16 @@ def make_table_targets():
         ra_hr = np.floor(star["ra"] / 15)
         ra_min = np.floor((star["ra"] / 15 - ra_hr) * 60)
         ra_sec = ((star["ra"] / 15 - ra_hr) * 60 - ra_min) * 60
-        ra = "%02i %02i %05.2f" % (ra_hr, ra_min, ra_sec)
+        ra = "{:02.0f} {:02.0f} {:05.2f}".format(ra_hr, ra_min, ra_sec)
         
         dec_deg = np.floor(star["dec"])
         dec_min = np.floor((star["dec"] - dec_deg) * 60)
         dec_sec = ((star["dec"] - dec_deg) * 60 - dec_min) * 60
-        dec = "%02i %02i %05.2f" % (dec_deg, dec_min, dec_sec)
+        dec = "{:+02.0f} {:02.0f} {:05.2f}".format(dec_deg, dec_min, dec_sec)
         
         # Step through column by column
         table_row += "%s & " % star["TIC"]
-        table_row += "%s & " % star["TOI"]
+        #table_row += "%s & " % star["TOI"]
         table_row += "%s & " % star["2mass"]
         table_row += "%s & " % star["source_id"]
         table_row += "%s & " % ra
@@ -160,116 +172,122 @@ def make_table_targets():
         table_row += "%0.2f & " % star["Bp-Rp"]
         table_row += r"%0.2f $\pm$ %0.2f & " % (star["plx"], star["e_plx"])
         table_row += "%0.1f & " % star["ruwe"]
-        table_row += "%i & " % star["n_pc"]
+        table_row += "%i " % star["n_pc"]
 
-        """
-        # Now do references
-        refs = [star["teff_bib_ref"], star["logg_bib_ref"], 
-                star["feh_bib_ref"], star["vsini_bib_ref"]]
-         
-        for ref in refs:   
-            if ref == "":
-                table_row += "-,"   
-                  
-            elif ref not in references:
-                references.append(ref)
-                ref_i = np.argwhere(np.array(references)==ref)[0][0] + 1
-                table_row += "%s," % ref_i
-            
-            elif ref in references:
-                ref_i = np.argwhere(np.array(references)==ref)[0][0] + 1
-                table_row += "%s," % ref_i
-        """
-        # Remove the final comma and append (Replace any nans with '-')
-        table_rows.append(table_row[:-1].replace("nan", "-")  + r"\\")
+        # Replace any nans with '-'
+        table_rows.append(table_row.replace("nan", "-")  + r"\\")
          
     # Finish the table
-    table_rows.append("\\hline")
-    table_rows.append("\\end{tabular}")
+    footer.append("\\hline")
+    footer.append("\\end{tabular}")
     
     # Add notes section with references
-    table_rows.append("\\begin{minipage}{\linewidth}")
-    table_rows.append("\\vspace{0.1cm}")
+    notes.append("\\begin{minipage}{\linewidth}")
+    notes.append("\\vspace{0.1cm}")
     
-    table_rows.append("\\textbf{Notes:} $^a$Gaia \citet{brown_gaia_2018} - "
-                      " note that Gaia parallaxes listed here have not been "
-                      "corrected for the zeropoint offset, "
-                      "$^b$SIMBAD, $^c$Tycho \citet{hog_tycho-2_2000}, "
-                      "$^d$2MASS \citet{skrutskie_two_2006} \\\\")
+    notes.append("\\textbf{Notes:} $^a$TESS Input Catalogue ID "
+                 "\citep{stassun_tess_2018, stassun_revised_2019},"
+                 "$^b$Gaia \citet{brown_gaia_2018} - "
+                 " note that Gaia parallaxes listed here have not been "
+                 "corrected for the zeropoint offset, "
+                 "$^c$Number of candidate planets, NASA Exoplanet Follow-up "
+                 "Observing Program for TESS \\\\")
     
-    #for ref_i, ref in enumerate(references):
-    #    table_rows.append("%i. \\citet{%s}, " % (ref_i+1, ref))
+    notes.append("\\end{minipage}")
+    notes.append("\\end{table}")
+    notes.append("\\end{landscape}")
     
-    # Remove last comma
-    table_rows[-1] = table_rows[-1][:-1]
-    
-    table_rows.append("\\end{minipage}")
-    table_rows.append("\\end{table}")
-    table_rows.append("\\end{landscape}")
-    
+    # Write the tables
+    table_1 = header_1 + table_rows[:break_row] + footer + notes
+    table_2 = header_2 + table_rows[break_row:] + footer + notes
+
     # Write the table
-    np.savetxt("paper/table_targets.tex", table_rows, fmt="%s")
+    np.savetxt("paper/table_targets_1.tex", table_1, fmt="%s")
+    np.savetxt("paper/table_targets_2.tex", table_2, fmt="%s")
 
 
-def make_table_observations():
-    """Make the table to summarise the observations.
+def make_table_observations(break_row=60):
+    """Make the LaTeX table to summarise the observations.
+
+    Parameters
+    ----------
+    break_row: int
+        Which row to break table 1 at and start table 2.
     """
     # Load in the TESS target info (TODO: function for this)
-    _, _, observations = utils.load_fits("TESS", path="spectra")
-    exp_scale = -8
+    observations = utils.load_fits_obs_table("TESS", path="spectra")
+    toi_info = utils.load_exofop_toi_cat()
     
-    columns = OrderedDict([
-        #("TIC", ""),
-        #("TOI", ""),
-        ("Gaia DR2", ""),
+    cols = OrderedDict([
+        ("TIC", ""),
         ("UT Date", ""), 
-        ("airmass", ""), 
+        (r"$X$", ""), 
         ("exp", "(sec)"), 
-        ("SNR (B)", ""), 
-        ("SNR (R)", ""), 
+        ("RV", r"(km$\,$s$^{-1}$)"), 
     ])      
     
+    header = []
+    header_1 = []
+    header_2 = []
     table_rows = []
+    footer = []
+    notes = []
     
     # Construct the header of the table
-    table_rows.append("\\begin{landscape}")
-    table_rows.append("\\begin{table}")
-    table_rows.append("\\centering")
-    table_rows.append("\\caption{Science targets}")
-    table_rows.append("\\label{tab:science_targets}")
+    #header.append("\\begin{landscape}")
+    header.append("\\begin{table}")
+    header.append("\\centering")
+    header.append("\\label{tab:observing_log}")
     
-    table_rows.append("\\begin{tabular}{%s}" % ("c"*len(columns)))
-    table_rows.append("\hline")
-    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.keys()))
-    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.values()))
-    table_rows.append("\hline")
+    header.append("\\begin{tabular}{%s}" % ("c"*(2+len(cols))))
+    header.append("\hline")
     
-    ref_i = 0
-    references = []
+    
+    header.append((("%s & "*len(cols))) % tuple(cols.keys()))
+    header.append(r"\multicolumn{2}{c}{SNR} \\")
+    header.append((("%s & "*len(cols))) % tuple(cols.values()))
+    header.append(r"(B) & (R) \\")
+    header.append("\hline")
+    
+    # Now add the separate info for the two tables
+    header_1 = header.copy()
+    header_1.insert(3, "\\caption{Observing log}")
+
+    header_2 = header.copy()
+    header_2.insert(3, "\\contcaption{Observing log}")
     
     # Populate the table for every science target
     for star_i, star in observations.iterrows():
         table_row = ""
+
+        # Get the TIC ID from the TOI ID
+        toi = float(star["id"].replace("TOI", ""))
+        tic = toi_info.loc[toi]["TIC"]
         
         # Step through column by column
-        table_row += "%s & " % star["uid"]
+        table_row += "%s & " % tic
         table_row += "%s & " % star["date"].split("T")[0]
         table_row += "%0.1f & " % star["airmass"]
         table_row += "%0.0f & " % star["exp_time"]
+        table_row += r"%0.2f $\pm$ %0.2f & " % (star["rv"], star["e_rv"])
         table_row += "%0.0f & " % star["snr_b"]
         table_row += "%0.0f " % star["snr_r"]
 
-        # Remove the final comma and append (Replace any nans with '-')
-        table_rows.append(table_row[:-1].replace("nan", "-")  + r"\\")
+        # Replace any nans with '-'
+        table_rows.append(table_row.replace("nan", "-")  + r"\\")
          
     # Finish the table
-    table_rows.append("\\hline")
-    table_rows.append("\\end{tabular}")
+    footer.append("\\hline")
+    footer.append("\\end{tabular}")
     
     #table_rows.append("\\end{minipage}")
-    table_rows.append("\\end{table}")
-    table_rows.append("\\end{landscape}")
+    footer.append("\\end{table}")
+    #footer.append("\\end{landscape}")
     
+    table_1 = header_1 + table_rows[:break_row] + footer
+    table_2 = header_2 + table_rows[break_row:] + footer
+
     # Write the table
-    np.savetxt("paper/table_observations.tex", table_rows, fmt="%s")
+    np.savetxt("paper/table_observations_1.tex", table_1, fmt="%s")
+    np.savetxt("paper/table_observations_2.tex", table_2, fmt="%s")
 
