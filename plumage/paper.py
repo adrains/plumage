@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import numpy as np
 import plumage.utils as utils
+import astropy.constants as const 
 from collections import OrderedDict
 # Ensure the plotting folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -334,3 +335,98 @@ def make_table_observations(break_row=60):
     np.savetxt("paper/table_observations_1.tex", table_1, fmt="%s")
     np.savetxt("paper/table_observations_2.tex", table_2, fmt="%s")
 
+
+def make_table_planet_params(break_row=60,):
+    """Make table of final planet parameters.
+
+    Parameters
+    ----------
+    break_row: int
+        Which row to break table 1 at and start table 2.
+    """
+    # Load in observations, TIC, and TOI info
+    observations = utils.load_fits_obs_table("TESS", path="spectra")
+    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
+    #toi_info = utils.load_exofop_toi_cat()
+    toi_info = pd.read_csv("data/exofop_tess_tois2.csv", quoting=1) 
+    
+    #exp_scale = -8
+    
+    cols = OrderedDict([
+        ("TOI", ""),
+        ("TIC", ""),
+        (r"$R_p", r"($R_E$)"),
+        (r"$a$", "(au)"),
+        (r"$i$", r"($^\circ$)"),
+        #(r"$R$", "($R_\odot$)"), 
+        #(r"$M$", "($M_\odot$)"), 
+    ])
+                           
+    header = []
+    header_1 = []
+    header_2 = []
+    table_rows = []
+    footer = []
+    notes = []
+    
+    # Construct the header of the table
+    header.append("\\begin{table}")
+    header.append("\\centering")
+    header.append("\\label{tab:planet_params}")
+
+    header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
+    header.append("\hline")
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
+    header.append("\hline")
+    
+    # Now add the separate info for the two tables
+    header_1 = header.copy()
+    header_1.insert(3, "\\caption{Planet params}")
+
+    header_2 = header.copy()
+    header_2.insert(3, "\\contcaption{Planet params}")
+
+    # Populate the table for every science target
+    for star_i, star in toi_info.iterrows():
+        table_row = ""
+        
+        # Step through column by column
+        table_row += "%s & " % star["TOI"]
+        table_row += "%s & " % star["TIC"]
+
+        # Planet params
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["radius_fit"], star["e_radius_fit"])
+            
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+            star["sma"]/const.au.si.value, 
+            star["e_sma"]/const.au.si.value)
+
+        table_row += r"{:0.1f} $\pm$ {:0.1f} ".format(
+            star["inclination_fit"], star["e_inclination_fit"])
+        
+        table_rows.append(table_row + r"\\")
+        
+    # Finish the table
+    footer.append("\hline")
+    footer.append("\end{tabular}")
+    footer.append("\\end{table}")
+    
+    # Write the tables
+    table_1 = header_1 + table_rows[:break_row] + footer + notes
+    table_2 = header_2 + table_rows[break_row:] + footer + notes
+    
+    np.savetxt("paper/table_planet_params_1.tex", table_1, fmt="%s")
+    np.savetxt("paper/table_planet_params_2.tex", table_2, fmt="%s")
+
+
+def make_table_ld_coeff():
+    """
+    """
+    pass
+
+def make_table_fbol():
+    """
+    """
+    pass
