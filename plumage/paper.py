@@ -15,25 +15,27 @@ if not os.path.isdir(plot_dir):
 # -----------------------------------------------------------------------------
 # Making tables
 # ----------------------------------------------------------------------------- 
-def make_table_final_results():
+def make_table_final_results(break_row=45, placeholder=True):
     """Make the final results table to display the angular diameters and 
     derived fundamental parameters.
-    """
-    # Load in the TESS target info (TODO: function for this)
-    tess_info = pd.read_csv(
-        "data/tess_info.tsv", 
-        sep="\t", 
-        dtype={"source_id":str, "observed":bool},
-        true_values=["yes"]
-    )
 
+    Parameters
+    ----------
+    break_row: int
+        Which row to break table 1 at and start table 2.
+    """
+    # Load in observations, TIC, and TOI info
+    observations = utils.load_fits_obs_table("TESS", path="spectra")
+    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
+    toi_info = utils.load_exofop_toi_cat()
+    
     exp_scale = -8
     
-    columns = OrderedDict([
+    cols = OrderedDict([
         ("TIC", ""),
         (r"$T_{\rm eff}$", "(K)"),
-        (r"$\log g", "(K)"),
-        (r"[Fe/H]", "(K)"),
+        (r"$\log g", ""),
+        (r"[Fe/H]", ""),
         (r"$f_{\rm bol}$", 
          r"(10$^{%i}\,$ergs s$^{-1}$ cm $^{-2}$)" % exp_scale),
         (r"$L$", "($L_\odot$)"),
@@ -43,51 +45,92 @@ def make_table_final_results():
     ])
                            
     header = []
+    header_1 = []
+    header_2 = []
     table_rows = []
     footer = []
+    notes = []
     
     # Construct the header of the table
-    header.append("\\begin{tabular}{%s}" % ("c"*len(columns)))
+    header.append("\\begin{table*}")
+    header.append("\\centering")
+    header.append("\\label{tab:final_results}")
+
+    header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
-    header.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.keys()))
-    header.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.values()))
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
     header.append("\hline")
     
-    # Populate the table for every science target
-    for star_i, star in tess_info.iterrows():
-        
-        # Only continue if both observed and not FP
-        if star["observed"] == "yes" and star["TFOPWG Disposition"] == "FP":
-            continue
-        
-        # Placeholder: TODO
-        """
+    # Now add the separate info for the two tables
+    header_1 = header.copy()
+    header_1.insert(3, "\\caption{Final results}")
 
+    header_2 = header.copy()
+    header_2.insert(3, "\\contcaption{Final results}")
+
+    # Populate the table for every science target
+    for star_i, star in observations.iterrows():
+        # Only continue if both observed and not FP
+        #if star["observed"] == "yes" and star["TFOPWG Disposition"] == "FP":
+        #    continue
+        
         table_row = ""
+
+        # Get the TIC ID from the TOI ID
+        toi = float(star["id"].replace("TOI", ""))
+        tic = toi_info.loc[toi]["TIC"]
+
+        tic_row = tic_info.loc[tic]
         
         # Step through column by column
-        table_row += "%s & " % rutils.format_id(row["Primary"])
-        table_row += r"%0.3f $\pm$ %0.3f & " % (row["udd_final"], row["e_udd_final"])
-        table_row += r"%0.3f $\pm$ %0.3f & " % (row["ldd_final"], row["e_ldd_final"])
-        table_row += r"%0.3f $\pm$ %0.3f &" % (row["r_star_final"], row["e_r_star_final"])
-        
-        # For fbol representation, split mantissa and exponent
-        table_row += r"%5.1f $\pm$ %0.1f &" % (row["f_bol_final"] / 10**exp_scale, 
-                                               row["e_f_bol_final"] / 10**exp_scale)
-        table_row += r"%0.0f $\pm$ %0.0f & " % (row["teff_final"], row["e_teff_final"])
-        table_row += r"%0.2f $\pm$ %0.2f " % (row["L_star_final"], row["e_L_star_final"])
+        table_row += "%s & " % tic
+
+        # Fitted spectroscopic params
+        table_row += r"{:0.0f} $\pm$ {:0.0f} & ".format(
+            star["teff_synth"], star["e_teff_synth"])
+
+        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
+            star["logg_synth"], star["e_logg_synth"])
+
+        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
+            star["feh_synth"], star["e_feh_synth"])
+
+        if not placeholder:
+            # For fbol representation, split mantissa and exponent
+            table_row += r"{:5.1f} $\pm$ {:0.1f} &".format(
+                star["f_bol_final"] / 10**exp_scale, 
+                star["e_f_bol_final"] / 10**exp_scale)
+            
+            table_row += r"{:0.2f} $\pm$ {:0.2f} ".format(
+                star["L_star"], star["e_L_star"])
+
+            table_row += r"{:0.3f} $\pm$ {:0.3f} & ".format(
+                star["theta"], star["e_theta"])
+
+            table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["r_star"], star["e_r_star"])
+        else: 
+            table_row += r"0$\pm$0 & 0$\pm$0 & 0$\pm$0 &"
+            table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                tic_row["radii_m19"], tic_row["radii_m19"])
+
+        table_row += r"{:0.3f} $\pm$ {:0.2f}".format(
+            tic_row["mass_m19"], tic_row["e_mass_m19"])
         
         table_rows.append(table_row + r"\\")
-        """
-    
+        
     # Finish the table
     footer.append("\hline")
     footer.append("\end{tabular}")
+    footer.append("\\end{table*}")
     
     # Write the tables
-    table_1 = header + table_rows + footer
+    table_1 = header_1 + table_rows[:break_row] + footer + notes
+    table_2 = header_2 + table_rows[break_row:] + footer + notes
     
-    np.savetxt("paper/table_final_results.tex", table_1, fmt="%s")
+    np.savetxt("paper/table_final_results_1.tex", table_1, fmt="%s")
+    np.savetxt("paper/table_final_results_2.tex", table_2, fmt="%s")
 
         
 
@@ -214,7 +257,7 @@ def make_table_observations(break_row=60):
     break_row: int
         Which row to break table 1 at and start table 2.
     """
-    # Load in the TESS target info (TODO: function for this)
+    # Load in observations and TIC info
     observations = utils.load_fits_obs_table("TESS", path="spectra")
     toi_info = utils.load_exofop_toi_cat()
     
