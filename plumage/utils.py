@@ -851,6 +851,9 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
 
     # Make new boolean column for planet candidates or known planets
     if "TOI" in info_cat:
+        # Set the index to be TIC ID
+        info_cat.set_index("TIC", inplace=True)
+
         pc_mask = np.logical_and(
             info_cat["TFOPWG Disposition"] != "FP",
             np.logical_or(
@@ -939,12 +942,12 @@ def load_exofop_toi_cat():
         ExoFOP info dataframe
     """
     # Load in tess info cat and use to clean efi
-    ti = load_info_cat(remove_fp=True, only_observed=True)
-    efi = pd.read_csv(
+    tic_info = load_info_cat(remove_fp=True, only_observed=True)
+    toi_info = pd.read_csv(
         "data/exofop_tess_tois.csv", 
         quoting=1, 
         comment="#",
         index_col="TOI",)
 
-    return efi[np.isin(efi["TIC"], ti["TIC"])]
+    return toi_info[np.isin(toi_info["TIC"], tic_info.index)]
 
