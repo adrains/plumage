@@ -69,8 +69,13 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
         value is provided for resolution, will use wavelength-constant 
         broadening.
 
-    grid: string, default: "full"
-
+    grid: string, default: 'full'
+        Which grid to get the synthetic spectrum from, must be one of:
+         1) 'full' - the full unbroadened grid
+         2) 'B3000' - grid pre-broadened to suit WiFeS B3000 spectra
+         3) 'R7000' - grid pre-broadened to suit WiFeS R7000 spectra
+        If either 'B3000' or 'R7000' are provided, no further broadening is 
+        done, and both ipres and resolution are not required.
 
     resolution: float, default: None
         Width of broadening kernel in Angstroms for wavelength-constant 
@@ -1096,7 +1101,7 @@ def do_synthetic_fit(
     else:
         teff, feh = opt_res["x"]
 
-    # Generate and save synthetic spectra at optimal params
+    # Generate, normalise and save synthetic spectra at optimal params
     if band_settings_b is not None:
         _, spec_synth_b = get_idl_spectrum(
             idl, 
@@ -1112,6 +1117,11 @@ def do_synthetic_fit(
             wl_per_px=band_settings_b["wl_per_px"],
             rv_bcor=(rv-bcor),
             )
+
+        spec_synth_b = spec.norm_spec_by_wl_region(
+            wave_b, 
+            spec_synth_b, 
+            band_settings_b["arm"])
     else:
         spec_synth_b = None
 
@@ -1129,6 +1139,11 @@ def do_synthetic_fit(
         wl_per_px=band_settings_r["wl_per_px"],
         rv_bcor=(rv-bcor),
         )
+
+    spec_synth_r = spec.norm_spec_by_wl_region(
+        wave_r, 
+        spec_synth_r, 
+        band_settings_r["arm"])
 
     # Calculate uncertainties
     jac = opt_res["jac"]

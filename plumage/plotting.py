@@ -335,10 +335,32 @@ def plot_standards(spectra, observations, catalogue):
 # -----------------------------------------------------------------------------
 # Synthetic fit diagnostics
 # ----------------------------------------------------------------------------- 
-def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask, 
-        obs_info, param_cols, date_id=None, save_path=None, fig=None, 
-        axis=None, save_fig=False, arm="r", bad_synth_px_mask=None,
-        spec_synth_lit=None):
+def plot_synthetic_fit(
+    wave, 
+    spec_sci, 
+    e_spec_sci, 
+    spec_synth, 
+    bad_px_mask,
+    teff,
+    e_teff,
+    logg,
+    e_logg,
+    feh,
+    e_feh,
+    rv,
+    e_rv,
+    snr,
+    date,
+    airmass,
+    rchi2=None,
+    date_id=None, 
+    save_path=None, 
+    fig=None, 
+    axis=None, 
+    save_fig=False, 
+    arm="r", 
+    bad_synth_px_mask=None,
+    spec_synth_lit=None):
     """TODO: Sort out proper sharing of axes
 
     Parameters
@@ -432,36 +454,31 @@ def plot_synthetic_fit(wave, spec_sci, e_spec_sci, spec_synth, bad_px_mask,
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Label synthetic fit parameters
-    params = tuple(obs_info[param_cols].values)
     param_label = (r"$T_{{\rm eff}} = {:0.0f}\pm {:0.0f}\,$K, "
                    r"$\log g = {:0.2f}\pm {:0.2f}$, "
                    r"[Fe/H]$ = {:0.2f}\pm {:0.2f}$")
-    param_label = param_label.format(*params)
+    param_label = param_label.format(teff, e_teff, logg, e_logg, feh, e_feh)
     axis.text(np.nanmean(wave), 1.6, param_label, horizontalalignment="center")
 
-    if "rchi2_synth" in obs_info:
-        rchi2_label = r"red. $\chi^2 = {:0.0f}$".format(
-            obs_info["rchi2_synth"])
+    if rchi2 is not None:
+        rchi2_label = r"red. $\chi^2 = {:0.0f}$".format(rchi2)
         axis.text(np.nanmean(wave), 1.525, rchi2_label, 
                   horizontalalignment="center")
 
     # Label RVs
-    rv_label = r"RV$ = {:0.2f}\pm{:0.2f}\,$km$\,$s$^{{-1}}$"
-    rv_label = rv_label.format(obs_info["rv"], obs_info["e_rv"])
+    rv_label = r"RV$ = {:0.2f}\pm{:0.2f}\,$km$\,$s$^{{-1}}$".format(rv, e_rv)
     axis.text(np.nanmean(wave), 1.45, rv_label, horizontalalignment="center")
 
     # Label SNR
-    snr_label = r"SNR ({}) $\sim {:0.0f}$".format(
-        arm, 
-        obs_info["snr_{}".format(arm)])
+    snr_label = r"SNR ({}) $\sim {:0.0f}$".format(arm, snr)
     axis.text(np.nanmean(wave), 1.375, snr_label, horizontalalignment="center")
 
     # Label date
-    date_label = r"Date = {}".format(obs_info["date"].split("T")[0])
+    date_label = r"Date = {}".format(date)
     axis.text(np.nanmean(wave), 1.30, date_label, horizontalalignment="center")
 
     # Label airmass
-    airmass_label = r"Airmass = {:0.2f}".format(obs_info["airmass"])
+    airmass_label = r"Airmass = {:0.2f}".format(airmass)
     axis.text(np.nanmean(wave), 1.225, airmass_label, 
               horizontalalignment="center")
 
@@ -569,7 +586,8 @@ def plot_synth_fit_diagnostic(
     use_2mass_id=False,
     text_min=4.0,
     spec_synth_lit_b=None,
-    spec_synth_lit_r=None):
+    spec_synth_lit_r=None,
+    logg_from_info_cat=True,):
     """Plots synthetic fit diagnostic plot, with four sections. Leftmost has
     Gaia Bp-Rp, absolute G, and 2MASS J-K - absolute K CMD of stars in info_cat
     highlighting the star in question. On the top right is the blue spectra,
@@ -737,11 +755,20 @@ def plot_synth_fit_diagnostic(
         "Blended 2MASS = {}".format(bool(int(star_info["blended_2mass"]))),
         horizontalalignment="center")
 
+    # Sort out logg
+    if logg_from_info_cat:
+        logg = star_info["logg_m19"]
+        e_logg = star_info["e_logg_m19"]
+    else:
+        logg = np.nan
+        e_logg = np.nan
+
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Blue spectra
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     param_cols = ["teff_synth", "e_teff_synth", "logg_synth", "e_logg_synth", 
                   "feh_synth", "e_feh_synth"]
+
     spec_b, e_spec_b = spec.norm_spec_by_wl_region(wave_b, spec_b, "b", 
                                                    e_spec_b)
 
@@ -759,8 +786,17 @@ def plot_synth_fit_diagnostic(
         e_spec_b, 
         spec_synth_b,
         bad_px_mask_b,
-        obs_info,
-        param_cols,
+        teff=obs_info["teff_synth"],
+        e_teff=obs_info["e_teff_synth"],
+        logg=logg,
+        e_logg=e_logg,
+        feh=obs_info["feh_synth"],
+        e_feh=obs_info["e_feh_synth"],
+        rv=obs_info["rv"],
+        e_rv=obs_info["e_rv"],
+        snr=obs_info["snr_b"],
+        date=obs_info["date"].split("T")[0],
+        airmass=obs_info["airmass"],
         fig=fig, 
         axis=ax_spec_b,
         arm="b",
@@ -809,8 +845,17 @@ def plot_synth_fit_diagnostic(
         e_spec_r, 
         spec_synth_r,
         bad_px_mask_r,
-        obs_info,
-        param_cols,
+        teff=obs_info["teff_synth"],
+        e_teff=obs_info["e_teff_synth"],
+        logg=logg,
+        e_logg=e_logg,
+        feh=obs_info["feh_synth"],
+        e_feh=obs_info["e_feh_synth"],
+        rv=obs_info["rv"],
+        e_rv=obs_info["e_rv"],
+        snr=obs_info["snr_r"],
+        date=obs_info["date"].split("T")[0],
+        airmass=obs_info["airmass"],
         fig=fig, 
         axis=ax_spec_r,
         arm="r",
@@ -1128,6 +1173,62 @@ def plot_tess_cmd(
     axis.set_ylabel(abs_mag)
     fig.tight_layout()
     plt.savefig("paper/tess_cmd.pdf")
+
+
+def plot_tess_hr(observations, tess_info):
+    """Function (currently pretty hacky) to plot TESS HR diagram for paper
+    """
+    teffs = observations["teff_synth"].values
+    loggs = []
+    fehs = observations["feh_synth"].values
+    ruwe = []
+    b2m = []
+    ids = []
+
+    for star_i, obs_info in observations.iterrows():
+        source_id = obs_info["uid"]
+
+        tic_info = tess_info[tess_info["source_id"]==source_id]
+
+        if len(tic_info) > 0:
+            tic_info = tic_info.iloc[0]
+        else:
+            loggs.append(np.nan)
+            ruwe.append(np.nan)
+            b2m.append(True)
+            ids.append("")
+            continue
+
+        loggs.append(tic_info["logg_m19"])
+        ruwe.append(tic_info["ruwe"])
+        b2m.append(tic_info["blended_2mass"])
+        ids.append(tic_info["TOI"])
+
+    #import pdb
+    #pdb.set_trace()
+    ruwe = np.array(ruwe).astype(float)
+    loggs = np.array(loggs).astype(float)
+    b2m = np.array(b2m).astype(bool)
+    ids = np.array(ids)
+    mask = np.logical_and(np.logical_and(~np.isnan(loggs), ruwe < 1.5), ~b2m)
+
+    plt.close("all")
+    scatter = plt.scatter(teffs[mask], loggs[mask], c=fehs[mask])
+
+    for teff, logg, sid in zip(teffs[mask], loggs[mask], ids[mask]):
+        plt.text(teff, logg, sid)
+
+    # plot weird
+    plt.plot(teffs[~mask], loggs[~mask], "x")
+
+    plt.xlim([4600,3000])
+    plt.ylim([5.1,4.4])
+    cb = plt.colorbar(scatter)
+    cb.set_label("[Fe/H]")
+    plt.xlabel(r"$T_{\rm eff}$")
+    plt.ylabel(r"$\log g$")
+
+    plt.savefig("paper/tess_hr.pdf")
 
 
 def plot_label_comparison(
