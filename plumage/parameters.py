@@ -348,6 +348,48 @@ def compute_mann_2015_radii(k_mag_abs):
 
     return radii, e_radii
 
+
+def compute_logg(masses, e_masses, radii, e_radii,):
+    """
+
+    Parameters
+    ----------
+    masses, e_masses: float array
+        Masses and mass uncertainties in solar units.
+
+    raddi, e_radii: float array
+        Radii and radii uncertanties in solar units.
+
+    Returns
+    -------
+    logg, e_logg: float array
+        logg and logg uncertainties in log(cgs) units
+    """
+    # Define constants. Note: must be in cgs units for logg.
+    G = const.G.cgs.value
+    M_sun = const.M_sun.cgs.value
+    R_sun = const.R_sun.cgs.value  
+
+    # Ensure we have arrays of floats in cgs units
+    masses = np.atleast_1d(masses).astype(float) * M_sun
+    e_masses = np.atleast_1d(e_masses).astype(float) * M_sun
+    radii = np.atleast_1d(radii).astype(float) * R_sun
+    e_radii = np.atleast_1d(e_radii).astype(float) * R_sun
+
+    # Calculate the surface gravity and uncertainty before logging
+    sg = ((G * masses) / radii**2)
+
+    e_sg = np.sqrt(
+        e_masses**2 * (G/radii**2)**2
+        + e_radii**2 * ((-2 * G * masses) / radii**3)**2
+        )
+
+    # Calculate logg and e_logg    
+    logg = np.log10(sg)
+    e_logg = np.abs(e_sg / (sg*np.log(10)))
+
+    return logg, e_logg
+
 # -----------------------------------------------------------------------------
 # Other params
 # -----------------------------------------------------------------------------

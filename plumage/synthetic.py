@@ -583,7 +583,9 @@ def load_synthetic_templates_legacy(path, setting="R7000"):
 # Synthetic Fitting
 # -----------------------------------------------------------------------------
 def calc_synth_fit_resid_one_arm(
-    params, 
+    teff,
+    logg,
+    feh, 
     wave_sci, 
     spec_sci, 
     e_spec_sci, 
@@ -591,14 +593,14 @@ def calc_synth_fit_resid_one_arm(
     rv, 
     bcor, 
     idl,
-    arm,):
+    band_settings,):
     """Calculates residuals between observed science spectrum, and MARCS model
     synthetic spectrum for a single arm of the spectrograph.
 
     Parameters
     ----------
-    params: float array
-        Initial parameter guess of form (teff, logg, [Fe/H])
+    teff, logg, feh: float
+        Stellar parameters for star.
 
     wave_sci: float array
         Wavelength scale corresponding to spec_sci.
@@ -623,8 +625,10 @@ def calc_synth_fit_resid_one_arm(
         pidly.IDL object to interface with Thomas Nordlander's synthetic 
         MARCS spectra through IDL.
 
-    arm: string
-        Arm of spectrograph used to acquire spec_sci, either 'b' or 'r'.
+    band_settings: dict
+        Dictionary with settings for WiFeS band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
 
     Returns
     -------
@@ -635,36 +639,19 @@ def calc_synth_fit_resid_one_arm(
     spec_synth: float array
         Best fitting synthetic spectrum.
     """
-    # Initialise details of synthetic wavelength scale
-    # TODO - Generalise this
-    if arm == "r":
-        inst_res_pow = 7000
-        wl_min = 5400
-        wl_max = 7000
-        n_px = 3637
-        wl_per_px = 0.44
-    elif arm == "b":
-        inst_res_pow = 3000
-        wl_min = 3500
-        wl_max = 5700
-        n_px = 2858
-        wl_per_px = 0.77
-    else:
-        raise ValueError("Must be either r or b")
-
     # Get the template spectrum
     wave_synth, spec_synth = get_idl_spectrum(
         idl, 
-        params[0], 
-        params[1], 
-        params[2], 
-        wl_min, 
-        wl_max, 
-        ipres=inst_res_pow,
-        resolution=wl_per_px,
+        teff, 
+        logg, 
+        feh, 
+        band_settings["wl_min"], 
+        band_settings["wl_max"], 
+        ipres=band_settings["inst_res_pow"],
+        resolution=band_settings["wl_per_px"],
         norm="abs",
         do_resample=True, 
-        wl_per_px=wl_per_px,
+        wl_per_px=band_settings["wl_broadening"],
         rv_bcor=(rv-bcor),
         )
 
@@ -672,7 +659,7 @@ def calc_synth_fit_resid_one_arm(
     spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(
         wave_sci, 
         spec_sci, 
-        arm, 
+        band_settings["arm"], 
         e_spec_sci)
 
     # Normalise the synthetic spectrum only if it is non-zero. An array of 
@@ -681,7 +668,10 @@ def calc_synth_fit_resid_one_arm(
     # grid bounds. If it is composed of zeros, the residuals should be bad 
     # anyway.
     if np.sum(spec_synth) > 0:
-        spec_synth = spec.norm_spec_by_wl_region(wave_sci, spec_synth, arm)
+        spec_synth = spec.norm_spec_by_wl_region(
+            wave_sci, 
+            spec_synth, 
+            band_settings["arm"])
 
     # Mask the spectra by setting uncertainties on bad pixels to infinity 
     # (thereby setting the inverse variances to zero), as well as putting the
@@ -699,7 +689,9 @@ def calc_synth_fit_resid_one_arm(
 
 
 def calc_colour_resid(
-    params,
+    teff,
+    logg,
+    feh,
     stellar_colours,
     e_stellar_colours,
     colour_bands,
@@ -708,8 +700,8 @@ def calc_colour_resid(
 
     Parameters
     ----------
-    params: float array
-        Initial parameter guess of form (teff, logg, [Fe/H])
+    teff, logg, feh: float
+        Stellar parameters for star.
     
     stellar_colours: float array, default: None
         Array of observed stellar colour corresponding to colour_bands. If None
@@ -738,7 +730,7 @@ def calc_colour_resid(
                          "  should all have the same length")
 
     # Calculate a set of synthetic colours
-    synth_colours = np.array([sc_interp.compute_colour(params,cb) 
+    synth_colours = np.array([sc_interp.compute_colour((teff,logg,feh),cb) 
                               for cb in colour_bands])
 
     # Calculate the residuals
@@ -756,6 +748,9 @@ def calc_synth_fit_resid_both_arms(
     rv, 
     bcor, 
     idl,
+    band_settings_r, 
+    logg, 
+    band_settings_b,
     wave_b, 
     spec_b, 
     e_spec_b, 
@@ -764,7 +759,6 @@ def calc_synth_fit_resid_both_arms(
     e_stellar_colours,
     colour_bands,
     sc_interp,
-    best_fit_spec_dict,
     feh_offset,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
@@ -799,6 +793,20 @@ def calc_synth_fit_resid_both_arms(
         pidly.IDL object to interface with Thomas Nordlander's synthetic 
         MARCS spectra through IDL.
 
+    band_settings_r: dict
+        Dictionary with settings for WiFeS red band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
+
+    logg: float
+        logg of the star, if fixing this dimension during fitting. If not None,
+        will only use least squares to optimise Teff and [Fe/H]
+
+    band_settings_r: dict
+        Dictionary with settings for WiFeS blue band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
+
     wave_b: float array, optional
         Wavelength scale for the blue spectrum.
 
@@ -826,10 +834,6 @@ def calc_synth_fit_resid_both_arms(
     sc_interp: SyntheticColourInterpolator
         SyntheticColourInterpolator object able to interpolate synth colours.
 
-    best_fit_spec_dict: dict
-        Initially empty dictionary used to return normalised science spectrum 
-        and best fit synthetic spectrum.
-
     feh_offset: float, default: 10
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
@@ -840,8 +844,11 @@ def calc_synth_fit_resid_both_arms(
         Uncertainty weighted residual vector between science and synthetic
         spectra.
     """
-    # Unscale [Fe/H]
-    params = params - np.array([0,0,feh_offset])
+    # Unpack params and unscale [Fe/H]
+    if logg is None:
+        teff, logg, feh = params - np.array([0,0,feh_offset])
+    else:
+        teff, feh = params - np.array([0,feh_offset])
 
     # Initialise boolean flags to indicate which residuals are included in the
     # fit - blue spectra, red spectra, and photometry
@@ -849,7 +856,9 @@ def calc_synth_fit_resid_both_arms(
 
     # Fit red
     resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
-        params, 
+        teff,
+        logg,
+        feh, 
         wave_r, 
         spec_r, 
         e_spec_r, 
@@ -857,14 +866,16 @@ def calc_synth_fit_resid_both_arms(
         rv, 
         bcor, 
         idl,
-        "r")
+        band_settings_r,)
     
     # Do blue if we've been given it
     if ((wave_b is not None) or (spec_b is not None) or (e_spec_b is not None) 
         or (bad_px_mask_b is not None)):
         # Determine blue residuals
         resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
-            params, 
+            teff,
+            logg,
+            feh, 
             wave_b, 
             spec_b, 
             e_spec_b, 
@@ -872,7 +883,7 @@ def calc_synth_fit_resid_both_arms(
             rv, 
             bcor, 
             idl,
-            "b")
+            band_settings_b,)
         
         # Combine residual vectors
         resid_vect = np.concatenate((resid_vect_b, resid_vect_r))
@@ -889,7 +900,9 @@ def calc_synth_fit_resid_both_arms(
     # Do photometric fit if we've been given data
     if sc_interp is not None:
         resid_vect_colour = calc_colour_resid(
-            params,
+            teff,
+            logg,
+            feh,
             stellar_colours,
             e_stellar_colours,
             colour_bands,
@@ -905,14 +918,10 @@ def calc_synth_fit_resid_both_arms(
 
     # Print updates
     print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}".format(
-        params[0], params[1], params[2]), "\t{}".format(brc), end="")
+        teff, logg, feh), "\t{}".format(brc), end="")
     
     rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
     print("\t--> rchi^2 = {:0.1f}".format(rchi2))
-
-    # Save the best fit normalised spectra
-    best_fit_spec_dict["spec_synth_b"] = spec_synth_b
-    best_fit_spec_dict["spec_synth_r"] = spec_synth_r
 
     return resid_vect
 
@@ -926,6 +935,9 @@ def do_synthetic_fit(
     rv, 
     bcor,
     idl,
+    band_settings_r,
+    logg=None,
+    band_settings_b=None,
     wave_b=None, 
     spec_b=None, 
     e_spec_b=None, 
@@ -955,7 +967,9 @@ def do_synthetic_fit(
         corresponding to wave_r.
 
     params: float array
-        Initial parameter guess of form (teff, logg, [Fe/H])
+        Initial parameter guess, either of form:
+         1) (teff, logg, [Fe/H])
+         2) (teff, [Fe/H]) if logg is provided
 
     rv: float
         Radial velocity in km/s
@@ -966,6 +980,20 @@ def do_synthetic_fit(
     idl: pidly.IDL
         pidly.IDL object to interface with Thomas Nordlander's synthetic 
         MARCS spectra through IDL.
+
+    band_settings_r: dict
+        Dictionary with settings for WiFeS red band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
+
+    logg: float, default: None
+        logg of the star, if fixing this dimension during fitting. If provided,
+        will only use least squares to optimise Teff and [Fe/H]
+
+    band_settings_r: dict, default: None
+        Dictionary with settings for WiFeS blue band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
 
     wave_b: float array, optional
         Wavelength scale for the blue spectrum.
@@ -1000,10 +1028,6 @@ def do_synthetic_fit(
     optimize_result: dict
         Dictionary of best fit results returned from 
         scipy.optimize.least_squares.
-
-    best_fit_spec_dict: dict
-        Dictionary containing normalised science spectrum and best fit 
-        synthetic spectrum
     """
     # If no photometry, no need to initialise synthetic colour interpolator
     if stellar_colours is None or e_stellar_colours is None:
@@ -1013,26 +1037,31 @@ def do_synthetic_fit(
     else:
         sc_interp = SyntheticColourInterpolator()
 
-    # Parameter to store best fit synthetic spectra
-    best_fit_spec_dict = {}
-
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-            wave_b, spec_b, e_spec_b, bad_px_mask_b, stellar_colours,
-            e_stellar_colours, colour_bands, sc_interp, best_fit_spec_dict,
-            feh_offset)
-    bounds = ((2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset))
-    scale = (1, 1, 1)
-    step = (0.1, 0.1, 0.1)
+            band_settings_r, logg, band_settings_b, wave_b, spec_b, e_spec_b, 
+            bad_px_mask_b, stellar_colours, e_stellar_colours, colour_bands, 
+            sc_interp, feh_offset)
+    
+    if logg is None:
+        bounds = ((2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset))
+        scale = (1, 1, 1)
+        step = (0.1, 0.1, 0.1)
+
+        params = np.array(params) + np.array([0,0,feh_offset])
+    else:
+        bounds = ((2800, -2+feh_offset), (6000, 0.5+feh_offset))
+        scale = (1, 1)
+        step = (0.1, 0.1)
+
+        params = np.array(params) + np.array([0,feh_offset])
     
     # Make sure initial teff guess isn't out of bounds, assign default if so
-    params = np.array(params) + np.array([0,0,feh_offset])
-
     if params[0] < bounds[0][0] or params[0] > bounds[1][0]:
         params[0] = 5250
 
     # Do fit
-    optimize_result = least_squares(
+    opt_res = least_squares(
         calc_synth_fit_resid_both_arms, 
         params, 
         jac="3-point",
@@ -1043,9 +1072,59 @@ def do_synthetic_fit(
     )
 
     # Unscale [Fe/H]
-    optimize_result["x"] = optimize_result["x"] - np.array([0,0,feh_offset])
+    opt_res["x"][-1] -= feh_offset
 
-    return optimize_result, best_fit_spec_dict
+    if logg is None:
+        teff, logg, feh = opt_res["x"]
+    else:
+        teff, feh = opt_res["x"]
+
+    # Generate and save synthetic spectra at optimal params
+    if band_settings_b is not None:
+        _, spec_synth_b = get_idl_spectrum(
+            idl, 
+            teff, 
+            logg, 
+            feh, 
+            wl_min=band_settings_b["wl_min"], 
+            wl_max=band_settings_b["wl_max"], 
+            ipres=band_settings_b["inst_res_pow"],
+            resolution=band_settings_b["wl_broadening"],
+            norm="abs",
+            do_resample=True, 
+            wl_per_px=band_settings_b["wl_per_px"],
+            rv_bcor=(rv-bcor),
+            )
+    else:
+        spec_synth_b = None
+
+    _, spec_synth_r = get_idl_spectrum(
+        idl, 
+        teff, 
+        logg, 
+        feh, 
+        wl_min=band_settings_r["wl_min"], 
+        wl_max=band_settings_r["wl_max"], 
+        ipres=band_settings_r["inst_res_pow"],
+        resolution=band_settings_r["wl_broadening"],
+        norm="abs",
+        do_resample=True, 
+        wl_per_px=band_settings_r["wl_per_px"],
+        rv_bcor=(rv-bcor),
+        )
+
+    # Calculate uncertainties
+    jac = opt_res["jac"]
+    res = opt_res["fun"]
+    cov = np.linalg.inv(jac.T.dot(jac))
+    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+
+    # Add uncertainties and synthtic spectra to return dict
+    opt_res["std"] = std
+    opt_res["spec_synth_b"] = spec_synth_b
+    opt_res["spec_synth_r"] = spec_synth_r
+
+    return opt_res
 
 # -----------------------------------------------------------------------------
 # Synthetic Photometry

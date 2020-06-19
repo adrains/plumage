@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std"
+label = "tess"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -40,9 +40,37 @@ colour_bands = ['Rp-J', 'J-H', 'H-K']
 e_colour_bands = ['e_Rp-J', 'e_J-H', 'e_H-K']
 
 # Literature information (including photometry)
-info_cat_path = "data/std_info.tsv"
+info_cat_path = "data/{}_info.tsv".format(label)
 info_cat = utils.load_info_cat(info_cat_path, only_observed=True) 
 only_fit_info_cat_stars = True
+
+# Initialise settings for each band
+band_settings_b = {
+    "inst_res_pow":3000,
+    "wl_min":3500,
+    "wl_max":5700,
+    "n_px":2858,
+    "wl_per_px":0.77,
+    "wl_broadening":0.77,
+    "arm":"b"
+}
+band_settings_r = {
+    "inst_res_pow":7000,
+    "wl_min":5400,
+    "wl_max":7000,
+    "n_px":3637,
+    "wl_per_px":0.44,
+    "wl_broadening":0.44,
+    "arm":"r"
+}
+
+# Whether to fix logg during fitting
+fix_logg = True
+
+if fix_logg:
+    n_params = 2
+else:
+    n_params = 3
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -52,7 +80,6 @@ e_params_fit = []
 fit_results = []
 synth_fits_b = []
 synth_fits_r = []
-spec_dicts = []
 rchi2 = []
 both_arm_synth_fit = []
 fit_used_colours = []
@@ -74,13 +101,13 @@ for ob_i in range(0, len(observations)):
 
     # Check if we're only fitting for a subset of the standards
     if only_fit_info_cat_stars and star_info is None:
-        params_fit.append([np.nan, np.nan, np.nan,])
-        e_params_fit.append([np.nan, np.nan, np.nan,])
+        params_fit.append(np.full(n_params, np.nan))
+        e_params_fit.append(np.full(n_params, np.nan))
         fit_results.append(None)
         synth_fits_b.append(np.ones_like(spectra_b[ob_i, 0])*np.nan)
         synth_fits_r.append(np.ones_like(spectra_r[ob_i, 0])*np.nan)
-        spec_dicts.append(None)
         rchi2.append(np.nan)
+        both_arm_synth_fit.append(False)
         fit_used_colours.append(False)
 
         continue
@@ -97,12 +124,23 @@ for ob_i in range(0, len(observations)):
         e_colours = None
         fit_used_colours.append(False)
 
-    # Initialise parameters based on best fitting RV template
-    params_init = (
-        observations.iloc[ob_i]["teff_fit"],
-        observations.iloc[ob_i]["logg_fit"],
-        observations.iloc[ob_i]["feh_fit"],
-        )
+    # Initialise Teff and [Fe/H] and fix logg
+    if fix_logg:
+        params_init = (
+            observations.iloc[ob_i]["teff_fit"],
+            observations.iloc[ob_i]["feh_fit"],
+            )
+        logg = star_info["logg_m19"]
+        e_logg = star_info["e_logg_m19"]
+    
+    # Intialise Teff, logg, and [Fe/H], and fit for logg
+    else:
+        params_init = (
+            observations.iloc[ob_i]["teff_fit"],
+            observations.iloc[ob_i]["logg_fit"],
+            observations.iloc[ob_i]["feh_fit"],
+            )
+        logg = None
 
     # Setup temperature dependent wavelength masks for regions where the 
     # synthetic spectra are bad (e.g. missing opacities) at cool teffs
@@ -132,14 +170,19 @@ for ob_i in range(0, len(observations)):
 
         bad_px_mask_b = np.logical_or(bad_px_masks_b[ob_i], bad_synth_px_mask_b)
 
+        both_arm_synth_fit.append(True)
+
+    # Not fitting to blue, pass in Nones
     else:
         wave_b = None
         spec_b = None
         e_spec_b = None
         bad_px_mask_b = None
 
+        both_arm_synth_fit.append(False)
+
     # Do synthetic fit
-    opt_res, spec_dict = synth.do_synthetic_fit(
+    opt_res = synth.do_synthetic_fit(
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
         spectra_r[ob_i, 2], # Red uncertainties
@@ -148,6 +191,9 @@ for ob_i in range(0, len(observations)):
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
         idl,
+        band_settings_r,
+        logg=logg,
+        band_settings_b=band_settings_b,
         wave_b=wave_b, 
         spec_b=spec_b, 
         e_spec_b=e_spec_b, 
@@ -157,39 +203,31 @@ for ob_i in range(0, len(observations)):
         colour_bands=colour_bands,
         )
 
-    # Calculate uncertainties
-    jac = opt_res["jac"]
-    res = opt_res["fun"]
-    cov = np.linalg.inv(jac.T.dot(jac))
-    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
-
     # Record results
     params_fit.append(opt_res["x"])
-    e_params_fit.append(std)
+    e_params_fit.append(opt_res["x"])
     fit_results.append(opt_res)
-    synth_fits_r.append(spec_dict["spec_synth_r"])
-    spec_dicts.append(spec_dict)
-    rchi2.append(np.sum(res**2) / (len(res)-len(params_init)))
+    synth_fits_r.append(opt_res["spec_synth_r"])
+    rchi2.append(np.sum(opt_res["fun"]**2) / (len(opt_res["fun"])-len(params_init)))
 
-    # Append blue synthetic spectrum if used, otherwise an array of nans. Also
-    # save a boolean indicating whether both arms were used in the fit
-    if not spec_dict["spec_synth_b"] is None:
-        synth_fits_b.append(spec_dict["spec_synth_b"])
-        both_arm_synth_fit.append(True)
+    # Append blue synthetic spectrum if used, otherwise an array of nans
+    if opt_res["spec_synth_b"] is not None:
+        synth_fits_b.append(opt_res["spec_synth_b"])
     else:
         synth_fits_b.append(np.ones_like(spectra_b[ob_i, 0])*np.nan)
-        both_arm_synth_fit.append(False)
+
+    if logg is None:
+        teff, logg, feh = opt_res["x"]
+        e_teff, e_logg, e_feh = opt_res["std"]
+    else:
+        teff, feh = opt_res["x"]
+        e_teff, e_feh = opt_res["std"]
 
     print("\n---Result---")
-    print("Teff = {:0.0f} +/- {:0.0f} K,".format(params_fit[-1][0], 
-                                                e_params_fit[-1][0]), 
-          "logg = {:0.2f} +/- {:0.2f},".format(params_fit[-1][1], 
-                                                e_params_fit[-1][1]),
-          "[Fe/H] = {:+0.2f} +/- {:0.2f}\n".format(params_fit[-1][2], 
-                                                e_params_fit[-1][2]))
+    print("Teff = {:0.0f} +/- {:0.0f} K,".format(teff, e_teff), 
+          "logg = {:0.2f} +/- {:0.2f},".format(logg, e_logg),
+          "[Fe/H] = {:+0.2f} +/- {:0.2f}\n".format(feh, e_feh),)
 
-    import pdb
-    pdb.set_trace()
 # -----------------------------------------------------------------------------
 # Save results
 # -----------------------------------------------------------------------------
@@ -199,10 +237,16 @@ e_params_fit = np.stack(e_params_fit)
 
 observations["teff_synth"] = params_fit[:,0]
 observations["e_teff_synth"] = e_params_fit[:,0]
-observations["logg_synth"] = params_fit[:,1]
-observations["e_logg_synth"] = e_params_fit[:,1]
-observations["feh_synth"] = params_fit[:,2]
-observations["e_feh_synth"] = e_params_fit[:,2]
+
+if fix_logg:
+    observations["feh_synth"] = params_fit[:,1]
+    observations["e_feh_synth"] = e_params_fit[:,1]
+else:
+    observations["logg_synth"] = params_fit[:,1]
+    observations["e_logg_synth"] = e_params_fit[:,1]
+    observations["feh_synth"] = params_fit[:,2]
+    observations["e_feh_synth"] = e_params_fit[:,2]
+
 observations["rchi2_synth"] = np.array(rchi2)
 observations["both_arm_synth_fit"] = np.array(both_arm_synth_fit)
 observations["fit_used_colours"] = np.array(fit_used_colours)

@@ -925,9 +925,14 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["e_radii_m19"] = e_radii
 
     # And Mann 2015 masses
-    mass, e_mass = params.compute_mann_2019_masses(info_cat["K_mag_abs"]) 
-    info_cat["mass_m19"] = mass
-    info_cat["e_mass_m19"] = e_mass
+    masses, e_masses = params.compute_mann_2019_masses(info_cat["K_mag_abs"]) 
+    info_cat["mass_m19"] = masses
+    info_cat["e_mass_m19"] = e_masses
+
+    # Compute logg and e_log from Mann params
+    logg, e_logg = params.compute_logg(masses, e_masses, radii, e_radii,)
+    info_cat["logg_m19"] = logg
+    info_cat["e_logg_m19"] = e_logg
 
     return info_cat
 
