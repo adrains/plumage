@@ -52,7 +52,8 @@ band_settings_b = {
     "n_px":2858,
     "wl_per_px":0.77,
     "wl_broadening":0.77,
-    "arm":"b"
+    "arm":"b",
+    "grid":"B3000",
 }
 band_settings_r = {
     "inst_res_pow":7000,
@@ -61,7 +62,8 @@ band_settings_r = {
     "n_px":3637,
     "wl_per_px":0.44,
     "wl_broadening":0.44,
-    "arm":"r"
+    "arm":"r",
+    "grid":"R7000",
 }
 
 # Whether to fix logg during fitting

@@ -20,28 +20,23 @@ from scipy.interpolate import LinearNDInterpolator
 #------------------------------------------------------------------------------    
 # Setup IDL
 #------------------------------------------------------------------------------
-def idl_init(grid_choice="full"):
+def idl_init():
     """Initialise IDL by setting paths and compiling relevant files.
     """
-    if grid_choice == "full":
-        grid = "grid_synthspec_main.sav"
-    elif grid_choice == "R~3000":
-        grid = "grid_synthspec_main-R3k.sav"
-    elif grid_choice == "R~7000":
-        grid = "grid_synthspec_main-R7k.sav"
-    else:
-        raise ValueError("Invalid grid choice - must be 'full', 'R~3000', or"
-                        "R~7000")
-
+    # Do initial compilation
     idl = pidly.IDL()
     idl("!path = '/home/thomasn/idl_libraries/coyote:' + !path")
     idl(".compile /home/thomasn/grids/gaussbroad.pro")
     idl(".compile /home/thomasn/grids/get_spec.pro")
-    idl("grid='/home/thomasn/grids/%s'" % grid)
-    
+
+    # Intialise full, B3000, and R7000 grids
+    idl("grid='/home/thomasn/grids/grid_synthspec_main.sav'")
+    idl("grid_b='/home/thomasn/grids/grid_3000-10000_res1.0.sav'")
+    idl("grid_r='/home/thomasn/grids/grid_3000-10000_res0.45.sav'")
+
     return idl
     
-def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, 
+def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
                      resolution=None, norm="abs", do_resample=True, 
                      wl_per_px=None, rv_bcor=0, wave_pad=50, abund_alpha=None,
                      abund_CFe=None,):
@@ -73,6 +68,9 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
         a mutually exclusive option to wavelength-constant broadening. If a 
         value is provided for resolution, will use wavelength-constant 
         broadening.
+
+    grid: string, default: "full"
+
 
     resolution: float, default: None
         Width of broadening kernel in Angstroms for wavelength-constant 
@@ -121,7 +119,7 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
     """
     NORM_VALS = {"abs":0, "norm":1, "cont":2, "abs_norm":-1}
 
-    # Checks
+    # Checks on input parameters
     if teff > 8000 or teff < 2500:
         raise ValueError("Temperature must be 2500 <= Teff (K) <= 8000")
 
@@ -161,19 +159,37 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres,
     else:
         wout = ""
 
-    # Default behaviour is constant-velocity broadening, unless a value has 
-    # been provided for resolution
-    if resolution is None:
-        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, ipres=%f, "
-               "norm=%i, grid=grid, wave=wave, vrad=%f%s)"
-               % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
-                  wout))
-    # Otherwise do constant-wavelength broadening
-    else:
+    # Default behaviour: full, unbroadened grid
+    if grid == "full":
+        # Default behaviour is constant-velocity broadening, unless a value has 
+        # been provided for resolution
+        if resolution is None:
+            cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, "
+                "ipres=%f, norm=%i, grid=grid, wave=wave, vrad=%f%s)"
+                % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
+                    wout))
+        # Otherwise do constant-wavelength broadening
+        else:
+            cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, "
+                "norm=%i, resolution=%f, grid=grid, wave=wave, vrad=%f%s)" 
+                % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
+                    rv_bcor, wout))
+
+    # Generating WiFeS B3000 spectra. Grid has already been broadened.
+    elif grid == "B3000":
         cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
-               "resolution=%f, grid=grid, wave=wave, vrad=%f%s)" 
-               % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
-                  rv_bcor, wout))
+                "grid=grid_b, wave=wave, vrad=%f%s)" 
+                % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout))
+    
+    # Generating WiFeS R7000 spectra. Grid has already been broadened.
+    elif grid == "R7000":
+        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
+                "grid=grid_r, wave=wave, vrad=%f%s)" 
+                % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout))
+    
+    else:
+        raise ValueError("Invalid grid")
+
     # Run
     idl(cmd)
     
@@ -648,6 +664,7 @@ def calc_synth_fit_resid_one_arm(
         band_settings["wl_min"], 
         band_settings["wl_max"], 
         ipres=band_settings["inst_res_pow"],
+        grid=band_settings["grid"],
         resolution=band_settings["wl_per_px"],
         norm="abs",
         do_resample=True, 
