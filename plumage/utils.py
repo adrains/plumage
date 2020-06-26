@@ -880,6 +880,8 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
 
     # Compute distance and absolute magnitudes
     info_cat["dist"] = 1000 / info_cat["plx"]
+    info_cat["e_dist"] = np.abs(info_cat["dist"] * info_cat["e_plx"] / info_cat["plx"])
+
     info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
     info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
 

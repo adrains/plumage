@@ -11,6 +11,7 @@ import plumage.spectra as spec
 import plumage.synthetic as synth
 import plumage.transits as transit
 from tqdm import tqdm
+import matplotlib.transforms as transforms
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Ensure the plotting folder exists to save to
@@ -1175,7 +1176,7 @@ def plot_tess_cmd(
     plt.savefig("paper/tess_cmd.pdf")
 
 
-def plot_tess_hr(observations, tess_info):
+def plot_tess_hr(observations, tess_info, plot_ids=False):
     """Function (currently pretty hacky) to plot TESS HR diagram for paper
     """
     teffs = observations["teff_synth"].values
@@ -1184,6 +1185,11 @@ def plot_tess_hr(observations, tess_info):
     ruwe = []
     b2m = []
     ids = []
+    rad = observations["radius"].values
+    e_rad = observations["e_radius"].values
+
+    rad_m19 = []
+
 
     for star_i, obs_info in observations.iterrows():
         source_id = obs_info["uid"]
@@ -1197,38 +1203,118 @@ def plot_tess_hr(observations, tess_info):
             ruwe.append(np.nan)
             b2m.append(True)
             ids.append("")
+            rad_m19.append(np.nan)
             continue
 
         loggs.append(tic_info["logg_m19"])
         ruwe.append(tic_info["ruwe"])
         b2m.append(tic_info["blended_2mass"])
         ids.append(tic_info["TOI"])
+        rad_m19.append(tic_info["radii_m19"])
 
-    #import pdb
-    #pdb.set_trace()
     ruwe = np.array(ruwe).astype(float)
     loggs = np.array(loggs).astype(float)
     b2m = np.array(b2m).astype(bool)
     ids = np.array(ids)
+    rad_m19 = np.array(rad_m19)
     mask = np.logical_and(np.logical_and(~np.isnan(loggs), ruwe < 1.5), ~b2m)
 
     plt.close("all")
-    scatter = plt.scatter(teffs[mask], loggs[mask], c=fehs[mask])
+    scatter = plt.scatter(rad_m19[mask], rad[mask], c=fehs[mask])
 
-    for teff, logg, sid in zip(teffs[mask], loggs[mask], ids[mask]):
-        plt.text(teff, logg, sid)
+    if plot_ids:
+        for teff, logg, sid in zip(rad_m19[mask], loggs[mask], ids[mask]):
+            plt.text(teff, logg, sid)
 
     # plot weird
-    plt.plot(teffs[~mask], loggs[~mask], "x")
+    plt.plot(rad_m19[~mask], rad[~mask], "x")
 
-    plt.xlim([4600,3000])
-    plt.ylim([5.1,4.4])
+    #plt.xlim([4600,3000])
+    #plt.ylim([5.1,4.4])
     cb = plt.colorbar(scatter)
     cb.set_label("[Fe/H]")
     plt.xlabel(r"$T_{\rm eff}$")
-    plt.ylabel(r"$\log g$")
+
+    plt.xlabel("Radius (m19)")
+    plt.ylabel("Radius (fit)")#(r"$\log g$")
 
     plt.savefig("paper/tess_hr.pdf")
+
+
+def plot_fbol_comp(observations, filters, fbols, ncols=10):
+    """Plot a comparison of the sampled values of fbol from each filter to 
+    check whether they are consistent or not.
+    """
+    nrows = int(np.ceil(len(observations)/ncols))
+    plt.close("all")
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols)
+    axes = axes.flatten()
+    fig.subplots_adjust(
+        hspace=0.5,
+        wspace=0.25, 
+        top=0.975, 
+        bottom=0.025,
+        left=0.075,
+        right=0.95,)
+    
+    # Sort dataframe by avg flux
+    #sorted_obs = observations.sort_values("f_bol_avg")
+    sorted_obs = observations.sort_values("teff_synth")
+
+    # Define bands to reference, construct new headers
+    filt_lbl = [r"${}$".format(filt) for filt in filters]
+    band_lbl = [r"$f_{{\rm bol, {}}}$".format(fbol) for fbol in fbols]
+    
+    f_bol_cols= ["f_bol_{}".format(fbol) for fbol in fbols]
+    e_f_bol_cols = ["e_f_bol_{}".format(fbol) for fbol in fbols]
+    
+    colours = ["green", "blue", "orange", "deepskyblue", "red", "black"]
+    
+    #mask = np.logical_and(tgt_info["Science"], tgt_info["in_paper"])
+    
+    ids = sorted_obs["id"].values
+    
+    fbols = sorted_obs[f_bol_cols].values
+    e_fbols = sorted_obs[e_f_bol_cols].values
+
+    # Only plot axes with data
+    n_unused_ax = len(fbols) - len(axes)
+
+    for ax_i in np.arange(-1, n_unused_ax-1, -1):
+        axes[ax_i].axis("off")
+
+    # Plot a subplot with the fluxes for each star
+    for ax_i, (ax, fbol, e_fbol) in enumerate(zip(axes, fbols, e_fbols)):
+
+        ax.errorbar(band_lbl, fbol, yerr=e_fbol, elinewidth=0.3,
+                    fmt=".", zorder=1, ecolor="black",capsize=1,
+                    capthick=0.3, 
+                    markersize=0.1)
+        ax.scatter(band_lbl, fbol, s=1**4, c=colours, zorder=2,) 
+        
+        #ax.yaxis.get_major_formatter().set_powerlimits((0,1))
+        ax.set_title(ids[ax_i], fontsize="xx-small")
+        ax.tick_params(axis='y', which='minor', labelsize="xx-small")
+        ax.tick_params(axis='y', which='major', labelsize="xx-small")
+        
+        plt.setp(ax.get_xticklabels(), fontsize="xx-small", rotation="vertical")
+        ax.yaxis.offsetText.set_fontsize("xx-small")
+        
+        # Only display x ticks if on bottom
+        if ax_i < (len(fbols) - ncols):
+            ax.get_xaxis().set_ticklabels([])
+    
+    #plt.tight_layout()
+    #fig.text(0.5, 0.025, r"BC Filter Band", ha='center')
+    fig.text(
+        0.025, 
+        0.5, 
+        r"$f_{\rm bol}$ (erg$\,$s$^{-1}\,$cm$^{-2}$)", 
+        va='center', 
+        rotation='vertical')
+
+    plt.gcf().set_size_inches(9, 12)
+    plt.savefig("paper/fbol_comp.pdf")
 
 
 def plot_label_comparison(

@@ -1,9 +1,11 @@
 """
 """
+import os
 import numpy as np
 import pandas as pd
 import astropy.constants as const
 import plumage.spectra as spec
+from collections import OrderedDict
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
 
@@ -391,7 +393,7 @@ def compute_logg(masses, e_masses, radii, e_radii,):
     return logg, e_logg
 
 # -----------------------------------------------------------------------------
-# Other params
+# Orbital parameters
 # -----------------------------------------------------------------------------
 def compute_semi_major_axis(mass, period):
     """
@@ -403,3 +405,256 @@ def compute_semi_major_axis(mass, period):
     sma = ((G*mass*period**2) / (4*np.pi**2))**(1/3)
 
     return sma, np.nan
+
+# -----------------------------------------------------------------------------
+# Fluxes
+# -----------------------------------------------------------------------------
+def sample_params(
+    teff, 
+    e_teff, 
+    logg, 
+    e_logg, 
+    feh,
+    e_feh,
+    mag_dict, 
+    n_samples=1000):
+    """
+    Parameters
+    ----------
+    mag_dict: dict
+        Dictionary of form {band:(mag, e_mag),}. e.g. {"Rp_mag":(9.5,0.1),}
+    """
+    #import pdb
+    #pdb.set_trace()
+
+    # First sample stellar params, as every star will have these
+    data = {
+        "teff":np.random.normal(teff, e_teff, n_samples),
+        "logg":np.random.normal(logg, e_logg, n_samples),
+        "feh":np.random.normal(feh, e_feh, n_samples)
+    }
+
+    # Initialise pandas dataframe
+    sampled_params = pd.DataFrame(data)
+
+    # Now go through and sample whatever magnitudes we have been given
+    for mag in mag_dict.keys():
+        sampled_params[mag] = np.random.normal(
+            mag_dict[mag][0], 
+            mag_dict[mag][1], 
+            n_samples)
+
+    return sampled_params
+
+
+def sample_all_params(
+    observations, 
+    info_cat, 
+    bc_path,
+    filters=["Bp", "Rp", "J", "H", "K"]):
+    """
+    """
+    all_sampled_params = OrderedDict()
+
+    for star_i, star_data in observations.iterrows():
+        # Do crossmatch
+        uid = star_data["uid"]
+
+        print("-"*40,"\n", star_i, "\n", "-"*40)
+
+        lit_info = info_cat[info_cat["source_id"]==uid]
+
+        if len(lit_info) == 0:
+            all_sampled_params[star_i] = None
+            continue
+        
+        lit_info = lit_info.iloc[0]
+        
+        # Construct mag dict
+        mag_dict = OrderedDict()
+
+        for filt in filters:
+            mag_dict[filt] = (
+                lit_info["{}_mag".format(filt)],
+                lit_info["e_{}_mag".format(filt)])
+
+        sampled_params = sample_params(
+            teff=star_data["teff_synth"], 
+            e_teff=50,#star_data["e_teff_synth"], 
+            logg=lit_info["logg_m19"], 
+            e_logg=lit_info["e_logg_m19"], 
+            feh=star_data["feh_synth"],
+            e_feh=0.1,#star_data["e_feh_synth"],
+            mag_dict=mag_dict)
+        
+        # Do Casagrande sampling
+        sample_casagrande_bc(
+            sampled_params=sampled_params, 
+            bc_path=bc_path, 
+            star_id=uid)
+
+        all_sampled_params[star_i] = sampled_params
+
+        # Compute instantaneous params
+        compute_instantaneous_params(sampled_params, filters)
+
+        #break
+
+    return all_sampled_params
+
+
+def sample_casagrande_bc(
+    sampled_params, 
+    bc_path, 
+    star_id,
+    filters=["Bp", "Rp", "J", "H", "K"]):
+    """Sample stellar parameters for use with the bolometric correction code
+    from Casagrande & VandenBerg (2014, 2018a, 2018b):
+    
+    https://github.com/casaluca/bolometric-corrections
+    
+    Check that selectbc.data looks like this to compute Bp, Rp, J, H, K:
+        1  = ialf (= [alpha/Fe] variation: select from choices listed below)
+        5  = nfil (= number of filter bandpasses to be considered; maximum = 5)
+        27 86  =  photometric system and filter (select from menu below)
+        27 88  =  photometric system and filter (select from menu below)
+        1 1  =  photometric system and filter (select from menu below)
+        1 2  =  photometric system and filter (select from menu below)
+        1 3  =  photometric system and filter (select from menu below)
+    """
+    # Get the star IDs and do this one star at a time
+    #star_ids = set(np.vstack(sampled_sci_params.index)[:,0])
+    
+    # Initialise the new columns
+    bc_labels = ["BC_{}".format(filt) for filt in filters]
+
+    for bc in bc_labels:
+        sampled_params[bc] = 0
+    
+    #print("Sampling Casagrande bolometric corrections for %i stars..." 
+    #      % len(star_ids))
+        
+    # Go through star by star and populate
+    #for star in star_ids:
+
+    #print("Getting BC for %s" % star)
+    n_bs = len(sampled_params)
+    id_fmt = star_id + "_%0" + str(int(np.log10(n_bs)) + 1) + "i"
+    ids = [id_fmt % s for s in np.arange(0, n_bs)]
+    #ids = np.arange(n_bs)
+    ebvs = np.zeros(n_bs)
+
+    cols = ["logg", "feh", "teff"]
+    
+    data = np.vstack((
+        ids, 
+        sampled_params["logg"].values, 
+        sampled_params["feh"].values,
+        sampled_params["teff"].values, 
+        ebvs,
+    )).T
+
+    np.savetxt("%s/input.sample.all" % bc_path, data, delimiter=" ", fmt="%s")#, 
+                #fmt=["%s", "%0.3f", "%0.3f", "%0.2f", "%0.2f"])
+
+    os.system("cd %s; ./bcall" % bc_path)
+
+    # Load in the result
+    results = pd.read_csv("%s/output.file.all" % bc_path, 
+                            delim_whitespace=True)
+                            
+    # Save the bolometric corrections
+    bc_num_cols = ["BC_1", "BC_2", "BC_3", "BC_4", "BC_5"]
+    sampled_params[bc_labels] = results[bc_num_cols].values
+
+
+def compute_instantaneous_params(sampled_params, filters):
+    """
+    """
+    
+    # Calculate
+    f_bol_bands = ["f_bol_{}".format(filt) for filt in filters]
+    #f_bol_bands += ["f_bol_avg"]
+
+    for filt in filters:
+        sampled_params["f_bol_{}".format(filt)] = calc_f_bol(
+            sampled_params["BC_{}".format(filt)],
+            sampled_params[filt])
+
+    # Now calculate average
+    sampled_params["f_bol_avg"] = np.mean(sampled_params[f_bol_bands], axis=1)
+
+    # Now do angular diameter from avg
+    fbol_avg = sampled_params["f_bol_avg"].values
+    sigma = const.sigma_sb.cgs.value
+    teff = sampled_params["teff"].values
+
+    sampled_params["theta"] = np.sqrt(4*fbol_avg / (sigma*teff**4))
+
+
+def calc_f_bol(bc, mag):
+    """Calculate the bolometric flux from a bolometric correction and mag.
+    """
+    L_sun = const.L_sun.cgs.value # erg s^-1
+    au = const.au.cgs.value       # cm
+    M_bol_sun = 4.75
+    
+    exp = -0.4 * (bc - M_bol_sun + mag - 10)
+    
+    f_bol = (np.pi * L_sun / (1.296 * 10**9 * au)**2) * 10**exp
+    
+    return f_bol
+
+
+def compute_final_params(observations, info_cat, all_sampled_params, filters):
+    """
+    """
+    f_bol_cols= ["f_bol_{}".format(filt) for filt in filters] + ["f_bol_avg"]
+    e_f_bol_cols = ["e_f_bol_{}".format(filt) for filt in filters] + ["e_f_bol_avg"]
+    f_bol_cols_interleaved = [val for pair in zip(f_bol_cols, e_f_bol_cols) for val in pair] 
+
+    result_cols = ["theta", "e_theta", "radius", "e_radius"]
+    result_cols = f_bol_cols_interleaved + result_cols
+
+    result_df = pd.DataFrame(
+        data=np.full((len(observations), len(result_cols)), np.nan), 
+        index=observations.index, 
+        columns=result_cols)
+
+    for star_i, star_data in observations.iterrows():
+        # Do crossmatch
+        uid = star_data["uid"]
+
+        #print("-"*40,"\n", star_i, "\n", "-"*40)
+
+        lit_info = info_cat[info_cat["source_id"]==uid]
+
+        if len(lit_info) == 0:
+            all_sampled_params[star_i] = None
+            continue
+        
+        lit_info = lit_info.iloc[0]
+
+        # Compute final fluxes and uncertainties
+        result_df.loc[star_i][f_bol_cols] = np.mean(all_sampled_params[star_i][f_bol_cols], axis=0)
+        result_df.loc[star_i][e_f_bol_cols] = np.std(all_sampled_params[star_i][f_bol_cols], axis=0)
+
+        # Compute final angular diameter and uncertainties
+        result_df.loc[star_i]["theta"] = np.mean(all_sampled_params[star_i]["theta"], axis=0)
+        result_df.loc[star_i]["e_theta"] = np.std(all_sampled_params[star_i]["theta"], axis=0)
+
+        # Compute final radii and uncertainties
+        result_df.loc[star_i]["radius"] = 0.5 * result_df.loc[star_i]["theta"] * lit_info["dist"]
+        result_df.loc[star_i]["e_radius"] = result_df.loc[star_i]["radius"] * np.sqrt(
+            (result_df.loc[star_i]["e_theta"]/result_df.loc[star_i]["theta"])**2
+            + (lit_info["e_dist"]/lit_info["dist"])**2)
+
+    
+    # Convert radii to solar units
+    result_df["radius"] *= const.pc.si.value / const.R_sun.si.value
+    result_df["e_radius"] *= const.pc.si.value / const.R_sun.si.value
+
+    # Now append and return
+    obs = pd.concat((observations, result_df), axis=1)
+
+    return obs

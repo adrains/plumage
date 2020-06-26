@@ -207,7 +207,7 @@ for ob_i in range(0, len(observations)):
 
     # Record results
     params_fit.append(opt_res["x"])
-    e_params_fit.append(opt_res["x"])
+    e_params_fit.append(opt_res["std"])
     fit_results.append(opt_res)
     synth_fits_r.append(opt_res["spec_synth_r"])
     rchi2.append(np.sum(opt_res["fun"]**2) / (len(opt_res["fun"])-len(params_init)))
