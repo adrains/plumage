@@ -178,13 +178,13 @@ def plot_teff_sorted_spectra(spectra, observations, arm="r",
         mask = np.ones(len(spectra)).astype(bool)
 
     plt.close("all")
-    teff_order = np.argsort(observations[mask]["teff_fit"].values)
+    teff_order = np.argsort(observations[mask]["teff_fit_rv"].values)
     sorted_spec = spectra[mask][teff_order]
     ids = observations[mask]["id"].values[teff_order]
     uids = observations[mask]["uid"].values[teff_order]
-    teffs = observations[mask]["teff_fit"].values[teff_order]
-    loggs = observations[mask]["logg_fit"].values[teff_order]
-    fehs = observations[mask]["feh_fit"].values[teff_order]
+    teffs = observations[mask]["teff_fit_rv"].values[teff_order]
+    loggs = observations[mask]["logg_fit_rv"].values[teff_order]
+    fehs = observations[mask]["feh_fit_rv"].values[teff_order]
     rvs = observations[mask]["rv"].values[teff_order]
     e_rvs = observations[mask]["e_rv"].values[teff_order]
     programs = observations[mask]["program"].values[teff_order]
@@ -431,7 +431,7 @@ def plot_synthetic_fit(
     axis.plot(wave, spec_synth, "--", label="synth", linewidth=0.2)
 
     # Plot the literature synthetic spectrum if it has been provided
-    if not spec_synth_lit is None:
+    if spec_synth_lit is not None:
         axis.plot(wave, spec_synth_lit, "-.", label="synth (lit)", 
                   linewidth=0.2)
 
@@ -666,18 +666,20 @@ def plot_synth_fit_diagnostic(
     else:
         mask = info_cat["observed"]
 
+    # Get target info
+    sid = obs_info["uid"]
+    is_obs = info_cat["observed"].values
+    star_info = info_cat[is_obs][info_cat[is_obs]["source_id"]==sid].iloc[0]
+
     # Get the ID and info about the target
     if is_tess:
-        sid = float(obs_info["id"].replace("TOI",""))
-        star_info = info_cat[info_cat["TOI"]==sid].iloc[0]
+        toi = star_info["TOI"]
+        tic = star_info.name
 
-        plt.suptitle("TOI {}, Gaia DR2 {}".format(sid, obs_info["uid"]))
+        plt.suptitle("TOI {}, TIC {}, Gaia DR2 {}".format(
+            toi, tic, sid))
     
     else:
-        sid = obs_info["uid"]
-        is_obs = info_cat["observed"].values
-        star_info = info_cat[is_obs][info_cat[is_obs]["source_id"]==sid]
-
         if not use_2mass_id:
             
             id_prefix = "Gaia DR2 "
@@ -687,7 +689,6 @@ def plot_synth_fit_diagnostic(
             id_prefix = "2MASS J"
             id_col = "2mass"
             
-
         if len(star_info) < 1:
             return
         elif len(star_info) > 1:
@@ -779,7 +780,7 @@ def plot_synth_fit_diagnostic(
         wave_b, 
         obs_info["rv"], 
         obs_info["bcor"], 
-        obs_info["teff_fit"])
+        obs_info["teff_fit_rv"])
 
     plot_synthetic_fit(
         wave_b, 
@@ -838,7 +839,7 @@ def plot_synth_fit_diagnostic(
         wave_r, 
         obs_info["rv"], 
         obs_info["bcor"], 
-        obs_info["teff_fit"])
+        obs_info["teff_fit_rv"])
 
     plot_synthetic_fit(
         wave_r, 
@@ -1095,7 +1096,7 @@ def plot_std_rv_comparison(observations, std_params):
     axis.errorbar(rvs_gaia, observations["rv"].values, yerr=e_rvs, 
                  xerr=e_rvs_gaia, fmt=".", zorder=0)
     scatter = axis.scatter(rvs_gaia, observations["rv"].values, 
-                           c=observations["teff_fit"], marker="o", 
+                           c=observations["teff_fit_rv"], marker="o", 
                            cmap="magma", zorder=1)
 
     cb = fig.colorbar(scatter, ax=axis)
@@ -1108,7 +1109,7 @@ def plot_std_rv_comparison(observations, std_params):
                     xerr=e_rvs_gaia, fmt=".", zorder=0) 
     res_ax.scatter(rvs_gaia, 
                    observations["rv"].values - rvs_gaia, 
-                    c=observations["teff_fit"], marker="o", 
+                    c=observations["teff_fit_rv"], marker="o", 
                     cmap="magma", zorder=1)
     res_ax.hlines(0, -200, 100, color="black") 
 
@@ -1180,6 +1181,7 @@ def plot_tess_hr(observations, tess_info, plot_ids=False):
     """Function (currently pretty hacky) to plot TESS HR diagram for paper
     """
     teffs = observations["teff_synth"].values
+    e_teffs = observations["e_teff_synth"].values
     loggs = []
     fehs = observations["feh_synth"].values
     ruwe = []
@@ -1189,7 +1191,7 @@ def plot_tess_hr(observations, tess_info, plot_ids=False):
     e_rad = observations["e_radius"].values
 
     rad_m19 = []
-
+    e_rad_m19 = []
 
     for star_i, obs_info in observations.iterrows():
         source_id = obs_info["uid"]
@@ -1204,6 +1206,7 @@ def plot_tess_hr(observations, tess_info, plot_ids=False):
             b2m.append(True)
             ids.append("")
             rad_m19.append(np.nan)
+            e_rad_m19.append(np.nan)
             continue
 
         loggs.append(tic_info["logg_m19"])
@@ -1211,28 +1214,40 @@ def plot_tess_hr(observations, tess_info, plot_ids=False):
         b2m.append(tic_info["blended_2mass"])
         ids.append(tic_info["TOI"])
         rad_m19.append(tic_info["radii_m19"])
+        e_rad_m19.append(tic_info["e_radii_m19"])
 
     ruwe = np.array(ruwe).astype(float)
     loggs = np.array(loggs).astype(float)
     b2m = np.array(b2m).astype(bool)
     ids = np.array(ids)
     rad_m19 = np.array(rad_m19)
+    e_rad_m19 = np.array(e_rad_m19)
     mask = np.logical_and(np.logical_and(~np.isnan(loggs), ruwe < 1.5), ~b2m)
 
     plt.close("all")
-    scatter = plt.scatter(rad_m19[mask], rad[mask], c=fehs[mask])
+    #scatter = plt.scatter(rad_m19[mask], rad[mask], c=fehs[mask])
+    plt.errorbar(teffs[mask], rad[mask], xerr=e_teffs[mask], yerr=e_rad[mask], fmt=".")
+    #xx = np.arange(3000,5000,100)
+    #yy = np.arange(0,1,0.05)
+    #plt.plot(xx,yy)
+    #plt.xlim([0,1])
+    #plt.ylim([0,1])
 
     if plot_ids:
-        for teff, logg, sid in zip(rad_m19[mask], loggs[mask], ids[mask]):
+        for radm19, rr, sid in zip(rad_m19, rad, ids):
+            plt.text(radm19, rr, sid)
+
+    if plot_ids:
+        for teff, logg, sid in zip(teffs, rad, ids):
             plt.text(teff, logg, sid)
 
     # plot weird
-    plt.plot(rad_m19[~mask], rad[~mask], "x")
+    plt.plot(teffs[~mask], rad[~mask], "o")
 
-    #plt.xlim([4600,3000])
+    plt.xlim([4600,3000])
     #plt.ylim([5.1,4.4])
-    cb = plt.colorbar(scatter)
-    cb.set_label("[Fe/H]")
+    #cb = plt.colorbar(scatter)
+    #cb.set_label("[Fe/H]")
     plt.xlabel(r"$T_{\rm eff}$")
 
     plt.xlabel("Radius (m19)")

@@ -1130,13 +1130,13 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     if save_column_ext != "":
         save_column_ext = "_{}".format(save_column_ext)
 
-    observations["teff_fit{}".format(save_column_ext)] = all_params[:,0]
-    observations["logg_fit{}".format(save_column_ext)] = all_params[:,1]
-    observations["feh_fit{}".format(save_column_ext)] = all_params[:,2]
-    observations["vsini_fit{}".format(save_column_ext)] = all_params[:,3]
+    observations["teff_fit_rv{}".format(save_column_ext)] = all_params[:,0]
+    observations["logg_fit_rv{}".format(save_column_ext)] = all_params[:,1]
+    observations["feh_fit_rv{}".format(save_column_ext)] = all_params[:,2]
+    observations["vsini_fit_rv{}".format(save_column_ext)] = all_params[:,3]
     observations["rv{}".format(save_column_ext)] = np.array(all_rvs)
     observations["e_rv{}".format(save_column_ext)] = np.array(all_e_rvs)
-    observations["rchi2{}".format(save_column_ext)] = np.array(all_rchi2)
+    observations["rchi2_rv{}".format(save_column_ext)] = np.array(all_rchi2)
 
     return all_nres, all_rchi2_grid, bad_px_masks, info_dicts
 

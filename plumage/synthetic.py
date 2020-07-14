@@ -891,8 +891,8 @@ def calc_synth_fit_resid_both_arms(
         band_settings_r,)
     
     # Do blue if we've been given it
-    if ((wave_b is not None) or (spec_b is not None) or (e_spec_b is not None) 
-        or (bad_px_mask_b is not None)):
+    if ((wave_b is not None) and (spec_b is not None) 
+        and (e_spec_b is not None) and (bad_px_mask_b is not None)):
         # Determine blue residuals
         resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
             teff,
@@ -1111,6 +1111,7 @@ def do_synthetic_fit(
             wl_min=band_settings_b["wl_min"], 
             wl_max=band_settings_b["wl_max"], 
             ipres=band_settings_b["inst_res_pow"],
+            grid=band_settings_b["grid"],
             resolution=band_settings_b["wl_broadening"],
             norm="abs",
             do_resample=True, 
@@ -1118,12 +1119,12 @@ def do_synthetic_fit(
             rv_bcor=(rv-bcor),
             )
 
-        spec_synth_b = spec.norm_spec_by_wl_region(
+        spec_synth_b_norm = spec.norm_spec_by_wl_region(
             wave_b, 
             spec_synth_b, 
             band_settings_b["arm"])
     else:
-        spec_synth_b = None
+        spec_synth_b_norm = None
 
     _, spec_synth_r = get_idl_spectrum(
         idl, 
@@ -1133,6 +1134,7 @@ def do_synthetic_fit(
         wl_min=band_settings_r["wl_min"], 
         wl_max=band_settings_r["wl_max"], 
         ipres=band_settings_r["inst_res_pow"],
+        grid=band_settings_r["grid"],
         resolution=band_settings_r["wl_broadening"],
         norm="abs",
         do_resample=True, 
@@ -1140,7 +1142,7 @@ def do_synthetic_fit(
         rv_bcor=(rv-bcor),
         )
 
-    spec_synth_r = spec.norm_spec_by_wl_region(
+    spec_synth_r_norm = spec.norm_spec_by_wl_region(
         wave_r, 
         spec_synth_r, 
         band_settings_r["arm"])
@@ -1153,8 +1155,8 @@ def do_synthetic_fit(
 
     # Add uncertainties and synthtic spectra to return dict
     opt_res["std"] = std
-    opt_res["spec_synth_b"] = spec_synth_b
-    opt_res["spec_synth_r"] = spec_synth_r
+    opt_res["spec_synth_b"] = spec_synth_b_norm
+    opt_res["spec_synth_r"] = spec_synth_r_norm
 
     return opt_res
 

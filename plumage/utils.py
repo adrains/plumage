@@ -830,8 +830,14 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
 # Loading in literature info (e.g. photometry)
 # ----------------------------------------------------------------------------- 
 def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False, 
-                  only_observed=False):
+                  only_observed=False, use_plx_systematic=True, in_paper=True):
     """
+
+    Incorporates the systematic offset in Gaia DR2 by subtracting the offset
+    from the parallax, then adding its uncertainty in quadrature. This makes 
+    the parallax *bigger*.
+
+    https://ui.adsabs.harvard.edu/abs/2018ApJ...862...61S/abstract
     """
     # If loading a fits file, can't start with pandas
     if ".fits" in path:
@@ -867,6 +873,9 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
 
     if only_observed:
         info_cat = info_cat[info_cat["observed"]]
+    
+    if in_paper and "in_paper" in info_cat.columns:
+        info_cat = info_cat[info_cat["in_paper"]]
 
     # Make boolean for blended 2MASS photometry
     if "blended_2mass" in info_cat:
@@ -878,9 +887,26 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     if "wife_obs" not in info_cat:
         info_cat["wife_obs"] = 1
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Distance, absolute magnitudes, and colours
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Stassun & Torres systematic offsets
+    if use_plx_systematic:
+        plx_off = -0.082    # mas
+        e_plx_off = 0.033   # mas
+
+        # Incorporate the systematic
+        plx = info_cat["plx"] - plx_off
+        e_plx = np.sqrt(info_cat["e_plx"]**2 + e_plx_off**2)
+    
+    # Not using offsets
+    else:
+        plx = info_cat["plx"]
+        e_plx = info_cat["e_plx"]
+    
     # Compute distance and absolute magnitudes
-    info_cat["dist"] = 1000 / info_cat["plx"]
-    info_cat["e_dist"] = np.abs(info_cat["dist"] * info_cat["e_plx"] / info_cat["plx"])
+    info_cat["dist"] = 1000 / plx
+    info_cat["e_dist"] = np.abs(info_cat["dist"] * e_plx / plx)
 
     info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
     info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
@@ -902,9 +928,11 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
                                  + info_cat["e_H_mag"]**2)
     info_cat["e_H-K"] = np.sqrt(info_cat["e_H_mag"]**2
                                  + info_cat["e_K_mag"]**2)
-                                 
-    # Compute Mann 2015 temperatures
-    # Bp-Rp
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Empirical relations
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Mann+15 teff (Bp-Rp)
     teffs, e_teffs = params.compute_mann_2015_teff(
         info_cat["Bp-Rp"],
         relation="BP - RP")
@@ -912,7 +940,7 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["teff_m15_bprp"] = teffs
     info_cat["e_teff_m15_bprp"] = e_teffs
 
-    # Bp-Rp, J-H
+    # Mann+15 teff (Bp-Rp, J-H)
     teffs, e_teffs = params.compute_mann_2015_teff(
         info_cat["Bp-Rp"], 
         j_h=info_cat["J-H"],
@@ -921,12 +949,12 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["teff_m15_bprp_jh"] = teffs
     info_cat["e_teff_m15_bprp_jh"] = e_teffs
 
-    # Mann radii
+    # Mann+19 radii
     radii, e_radii = params.compute_mann_2015_radii(info_cat["K_mag_abs"])
     info_cat["radii_m19"] = radii
     info_cat["e_radii_m19"] = e_radii
 
-    # And Mann 2015 masses
+    # Mann+19 masses
     masses, e_masses = params.compute_mann_2019_masses(info_cat["K_mag_abs"]) 
     info_cat["mass_m19"] = masses
     info_cat["e_mass_m19"] = e_masses

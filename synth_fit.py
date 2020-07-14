@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "tess"
+label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -34,8 +34,11 @@ bad_px_masks_r = utils.load_fits_image_hdu("bad_px", label, arm="r")
 snr_ratio = 3
 snr_b_cutoff = 10
 
+# Whether to use blue spectra in fit
+use_blue_spectra = False
+
 # Whether to include photometry in fit
-include_photometry = True
+include_photometry = False
 colour_bands = ['Rp-J', 'J-H', 'H-K']
 e_colour_bands = ['e_Rp-J', 'e_J-H', 'e_H-K']
 
@@ -129,8 +132,8 @@ for ob_i in range(0, len(observations)):
     # Initialise Teff and [Fe/H] and fix logg
     if fix_logg:
         params_init = (
-            observations.iloc[ob_i]["teff_fit"],
-            observations.iloc[ob_i]["feh_fit"],
+            observations.iloc[ob_i]["teff_fit_rv"],
+            observations.iloc[ob_i]["feh_fit_rv"],
             )
         logg = star_info["logg_m19"]
         e_logg = star_info["e_logg_m19"]
@@ -138,9 +141,9 @@ for ob_i in range(0, len(observations)):
     # Intialise Teff, logg, and [Fe/H], and fit for logg
     else:
         params_init = (
-            observations.iloc[ob_i]["teff_fit"],
-            observations.iloc[ob_i]["logg_fit"],
-            observations.iloc[ob_i]["feh_fit"],
+            observations.iloc[ob_i]["teff_fit_rv"],
+            observations.iloc[ob_i]["logg_fit_rv"],
+            observations.iloc[ob_i]["feh_fit_rv"],
             )
         logg = None
 
@@ -150,7 +153,7 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 0], 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"], 
-        observations.iloc[ob_i]["teff_fit"])
+        observations.iloc[ob_i]["teff_fit_rv"])
 
     bad_px_mask_r = np.logical_or(bad_px_masks_r[ob_i], bad_synth_px_mask_r)
 
@@ -159,7 +162,8 @@ for ob_i in range(0, len(observations)):
     # (based on comparison to the standard star set cooler than 4500 K) is that
     # blue SNR is ~3x less than red. We'll use this as an estimate of blue, and
     # consider SNR~25 a cut off for the blue spectra being included
-    if observations.iloc[ob_i]["snr_r"]/snr_ratio > snr_b_cutoff:
+    if (use_blue_spectra 
+        and observations.iloc[ob_i]["snr_r"]/snr_ratio > snr_b_cutoff):
         wave_b = spectra_b[ob_i, 0]
         spec_b = spectra_b[ob_i, 1]
         e_spec_b = spectra_b[ob_i, 2]
@@ -168,15 +172,16 @@ for ob_i in range(0, len(observations)):
             spectra_b[ob_i, 0], 
             observations.iloc[ob_i]["rv"], 
             observations.iloc[ob_i]["bcor"], 
-            observations.iloc[ob_i]["teff_fit"])
+            observations.iloc[ob_i]["teff_fit_rv"])
 
         bad_px_mask_b = np.logical_or(bad_px_masks_b[ob_i], bad_synth_px_mask_b)
 
         both_arm_synth_fit.append(True)
 
-    # Not fitting to blue, pass in Nones
+    # Not fitting to blue, pass in Nones for everything except the wavelength
+    # scale. This is so we can generate a synthetic spectrum for the blue still
     else:
-        wave_b = None
+        wave_b = spectra_b[ob_i, 0]
         spec_b = None
         e_spec_b = None
         bad_px_mask_b = None
@@ -260,22 +265,3 @@ synth_fits_b = np.array(synth_fits_b)
 synth_fits_r = np.array(synth_fits_r)
 utils.save_fits_image_hdu(synth_fits_b, "synth", label, path=spec_path, arm="b")
 utils.save_fits_image_hdu(synth_fits_r, "synth", label, path=spec_path, arm="r")
-
-# -----------------------------------------------------------------------------
-# Diagnostic plotting
-# -----------------------------------------------------------------------------
-# Import reference catalogue
-"""
-info_cat = utils.load_info_cat(
-    os.path.join("data", "{}_info.tsv".format(label)))
-
-# Now do final plotting
-pplt.plot_all_synthetic_fits(
-    spectra_r, 
-    synth_fits_r, 
-    observations, 
-    bad_px_masks, 
-    label, 
-    info_cat)
-"""
-pass
