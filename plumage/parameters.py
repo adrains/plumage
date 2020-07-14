@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import astropy.constants as const
 import plumage.spectra as spec
+from astropy.io import fits
+from astropy.table import Table
 from collections import OrderedDict
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
@@ -658,3 +660,72 @@ def compute_final_params(observations, info_cat, all_sampled_params, filters):
     obs = pd.concat((observations, result_df), axis=1)
 
     return obs
+
+# -----------------------------------------------------------------------------
+# Saving and loading sampled params
+# -----------------------------------------------------------------------------
+def save_sampled_params(all_sampled_params, label, path):
+    """Save the sampled params to a multi-HDU fits file, which has N equals
+    the number of stars sampled, plus the empty primary HDU. The saved file
+    will have the name format 'sampled_params_<label>.fits'.
+
+    Parameters
+    ----------
+    all_sampled_params: OrderedDict
+        An OrderedDict with keys of stellar ID mapping to the table of sampled
+        parameters
+
+    label: string
+        Unique identifier for the file.
+    
+    path: string
+        The path to where the fits file is stored, either relative or absolute.
+    """
+    # Intialise HDU List
+    hdu = fits.HDUList()
+    
+    # Make a fits table HDU for every star
+    for star in all_sampled_params.keys():
+        
+        sampled_params = fits.BinTableHDU(
+            Table.from_pandas(all_sampled_params[star]))
+        sampled_params.header["EXTNAME"] = (str(star), "sampled params")
+        hdu.append(sampled_params)
+
+    # Done, save
+    save_path = os.path.join(path,  "sampled_params_{}.fits".format(label))
+    hdu.writeto(save_path, overwrite=True)
+
+
+def load_sampled_params(label, path):
+    """Load in the sampled params from the saved fits file, which has N equals
+    the number of stars sampled, plus the empty primary HDU. The saved file
+    should have the name format 'sampled_params_<label>.fits'.
+
+    Parameters
+    ----------
+    label: string
+        Unique identifier for the file.
+    
+    path: string
+        The path to where the fits file is stored, either relative or absolute.
+
+    Returns
+    -------
+    all_sampled_params: OrderedDict
+        An OrderedDict with keys of stellar ID mapping to the table of sampled
+        parameters
+    """
+    # Load in the fits file
+    fits_path = os.path.join(path, "sampled_params_{}.fits".format(label))
+
+    all_sampled_params = OrderedDict()
+
+    # For every fits extension load the table in as a pandas dataframe
+    with fits.open(fits_path) as fits_file: 
+        for star_i in range(1,len(fits_file)):
+            name = fits_file[star_i].name
+            sampled_params = Table(fits_file[star_i].data).to_pandas()
+            all_sampled_params[name] = sampled_params
+        
+    return all_sampled_params
