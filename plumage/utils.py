@@ -855,11 +855,11 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     if clean:
         info_cat["observed"] = info_cat["observed"] == "yes"
 
+    # Set the index to be source_id
+    info_cat.set_index("source_id", inplace=True)
+
     # Make new boolean column for planet candidates or known planets
     if "TOI" in info_cat:
-        # Set the index to be TIC ID
-        info_cat.set_index("TIC", inplace=True)
-
         pc_mask = np.logical_and(
             info_cat["TFOPWG Disposition"] != "FP",
             np.logical_or(

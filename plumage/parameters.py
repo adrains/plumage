@@ -409,7 +409,7 @@ def compute_semi_major_axis(mass, period):
     return sma, np.nan
 
 # -----------------------------------------------------------------------------
-# Fluxes
+# Fluxes, sampling parameters, and final parameters
 # -----------------------------------------------------------------------------
 def sample_params(
     teff, 
@@ -418,22 +418,56 @@ def sample_params(
     e_logg, 
     feh,
     e_feh,
+    dist,
+    e_dist,
     mag_dict, 
     n_samples=1000):
-    """
+    """Function to sample stellar parameters N times to enable Monte Carlo 
+    uncertainties on final values of flux, luminosity, and stellar radius.
+
     Parameters
     ----------
+    teff: float
+        Stellar effective temperature in K.
+    
+    e_teff: float
+        Uncertainty on stellar effective temperature in K.
+
+    logg: float
+        log of stellar surface gravity in cgs units.
+
+    e_logg: float
+        Uncertainty of log of stellar surface gravity in cgs units.
+
+    feh: float
+        Stellar metallicity relative to solar.
+
+    e_feh: float
+        Uncertainty on stellar metallicity relative to solar.
+    
+    dist: float
+        Stellar distance in pc.
+
+    e_dist: float
+        Uncertainty on stellar distance in pc.
+
     mag_dict: dict
         Dictionary of form {band:(mag, e_mag),}. e.g. {"Rp_mag":(9.5,0.1),}
-    """
-    #import pdb
-    #pdb.set_trace()
 
+    n_samples: int, default: 1000
+        Number of times to sample the parameters.
+
+    Returns
+    -------
+    sampled_params: pandas.DataFrame
+        Pandas dataframe with a row for every sampling iteration.
+    """
     # First sample stellar params, as every star will have these
     data = {
         "teff":np.random.normal(teff, e_teff, n_samples),
         "logg":np.random.normal(logg, e_logg, n_samples),
-        "feh":np.random.normal(feh, e_feh, n_samples)
+        "feh":np.random.normal(feh, e_feh, n_samples),
+        "dist":np.random.normal(dist, e_dist, n_samples)
     }
 
     # Initialise pandas dataframe
@@ -453,54 +487,85 @@ def sample_all_params(
     observations, 
     info_cat, 
     bc_path,
-    filters=["Bp", "Rp", "J", "H", "K"]):
+    filters=["Bp", "Rp", "J", "H", "K"],
+    logg_col="logg_synth",):
+    """Sample parameters for all stars in observations that have a match in
+    info_cat.
+
+    Parameters
+    ----------
+    observations: pandas.DataFrame
+        Pandas dataframe containing observational info and results of synthetic
+        fitting for each star.
+    
+    info_cat: pandas.DataFrame
+        Pandas dataframe containing literature photometry for targets in
+        observations.
+
+    bc_path: str
+        Path to Luca Casagrande's bolometric-corrections software
+    
+    filters: list of str, default: ["Bp", "Rp", "J", "H", "K"]
+        List of filter bands to sample photometry for. Note that this should
+        correspond to the settings in bolometric-corrections.
+    
+    logg_col: str, default: 'logg_synth'
+        Logg column to use, used to select between logg from empirical 
+        relations or iterated logg.
+
+    Returns
+    -------
+    all_sampled_params: collections.OrderedDict
+        Ordered dictionary of pairing key of stellar ID to pandas dataframe of
+        sampled parameters from sample_params.
     """
-    """
+    # Initialise ordered dict to hold results
     all_sampled_params = OrderedDict()
 
-    for star_i, star_data in observations.iterrows():
-        # Do crossmatch
-        uid = star_data["uid"]
+    # Temporary join
+    obs = observations.join(info_cat, "uid", rsuffix="_info")  
+
+    # Sample parameters for every star in observations
+    for star_i, star_data in obs.iterrows():
+        # Get source id
+        source_id = star_data["uid"]
 
         print("-"*40,"\n", star_i, "\n", "-"*40)
-
-        lit_info = info_cat[info_cat["source_id"]==uid]
-
-        if len(lit_info) == 0:
-            all_sampled_params[star_i] = None
-            continue
-        
-        lit_info = lit_info.iloc[0]
         
         # Construct mag dict
         mag_dict = OrderedDict()
 
         for filt in filters:
             mag_dict[filt] = (
-                lit_info["{}_mag".format(filt)],
-                lit_info["e_{}_mag".format(filt)])
+                star_data["{}_mag".format(filt)],
+                star_data["e_{}_mag".format(filt)])
 
         sampled_params = sample_params(
             teff=star_data["teff_synth"], 
-            e_teff=50,#star_data["e_teff_synth"], 
-            logg=lit_info["logg_m19"], 
-            e_logg=lit_info["e_logg_m19"], 
+            e_teff=star_data["e_teff_synth"], 
+            logg=star_data[logg_col], 
+            e_logg=star_data["e_{}".format(logg_col)], 
             feh=star_data["feh_synth"],
-            e_feh=0.1,#star_data["e_feh_synth"],
+            e_feh=star_data["e_feh_synth"],
+            dist=star_data["dist"],
+            e_dist=star_data["e_dist"],
             mag_dict=mag_dict)
         
         # Do Casagrande sampling
         sample_casagrande_bc(
             sampled_params=sampled_params, 
             bc_path=bc_path, 
-            star_id=uid)
+            star_id=source_id)
 
-        all_sampled_params[star_i] = sampled_params
+        # Force exception if we have duplicate targets, otherwise save
+        if source_id in all_sampled_params.keys():
+            raise Exception("Duplicate stars in observations ({}) - remove or"
+                            "make code more generic.".format(source_id))
+        else:
+            all_sampled_params[source_id] = sampled_params
 
         # Compute instantaneous params
         compute_instantaneous_params(sampled_params, filters)
-
-        #break
 
     return all_sampled_params
 
@@ -509,9 +574,17 @@ def sample_casagrande_bc(
     sampled_params, 
     bc_path, 
     star_id,
-    filters=["Bp", "Rp", "J", "H", "K"]):
+    filters=["Bp", "Rp", "J", "H", "K"],
+    teff_lims=[2600, 8000],
+    logg_lims=[-0.5, 5.5],
+    feh_lims=[-4.0, +1.0],
+    ):
     """Sample stellar parameters for use with the bolometric correction code
-    from Casagrande & VandenBerg (2014, 2018a, 2018b):
+    from Casagrande & VandenBerg (2014, 2018a, 2018b). Resulting bolometric
+    corrections are saved to sampled_params.
+
+    Note that any samples falling outside of the provided limits will be 
+    dropped from the dataframe (to avoid crashing the BC code).
     
     https://github.com/casaluca/bolometric-corrections
     
@@ -523,31 +596,62 @@ def sample_casagrande_bc(
         1 1  =  photometric system and filter (select from menu below)
         1 2  =  photometric system and filter (select from menu below)
         1 3  =  photometric system and filter (select from menu below)
-    """
-    # Get the star IDs and do this one star at a time
-    #star_ids = set(np.vstack(sampled_sci_params.index)[:,0])
+
+    Parameters
+    ----------
+    sampled_params: pandas.DataFrame
+        Pandas dataframe with a row for every sampling iteration.
+
+    bc_path: str
+        Path to Luca Casagrande's bolometric-corrections software
     
+    star_id: str
+        ID of the star.
+
+    filters: list of str, default: ["Bp", "Rp", "J", "H", "K"]
+        List of filter bands to sample photometry for. Note that this should
+        correspond to the settings in bolometric-corrections.
+
+    teff_lims: 2 element float array, default: [2600, 8000]
+        Lower and upper Teff limits on the MARCS grid used for computing BCs
+    
+    logg_lims: 2 element float array, default: [-0.5, 5.5]
+        Lower and upper logg limits on the MARCS grid used for computing BCs
+    
+    feh_lims: 2 element float array, default: [-4.0, +1.0]
+        Lower and upper [Fe/H] limits on the MARCS grid used for computing BCs
+    """
+    # MARCS models and thus Casagrande BC grid have limits on params. Enforce
+    # these by removing any sampled params that are beyond these
+    rows_to_drop = []
+
+    for sample_i, sample in sampled_params.iterrows():
+        if sample["teff"] < teff_lims[0] or sample["teff"] > teff_lims[1]:
+            rows_to_drop.append(sample_i)
+
+        elif sample["logg"] < logg_lims[0] or sample["logg"] > logg_lims[1]:
+            rows_to_drop.append(sample_i)
+
+        elif sample["feh"] < feh_lims[0] or sample["feh"] > feh_lims[1]:
+            rows_to_drop.append(sample_i)
+
+    sampled_params.drop(rows_to_drop, axis=0, inplace=True)
+
     # Initialise the new columns
     bc_labels = ["BC_{}".format(filt) for filt in filters]
 
     for bc in bc_labels:
         sampled_params[bc] = 0
-    
-    #print("Sampling Casagrande bolometric corrections for %i stars..." 
-    #      % len(star_ids))
-        
-    # Go through star by star and populate
-    #for star in star_ids:
 
-    #print("Getting BC for %s" % star)
+    # Generate a unique 'id' for every iteration
     n_bs = len(sampled_params)
     id_fmt = star_id + "_%0" + str(int(np.log10(n_bs)) + 1) + "i"
     ids = [id_fmt % s for s in np.arange(0, n_bs)]
-    #ids = np.arange(n_bs)
+
+    # Initialise the desired E(B-V) - TODO: actually account for reddening
     ebvs = np.zeros(n_bs)
 
-    cols = ["logg", "feh", "teff"]
-    
+    # Arrange data in format required of bc code
     data = np.vstack((
         ids, 
         sampled_params["logg"].values, 
@@ -556,46 +660,85 @@ def sample_casagrande_bc(
         ebvs,
     )).T
 
-    np.savetxt("%s/input.sample.all" % bc_path, data, delimiter=" ", fmt="%s")#, 
-                #fmt=["%s", "%0.3f", "%0.3f", "%0.2f", "%0.2f"])
+    # Save to BC folder
+    np.savetxt("%s/input.sample.all" % bc_path, data, delimiter=" ", fmt="%s")
 
+    # Run
     os.system("cd %s; ./bcall" % bc_path)
 
     # Load in the result
     results = pd.read_csv("%s/output.file.all" % bc_path, 
                             delim_whitespace=True)
-                            
+
     # Save the bolometric corrections
     bc_num_cols = ["BC_1", "BC_2", "BC_3", "BC_4", "BC_5"]
     sampled_params[bc_labels] = results[bc_num_cols].values
 
 
-def compute_instantaneous_params(sampled_params, filters):
-    """
+def compute_instantaneous_params(
+    sampled_params, 
+    filters=["Bp", "Rp", "J", "H", "K"], 
+    filter_mask=[1,1,1,1,1]):
+    """Compute instantaneous stellar parameters (fbol in various filters, plus
+    stellar radius and luminosity). Instantaneous parameters are saved to
+    sampled_params.
+
+    Parameters
+    ----------
+    sampled_params: pandas.DataFrame
+        Pandas dataframe with a row for every sampling iteration.
+    
+    filters: list of str, default: ["Bp", "Rp", "J", "H", "K"]
+        List of filter bands to sample photometry for. Note that this should
+        correspond to the settings in bolometric-corrections.
+    
+    filter_mask: list of str, default: [1,1,1,1,1]
+        Mask corresponding to filters, any filter set to 0 will not be 
+        included in the instantaneous average for fbol.
     """
     
     # Calculate
     f_bol_bands = ["f_bol_{}".format(filt) for filt in filters]
-    #f_bol_bands += ["f_bol_avg"]
 
+    # Calculate bolometric flux for each filter band
     for filt in filters:
         sampled_params["f_bol_{}".format(filt)] = calc_f_bol(
             sampled_params["BC_{}".format(filt)],
             sampled_params[filt])
 
-    # Now calculate average
-    sampled_params["f_bol_avg"] = np.mean(sampled_params[f_bol_bands], axis=1)
+    # Now calculate average, using mask to determine which filters are used
+    fbol_bands_in_avg = np.array(f_bol_bands)[filter_mask]
+    sampled_params["f_bol_avg"] = np.mean(
+        sampled_params[fbol_bands_in_avg], axis=1)
 
-    # Now do angular diameter from avg
+    # Define params as variables to make maths more readable
     fbol_avg = sampled_params["f_bol_avg"].values
     sigma = const.sigma_sb.cgs.value
     teff = sampled_params["teff"].values
+    dist = sampled_params["dist"].values * const.pc.cgs
 
-    sampled_params["theta"] = np.sqrt(4*fbol_avg / (sigma*teff**4))
+    # Calculate stellar radius (in cgs units)
+    sampled_params["radius"] = dist * np.sqrt(fbol_avg / (sigma*teff**4))
+
+    # Calculate luminosity (in cgs units)
+    sampled_params["lum"] = 4 * np.pi * fbol_avg * dist**2
 
 
 def calc_f_bol(bc, mag):
     """Calculate the bolometric flux from a bolometric correction and mag.
+
+    Parameters
+    ----------
+    bc: float or float array
+        Bolometric correction corresponding to mag.
+
+    mag: float or float array
+        Magnitude in given filter band to compute fbol from.
+
+    Returns
+    -------
+    f_bol: float or float array
+        Resulting bolometric flux.
     """
     L_sun = const.L_sun.cgs.value # erg s^-1
     au = const.au.cgs.value       # cm
@@ -608,58 +751,82 @@ def calc_f_bol(bc, mag):
     return f_bol
 
 
-def compute_final_params(observations, info_cat, all_sampled_params, filters):
-    """
-    """
-    f_bol_cols= ["f_bol_{}".format(filt) for filt in filters] + ["f_bol_avg"]
-    e_f_bol_cols = ["e_f_bol_{}".format(filt) for filt in filters] + ["e_f_bol_avg"]
-    f_bol_cols_interleaved = [val for pair in zip(f_bol_cols, e_f_bol_cols) for val in pair] 
+def compute_final_params(
+    observations, 
+    all_sampled_params, 
+    filters=["Bp", "Rp", "J", "H", "K"]):
+    """Computes final stellar parameters and uncertainties from mean and std
+    values of each fbol, plus radius, and luminosity. Final parameters are
+    saved to observations.
 
-    result_cols = ["theta", "e_theta", "radius", "e_radius"]
+    Parameters
+    ----------
+    observations: pandas.DataFrame
+        Pandas dataframe containing observational info and results of synthetic
+        fitting for each star.
+    
+    all_sampled_params: collections.OrderedDict
+        Ordered dictionary of pairing key of stellar ID to pandas dataframe of
+        sampled parameters from sample_params.
+    
+    filters: list of str, default: ["Bp", "Rp", "J", "H", "K"]
+        List of filter bands to sample photometry for. Note that this should
+        correspond to the settings in bolometric-corrections.
+    """
+    # Assemble columns for bolometric fluxes
+    f_bol_cols= ["f_bol_{}".format(filt) for filt in filters] + ["f_bol_avg"]
+    e_f_bol_cols = ["e_f_bol_{}".format(filt) for filt in filters]
+    e_f_bol_cols += ["e_f_bol_avg"]
+
+    f_bol_cols_interleaved = [val for pair in zip(f_bol_cols, e_f_bol_cols) 
+                              for val in pair] 
+
+    result_cols = ["radius", "e_radius", "lum", "e_lum"]
     result_cols = f_bol_cols_interleaved + result_cols
 
+    # Make placeholder results dataframe
     result_df = pd.DataFrame(
         data=np.full((len(observations), len(result_cols)), np.nan), 
         index=observations.index, 
         columns=result_cols)
 
     for star_i, star_data in observations.iterrows():
-        # Do crossmatch
-        uid = star_data["uid"]
-
-        #print("-"*40,"\n", star_i, "\n", "-"*40)
-
-        lit_info = info_cat[info_cat["source_id"]==uid]
-
-        if len(lit_info) == 0:
-            all_sampled_params[star_i] = None
-            continue
-        
-        lit_info = lit_info.iloc[0]
+        # Get source id
+        source_id = star_data["uid"]
 
         # Compute final fluxes and uncertainties
-        result_df.loc[star_i][f_bol_cols] = np.mean(all_sampled_params[star_i][f_bol_cols], axis=0)
-        result_df.loc[star_i][e_f_bol_cols] = np.std(all_sampled_params[star_i][f_bol_cols], axis=0)
+        result_df.loc[star_i][f_bol_cols] = np.mean(
+            all_sampled_params[source_id][f_bol_cols], axis=0)
 
-        # Compute final angular diameter and uncertainties
-        result_df.loc[star_i]["theta"] = np.mean(all_sampled_params[star_i]["theta"], axis=0)
-        result_df.loc[star_i]["e_theta"] = np.std(all_sampled_params[star_i]["theta"], axis=0)
+        result_df.loc[star_i][e_f_bol_cols] = np.std(
+            all_sampled_params[source_id][f_bol_cols], axis=0)
 
         # Compute final radii and uncertainties
-        result_df.loc[star_i]["radius"] = 0.5 * result_df.loc[star_i]["theta"] * lit_info["dist"]
-        result_df.loc[star_i]["e_radius"] = result_df.loc[star_i]["radius"] * np.sqrt(
-            (result_df.loc[star_i]["e_theta"]/result_df.loc[star_i]["theta"])**2
-            + (lit_info["e_dist"]/lit_info["dist"])**2)
+        result_df.loc[star_i]["radius"] = np.mean(
+            all_sampled_params[source_id]["radius"], axis=0)
 
+        result_df.loc[star_i]["e_radius"] = np.std(
+            all_sampled_params[source_id]["radius"], axis=0)
+
+        # Compute final luminosities and uncertainties
+        result_df.loc[star_i]["lum"] = np.mean(
+            all_sampled_params[source_id]["lum"], axis=0)
+
+        result_df.loc[star_i]["e_lum"] = np.std(
+            all_sampled_params[source_id]["lum"], axis=0)
     
     # Convert radii to solar units
-    result_df["radius"] *= const.pc.si.value / const.R_sun.si.value
-    result_df["e_radius"] *= const.pc.si.value / const.R_sun.si.value
+    result_df["radius"] /= const.R_sun.cgs.value
+    result_df["e_radius"] /= const.R_sun.cgs.value
 
-    # Now append and return
-    obs = pd.concat((observations, result_df), axis=1)
+    # Convert luminosity to solar units
+    result_df["lum"] /= const.L_sun.cgs 
+    result_df["e_lum"] /= const.L_sun.cgs 
 
-    return obs
+    # Add results to observations
+    for col in result_df.columns:
+        observations[col] = result_df[col]
+
 
 # -----------------------------------------------------------------------------
 # Saving and loading sampled params
