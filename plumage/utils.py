@@ -984,5 +984,5 @@ def load_exofop_toi_cat():
         comment="#",
         index_col="TOI",)
 
-    return toi_info[np.isin(toi_info["TIC"], tic_info.index)]
+    return toi_info[np.isin(toi_info["TIC"], tic_info["TIC"])]
 

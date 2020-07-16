@@ -397,16 +397,61 @@ def compute_logg(masses, e_masses, radii, e_radii,):
 # -----------------------------------------------------------------------------
 # Orbital parameters
 # -----------------------------------------------------------------------------
-def compute_semi_major_axis(mass, period):
-    """
+def compute_semi_major_axis(
+    mass, 
+    e_mass, 
+    period, 
+    e_period, 
+    radius=None, 
+    e_radius=None):
+    """Compute the semi-major axis of the planet given the mass of the star and
+    orbital period. Optionally, also can scale this by the stellar radii (if
+    provided).
+
+    Parameters
+    ----------
+    mass, e_mass: float or float array
+        Stellar mass and uncertainty in solar units.
+    
+    period, e_period: float or float array
+        Planet orbital period and uncertainty in days.
+
+    radius, e_radius: float, float array, or None, default: None
+        Stellar radius and uncertainty in solar units.
+
+    Returns
+    -------
+    sma, e_sma: float or float array
+        Semi-major axis and uncertainty in metres.
+
+    sma_rstar, e_sma_rstar: float or float array (optional)
+        Semi-major axis and uncertainty scaled by stellar radius to be 
+        dimensionless. Returned only if radius is provided.
     """
     G = const.G.si.value
-    period = period * 60 * 60 * 24          # Convert days to seconds
-    mass = mass * const.M_sun.si.value      # Convert M_sun units to kg
+    period = period * 60 * 60 * 24              # Convert days to seconds
+    e_period = e_period * 60 * 60 * 24            # Convert days to seconds
+    mass = mass * const.M_sun.si.value          # Convert M_sun units to kg
+    e_mass = e_mass * const.M_sun.si.value      # Convert M_sun units to kg
 
     sma = ((G*mass*period**2) / (4*np.pi**2))**(1/3)
 
-    return sma, np.nan
+    # Calculate uncertainty
+    X = (G / (4*np.pi**2))**(1/3)   # const
+
+    e_sma = X * np.sqrt(((1/3) * mass**(-2/3) * period**(2/3) * e_mass)**2 
+                        + ((2/3) * mass**(1/3) * period**(-1/3) * e_period)**2)
+
+    # Scaled SMA by radius if provided
+    if radius is not None and e_radius is not None:
+        sma_rstar = sma / (radius * const.R_sun.si.value) # convert to m
+        e_sma_rstar = sma_rstar * ((e_sma/sma)**2 + (e_radius/radius)**2)**0.5
+
+        return sma, e_sma, sma_rstar, e_sma_rstar
+    
+    # Otherwise just return
+    else:
+        return sma, e_sma
 
 # -----------------------------------------------------------------------------
 # Fluxes, sampling parameters, and final parameters
@@ -792,7 +837,7 @@ def compute_final_params(
 
     for star_i, star_data in observations.iterrows():
         # Get source id
-        source_id = star_data["uid"]
+        source_id = star_data["source_id"]
 
         # Compute final fluxes and uncertainties
         result_df.loc[star_i][f_bol_cols] = np.mean(
