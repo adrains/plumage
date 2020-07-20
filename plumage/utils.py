@@ -683,6 +683,49 @@ def update_fits_obs_table(observations, label, path="spectra"):
             raise Exception("No table of observations to update")
 
 
+def save_fits_table(extension, dataframe, label, path="spectra"):
+    """Update table of observations stored in given fits file.
+
+    Parameters
+    ----------
+    extension: string
+        Which fits table extension to save. Currently either 'OBS_TAB' or 
+        'TRANSIT_FITS'
+
+    dataframe: pandas.DataFrame
+        Dataframe table to be saved
+
+    label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+    
+    path: string
+        Path to save the fits file to
+    """
+    # Dict mapping extensions to their descriptions
+    valid_ext = {
+        "OBS_TAB":"Observation info table", 
+        "TRANSIT_FITS":"Table of transit light curve fit results"}
+
+    if extension not in valid_ext.keys():
+        raise ValueError("Invalid extension type. Must be in {}".format(
+            valid_ext.keys()))
+
+    # Load in the fits file
+    fits_path = os.path.join(path, "spectra_{}.fits".format(label))
+
+    with fits.open(fits_path, mode="update") as fits_file:
+        if extension in fits_file:
+            # Update table
+            tab = fits.BinTableHDU(Table.from_pandas(dataframe))
+            fits_file[extension].data = tab.data
+            fits_file.flush()
+        else:
+            # Save table for first time
+            tab = fits.BinTableHDU(Table.from_pandas(dataframe))
+            tab.header["EXTNAME"] = (extension, valid_ext[extension])
+            fits_file.append(tab)
+            fits_file.flush()
+
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits image HDUs
 # ----------------------------------------------------------------------------- 

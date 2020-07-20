@@ -5,6 +5,8 @@ import numpy as np
 import lightkurve as lk
 import batman as bm
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from astropy.timeseries import LombScargle 
 from scipy.optimize import least_squares
 
 # Ensure the lightcurves folder exists to save to
@@ -13,6 +15,9 @@ plot_dir = os.path.abspath(os.path.join(here_path, "..", "lightcurves"))
 
 if not os.path.isdir(plot_dir):
     os.mkdir(plot_dir)
+
+# Convert between BJD and TESS BJD
+BTJD_OFFSET = 2457000
 
 class BatmanError(Exception):
     """Exception to throw when batman raises a generic exception. Mostly trying
@@ -141,7 +146,7 @@ def load_all_light_curves(tic_ids):
 # Light curve fitting
 # -----------------------------------------------------------------------------
 def initialise_bm_model(t0, period, rp_rstar, sma_rstar, inclination, ecc, 
-    omega, ld_model, ld_coeff, time):
+    omega, ld_model, ld_coeff, time, fac=1e-4):
     """Generates batman params, model, and light curve given orbital 
     parameters. Note that units can either be in time or phase, so long as they
     are consistent.
@@ -208,17 +213,31 @@ def initialise_bm_model(t0, period, rp_rstar, sma_rstar, inclination, ecc,
     # raise the default exception, making it difficult to catch. By wrapping
     # calls as such, we can raise (and thus catch) our own batman exceptions.
     try:
-        bm_model = bm.TransitModel(bm_params, time)
+        bm_model = bm.TransitModel(bm_params, time, )
         bm_lightcurve = bm_model.light_curve(bm_params)
     except:
-        raise BatmanError(
-            "Batman unhappy with model generation at specified parameters.")
+        print("Batman error, forcing fac={}".format(fac))
+        bm_model = bm.TransitModel(bm_params, time, fac=fac)
+        bm_lightcurve = bm_model.light_curve(bm_params)
+
+        #raise BatmanError(
+        #    "Batman unhappy with model generation at specified parameters.")
 
     return bm_params, bm_model, bm_lightcurve
 
 
-def compute_lc_resid(params, folded_lc, t0, period, ld_model, ld_coeff, 
-                     trans_dur, verbose=True, n_trans_dur=2):
+def compute_lc_resid(
+    params, 
+    folded_lc, 
+    t0, 
+    period, 
+    ld_model, 
+    ld_coeff, 
+    trans_dur, 
+    sma_rstar, 
+    e_sma_rstar, 
+    verbose=True, 
+    n_trans_dur=2):
     """Computes residuals between the folded light curve provided, and a batman
     model transit light curve generated using params.
 
@@ -246,6 +265,10 @@ def compute_lc_resid(params, folded_lc, t0, period, ld_model, ld_coeff,
 
     trans_dur: float
         Transit duration in days.
+    
+    sma_rstar, e_sma_rstar: float
+        Prior on the stellar radius scaled semi-major axis and its uncertainty 
+        from the stellar mass, orbital period, and stellar radius.
     
     verbose: boolean, default: True
         Whether to print information about each iteration of fitting.
@@ -298,10 +321,13 @@ def compute_lc_resid(params, folded_lc, t0, period, ld_model, ld_coeff,
 
     resid[~mask] = 0
 
+    # Add our prior on the SMA to the residual vector
+    resid += [(sma_rstar - params[1]) / e_sma_rstar]
+
     # Print updates
     if verbose:
-        print("Rp/R* = {:0.5f}, a = {:0.05f}, i = {:0.05f}".format(
-            params[0], params[1], params[2]), end="")
+        print("Rp/R* = {:0.5f}, a = {:0.05f} [{:0.5f}+/{:0.5f}], i = {:0.05f}".format(
+            params[0], params[1], sma_rstar, e_sma_rstar, params[2]), end="")
         
         rchi2 = np.sum(resid**2) / (np.sum(mask)-len(params))
         print("\t--> rchi^2 = {:0.5f}".format(rchi2))
@@ -309,8 +335,19 @@ def compute_lc_resid(params, folded_lc, t0, period, ld_model, ld_coeff,
     return resid
 
 
-def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff, 
-                    ld_model="nonlinear"):
+def fit_light_curve(
+    light_curve, 
+    t0, 
+    period, 
+    trans_dur, 
+    ld_coeff, 
+    sma_rstar, 
+    e_sma_rstar,
+    mask,
+    ld_model="nonlinear", 
+    flatten_frac=0.1, 
+    outlier_sig=6,
+    niters_flat=5):
     """Perform least squares fitting on the provided light curve to determine
     Rp/R*, a/R*, and inclination.
 
@@ -325,14 +362,25 @@ def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff,
     period: float
         Transit period in days.
 
-    transit_duration: float
+    transit_dur: float
         Transit duration in days.
 
     ld_coeff: float array
         Vector of limb darkening coefficients of form ld_model.
 
+    sma_rstar, e_sma_rstar: float
+        Prior on the stellar radius scaled semi-major axis and its uncertainty 
+        from the stellar mass, orbital period, and stellar radius.
+
     ld_model: str, default: 'nonlinear'
         Kind of limb darkening model to use.
+
+    flat_frac: float, default: 0.1
+        Fractional length of the lightcurve to use as the Savitzky-Golay 
+        smoothing window length - e.g. 0.1 is 10% of the total light curve.
+
+    outlier_sig: float, default: outlier_sig
+        Sigma value beyond which to remove outliers when cleaning light curve.
 
     Returns
     -------
@@ -340,13 +388,24 @@ def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff,
         Dictionary of least squares fit results.
     """
     # Convert between BJD and TESS BJD
-    BTJD_OFFSET = 2457000
-
     if t0 > BTJD_OFFSET:
         t0 -= BTJD_OFFSET
 
+    # Before cleaning however, we should mask out the transit signal itself
+    #clean_lc = light_curve.remove_outliers(sigma=outlier_sig)
+
+    # Get window size for smoothing
+    window_length = determine_window_size(light_curve, t0, period, trans_dur, mask)
+
+    clean_lc, flat_lc_trend = light_curve.flatten(
+        window_length=window_length,
+        return_trend=True,
+        niters=niters_flat,
+        break_tolerance=None,
+        mask=mask)
+
     # Phase fold the light curve
-    folded_lc = light_curve.remove_outliers(sigma=6).fold(period=period, t0=t0)
+    folded_lc = clean_lc.fold(period=period, t0=t0)
 
     # Initialise transit params. Ftting for: [rp, semi-major axis, inclination]
     # and assuming a circular orbit, so eccentricity=1, & longitude periastron
@@ -354,7 +413,8 @@ def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff,
     init_params = np.array([0.1, 10, 90,])
     bounds = ((0, 0, 60,), (1, 10000, 120,))
 
-    args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur,)
+    args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur, sma_rstar,
+            e_sma_rstar)
 
     #scale = (1, 1, 1)
     step = (0.01, 0.01, 0.01)
@@ -406,6 +466,7 @@ def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff,
         time=folded_lc.time,)
 
     # Add extra info to fit dictionary
+    opt_res["flat_lc_trend"] = flat_lc_trend
     opt_res["std"] = std
     opt_res["bm_params"] = bm_params
     opt_res["bm_model"] = bm_model
@@ -413,3 +474,96 @@ def fit_light_curve(light_curve, t0, period, trans_dur, ld_coeff,
 
     return opt_res
 
+
+def make_transit_mask_single_period(
+    light_curve, 
+    t0, 
+    period, 
+    trans_dur, 
+    plot_check=False):
+    """
+
+    Parameters
+    ----------
+    light_curve: lightkurve.lightcurve.TessLightCurve
+        Lightkurve object containing TESS time-series photometry from NASA.
+
+    t0: float
+        Time of first transit in Barycentric Julian Day (BJD).
+
+    period: float
+        Transit period in days.
+
+    transit_dur: float
+        Transit duration in days.
+
+    plot_check: bool, default: False
+        Indicates whether to plot a diagnostic check on the mask
+
+    Returns
+    -------
+    mask: bool array
+    
+    """
+    # Work in modulo time of the period
+    mod_time = (light_curve.time - t0) % period
+
+    # t0 is the centre of the transit, so we have to grab the times and the 
+    # beginning *end* the end of the modulo period (the second and first halves
+    # of the transit respectively)
+    trans_2nd_half = mod_time < (trans_dur)
+    trans_1st_half = mod_time > (period-trans_dur)
+
+    mask = np.logical_or(trans_2nd_half, trans_1st_half)
+
+    if plot_check:
+        plt.close("all")
+        plt.plot(light_curve.time, light_curve.flux, linewidth=0.1)
+        plt.plot(light_curve.time[mask], light_curve.flux[mask], linewidth=0.1)
+
+    return mask
+
+
+def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
+    """
+    """
+    selected_tois = toi_info[toi_info["TIC"]==tic_id]
+
+    mask = np.full(len(light_curve.time), True)
+
+    for star_i, toi_row in selected_tois.iterrows():
+        mask = np.logical_and(
+            mask,
+            ~make_transit_mask_single_period(
+                light_curve,
+                toi_row["Epoch (BJD)"]-BTJD_OFFSET,
+                toi_row["Period (days)"],
+                toi_row["Duration (hours)"]/24,)
+        )
+    
+    return mask
+
+
+def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24):
+    """
+    """
+    # Get mask of transits
+    #mask = ~make_transit_mask(light_curve, t0, period, trans_dur,)
+
+    # Get periodogram
+    freq, power = LombScargle(light_curve.time[mask], light_curve.flux[mask]).autopower()
+
+    # Consider only those frequencies lower than t_min days
+    freq_mask = freq < t_min**-1
+    stellar_period = 1 / freq[np.argmax(power[freq_mask])]
+
+    # Get cadence of observations
+    cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
+
+    # Calculate window length
+    window_length = int(stellar_period / cadence)
+
+    if window_length % 2 == 0:
+        window_length += 1
+
+    return window_length
