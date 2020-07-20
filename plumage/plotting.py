@@ -1177,86 +1177,127 @@ def plot_tess_cmd(
     plt.savefig("paper/tess_cmd.pdf")
 
 
-def plot_tess_hr(observations, tess_info, plot_ids=False):
-    """Function (currently pretty hacky) to plot TESS HR diagram for paper
+def plot_hr_diagram(
+    observations, 
+    info_cat, 
+    logg_col="logg_m19",
+    teff_lims=[3000,4600],
+    logg_lims=[4.45,5.2],
+    plot_ids=False,
+    id_col="TIC",):
+    """Plot a Teff vs logg HR diagram for targets
+    
+    Parameters
+    ----------
+    observations: pandas.DataFrame
+        Table of observations and fit results.
+
+    info_cat: pandas.DataFrame
+        Corresponding table of stellar literature info.
+
+    logg_col: string, default: 'logg_m19'
+        Logg column to use.
+
+    teff_lims, logg_lims: float array, default:[3000,4600],[4.45,5.2]
+        Axis limits for Teff and Logg respectively.
+    
+    plot_ids: bool, default: False
+        Whether to plot IDs, useful for diagnostics.
+
+    id_col: string, default: 'TIC'
+        ID to plot.
     """
-    teffs = observations["teff_synth"].values
-    e_teffs = observations["e_teff_synth"].values
-    loggs = []
-    fehs = observations["feh_synth"].values
-    ruwe = []
-    b2m = []
-    ids = []
-    rad = observations["radius"].values
-    e_rad = observations["e_radius"].values
+    # Table join
+    obs_join = observations.join(info_cat, "source_id", rsuffix="_info")
 
-    rad_m19 = []
-    e_rad_m19 = []
-
-    for star_i, obs_info in observations.iterrows():
-        source_id = obs_info["uid"]
-
-        tic_info = tess_info[tess_info["source_id"]==source_id]
-
-        if len(tic_info) > 0:
-            tic_info = tic_info.iloc[0]
-        else:
-            loggs.append(np.nan)
-            ruwe.append(np.nan)
-            b2m.append(True)
-            ids.append("")
-            rad_m19.append(np.nan)
-            e_rad_m19.append(np.nan)
-            continue
-
-        loggs.append(tic_info["logg_m19"])
-        ruwe.append(tic_info["ruwe"])
-        b2m.append(tic_info["blended_2mass"])
-        ids.append(tic_info["TOI"])
-        rad_m19.append(tic_info["radii_m19"])
-        e_rad_m19.append(tic_info["e_radii_m19"])
-
-    ruwe = np.array(ruwe).astype(float)
-    loggs = np.array(loggs).astype(float)
-    b2m = np.array(b2m).astype(bool)
-    ids = np.array(ids)
-    rad_m19 = np.array(rad_m19)
-    e_rad_m19 = np.array(e_rad_m19)
-    mask = np.logical_and(np.logical_and(~np.isnan(loggs), ruwe < 1.5), ~b2m)
-
+    # Plot errors, then coloured [Fe/H] scatter points on top of them
     plt.close("all")
-    #scatter = plt.scatter(rad_m19[mask], rad[mask], c=fehs[mask])
-    plt.errorbar(teffs[mask], rad[mask], xerr=e_teffs[mask], yerr=e_rad[mask], fmt=".")
-    #xx = np.arange(3000,5000,100)
-    #yy = np.arange(0,1,0.05)
-    #plt.plot(xx,yy)
-    #plt.xlim([0,1])
-    #plt.ylim([0,1])
+    plt.errorbar(
+        obs_join["teff_synth"],
+        obs_join[logg_col],
+        xerr=obs_join["e_teff_synth"],
+        yerr=obs_join["e_{}".format(logg_col)],
+        fmt=".",
+        zorder=0,)
 
+    sc = plt.scatter(
+        obs_join["teff_synth"],
+        obs_join[logg_col],
+        c=obs_join["feh_synth"],
+        zorder=1,
+    )
+
+    # Plot IDs for diagnostic purposes
     if plot_ids:
-        for radm19, rr, sid in zip(rad_m19, rad, ids):
-            plt.text(radm19, rr, sid)
+        for star_i, star in obs_join.iterrows():
+            plt.text(
+                star["teff_synth"],
+                star[logg_col],
+                star[id_col])
 
-    if plot_ids:
-        for teff, logg, sid in zip(teffs, rad, ids):
-            plt.text(teff, logg, sid)
+    cb = plt.colorbar(sc)
+    cb.set_label("[Fe/H]")
 
-    # plot weird
-    plt.plot(teffs[~mask], rad[~mask], "o")
-
-    plt.xlim([4600,3000])
-    #plt.ylim([5.1,4.4])
-    #cb = plt.colorbar(scatter)
-    #cb.set_label("[Fe/H]")
-    plt.xlabel(r"$T_{\rm eff}$")
-
-    plt.xlabel("Radius (m19)")
-    plt.ylabel("Radius (fit)")#(r"$\log g$")
+    plt.xlabel(r"$T_{\rm eff}$ (K)")
+    plt.ylabel(r"$\logg$")
+    plt.xlim(teff_lims[::-1])
+    plt.ylim(logg_lims[::-1])
 
     plt.savefig("paper/tess_hr.pdf")
+    plt.savefig("paper/tess_hr.png")
 
 
-def plot_fbol_comp(observations, filters, fbols, ncols=10):
+def plot_radius_comp(observations, info_cat):
+    """Plot a comparison between our radii determined here vs their Mann+15 
+    equivalents. Has colourbar for [Fe/H].
+
+    Parameters
+    ----------
+    observations: pandas.DataFrame
+        Table of observations and fit results.
+
+    info_cat: pandas.DataFrame
+        Corresponding table of stellar literature info.
+    """
+    # Table join
+    obs_join = observations.join(info_cat, "source_id", rsuffix="_info")
+
+    # Plot errors, then coloured [Fe/H] scatter points on top of them
+    plt.close("all")
+    plt.errorbar(
+        obs_join["radius"],
+        obs_join["radii_m19"],
+        xerr=obs_join["e_radius"],
+        yerr=obs_join["e_radii_m19"],
+        fmt=".",
+        zorder=0,)
+
+    sc = plt.scatter(
+        obs_join["radius"],
+        obs_join["radii_m19"],
+        c=obs_join["feh_synth"],
+        zorder=1,
+    )
+
+    cb = plt.colorbar(sc)
+    cb.set_label("[Fe/H]")
+
+    # Plot 1:1 line
+    plt.plot(np.arange(0.1,0.9,0.1),np.arange(0.1,0.9,0.1),"--",color="black")
+
+    plt.xlabel(r"Radius fit ($R_\odot$)")
+    plt.ylabel(r"Radius Mann+15 ($R_\odot$)")
+
+    plt.savefig("paper/radius_comp.pdf")
+    plt.savefig("paper/radius_comp.png")
+
+
+def plot_fbol_comp(
+    observations,
+    info_cat,
+    fbols=["Bp", "Rp", "J", "H", "K", "avg"] , 
+    ncols=10,
+    id_col="TIC"):
     """Plot a comparison of the sampled values of fbol from each filter to 
     check whether they are consistent or not.
     """
@@ -1272,12 +1313,13 @@ def plot_fbol_comp(observations, filters, fbols, ncols=10):
         left=0.075,
         right=0.95,)
     
-    # Sort dataframe by avg flux
-    #sorted_obs = observations.sort_values("f_bol_avg")
-    sorted_obs = observations.sort_values("teff_synth")
+    # Do temporary crossmatch
+    obs_cm = observations.join(info_cat, "source_id", rsuffix="_2")
+
+    # Sort dataframe by Teff - cool stars first, hot stars last
+    sorted_obs = obs_cm.sort_values("teff_synth")
 
     # Define bands to reference, construct new headers
-    filt_lbl = [r"${}$".format(filt) for filt in filters]
     band_lbl = [r"$f_{{\rm bol, {}}}$".format(fbol) for fbol in fbols]
     
     f_bol_cols= ["f_bol_{}".format(fbol) for fbol in fbols]
@@ -1285,9 +1327,7 @@ def plot_fbol_comp(observations, filters, fbols, ncols=10):
     
     colours = ["green", "blue", "orange", "deepskyblue", "red", "black"]
     
-    #mask = np.logical_and(tgt_info["Science"], tgt_info["in_paper"])
-    
-    ids = sorted_obs["id"].values
+    ids = sorted_obs[id_col].values
     
     fbols = sorted_obs[f_bol_cols].values
     e_fbols = sorted_obs[e_f_bol_cols].values

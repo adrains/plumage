@@ -533,7 +533,8 @@ def sample_all_params(
     info_cat, 
     bc_path,
     filters=["Bp", "Rp", "J", "H", "K"],
-    logg_col="logg_synth",):
+    logg_col="logg_synth",
+    filter_mask=[True,True,True,True,True]):
     """Sample parameters for all stars in observations that have a match in
     info_cat.
 
@@ -568,12 +569,12 @@ def sample_all_params(
     all_sampled_params = OrderedDict()
 
     # Temporary join
-    obs = observations.join(info_cat, "uid", rsuffix="_info")  
+    obs = observations.join(info_cat, "source_id", rsuffix="_info")  
 
     # Sample parameters for every star in observations
     for star_i, star_data in obs.iterrows():
         # Get source id
-        source_id = star_data["uid"]
+        source_id = star_data["source_id"]
 
         print("-"*40,"\n", star_i, "\n", "-"*40)
         
@@ -610,7 +611,7 @@ def sample_all_params(
             all_sampled_params[source_id] = sampled_params
 
         # Compute instantaneous params
-        compute_instantaneous_params(sampled_params, filters)
+        compute_instantaneous_params(sampled_params, filters, filter_mask)
 
     return all_sampled_params
 
@@ -723,7 +724,7 @@ def sample_casagrande_bc(
 def compute_instantaneous_params(
     sampled_params, 
     filters=["Bp", "Rp", "J", "H", "K"], 
-    filter_mask=[1,1,1,1,1]):
+    filter_mask=[True,True,True,True,True]):
     """Compute instantaneous stellar parameters (fbol in various filters, plus
     stellar radius and luminosity). Instantaneous parameters are saved to
     sampled_params.
@@ -741,7 +742,9 @@ def compute_instantaneous_params(
         Mask corresponding to filters, any filter set to 0 will not be 
         included in the instantaneous average for fbol.
     """
-    
+    # Ensure the mask is full of booleans (otherwise you get weird results)
+    filter_mask = np.array(filter_mask).astype(bool)
+
     # Calculate
     f_bol_bands = ["f_bol_{}".format(filt) for filt in filters]
 

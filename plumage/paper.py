@@ -16,7 +16,10 @@ if not os.path.isdir(plot_dir):
 # -----------------------------------------------------------------------------
 # Making tables
 # ----------------------------------------------------------------------------- 
-def make_table_final_results(break_row=45, placeholder=True):
+def make_table_final_results(
+    break_row=45, 
+    logg_col="logg_m19",
+    exp_scale=-12):
     """Make the final results table to display the angular diameters and 
     derived fundamental parameters.
 
@@ -29,20 +32,20 @@ def make_table_final_results(break_row=45, placeholder=True):
     observations = utils.load_fits_obs_table("TESS", path="spectra")
     tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
     toi_info = utils.load_exofop_toi_cat()
-    
-    exp_scale = -8
+
+    comb_info = observations.join(tic_info, "source_id", rsuffix="_info")
+    comb_info.sort_values("teff_synth", inplace=True)
     
     cols = OrderedDict([
         ("TIC", ""),
         (r"$T_{\rm eff}$", "(K)"),
         (r"$\log g", ""),
         (r"[Fe/H]", ""),
+        (r"$M$", "($M_\odot$)"),
+        (r"$R$", "($R_\odot$)"),
         (r"$f_{\rm bol}$", 
          r"(10$^{%i}\,$ergs s$^{-1}$ cm $^{-2}$)" % exp_scale),
         (r"$L$", "($L_\odot$)"),
-        (r"$\theta_{\rm LD}$", "(mas)"),
-        (r"$R$", "($R_\odot$)"), 
-        (r"$M$", "($M_\odot$)"), 
     ])
                            
     header = []
@@ -71,54 +74,37 @@ def make_table_final_results(break_row=45, placeholder=True):
     header_2.insert(3, "\\contcaption{Final results}")
 
     # Populate the table for every science target
-    for star_i, star in observations.iterrows():
-        # Only continue if both observed and not FP
-        #if star["observed"] == "yes" and star["TFOPWG Disposition"] == "FP":
-        #    continue
+    for star_i, star in comb_info.iterrows():
         
         table_row = ""
-
-        # Get the TIC ID from the TOI ID
-        toi = float(star["id"].replace("TOI", ""))
-        tic = toi_info.loc[toi]["TIC"]
-
-        tic_row = tic_info.loc[tic]
         
         # Step through column by column
-        table_row += "%s & " % tic
+        table_row += "%s & " % star["TIC"]
 
         # Fitted spectroscopic params
         table_row += r"{:0.0f} $\pm$ {:0.0f} & ".format(
             star["teff_synth"], star["e_teff_synth"])
 
         table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
-            star["logg_synth"], star["e_logg_synth"])
+            star[logg_col], star["e_{}".format(logg_col)])
 
         table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
             star["feh_synth"], star["e_feh_synth"])
 
-        if not placeholder:
-            # For fbol representation, split mantissa and exponent
-            table_row += r"{:5.1f} $\pm$ {:0.1f} &".format(
-                star["f_bol_final"] / 10**exp_scale, 
-                star["e_f_bol_final"] / 10**exp_scale)
-            
-            table_row += r"{:0.2f} $\pm$ {:0.2f} ".format(
-                star["L_star"], star["e_L_star"])
+        table_row += r"{:0.3f} $\pm$ {:0.2f} &".format(
+            star["mass_m19"], star["e_mass_m19"])
 
-            table_row += r"{:0.3f} $\pm$ {:0.3f} & ".format(
-                star["theta"], star["e_theta"])
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+            star["radius"], star["e_radius"])
 
-            table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
-                star["r_star"], star["e_r_star"])
-        else: 
-            table_row += r"0$\pm$0 & 0$\pm$0 & 0$\pm$0 &"
-            table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
-                tic_row["radii_m19"], tic_row["radii_m19"])
-
-        table_row += r"{:0.3f} $\pm$ {:0.2f}".format(
-            tic_row["mass_m19"], tic_row["e_mass_m19"])
+        # For fbol representation, split mantissa and exponent
+        table_row += r"{:5.1f} $\pm$ {:0.1f} &".format(
+            star["f_bol_avg"] / 10**exp_scale, 
+            star["e_f_bol_avg"] / 10**exp_scale)
         
+        table_row += r"{:0.3f} $\pm$ {:0.3f} ".format(
+            star["lum"], star["e_lum"])
+
         table_rows.append(table_row + r"\\")
         
     # Finish the table
@@ -209,7 +195,7 @@ def make_table_targets(break_row=45):
         table_row += "%s & " % star["TIC"]
         #table_row += "%s & " % star["TOI"]
         table_row += "%s & " % star["2mass"]
-        table_row += "%s & " % star["source_id"]
+        table_row += "%s & " % star_i
         table_row += "%s & " % ra
         table_row += "%s & " % dec
         table_row += "%0.2f & " % star["G_mag"]
@@ -260,7 +246,9 @@ def make_table_observations(break_row=60):
     """
     # Load in observations and TIC info
     observations = utils.load_fits_obs_table("TESS", path="spectra")
-    toi_info = utils.load_exofop_toi_cat()
+    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
+
+    comb_info = observations.join(tic_info, "source_id", rsuffix="_info")
     
     cols = OrderedDict([
         ("TIC", ""),
@@ -301,15 +289,11 @@ def make_table_observations(break_row=60):
     header_2.insert(3, "\\contcaption{Observing log}")
     
     # Populate the table for every science target
-    for star_i, star in observations.iterrows():
+    for star_i, star in comb_info.iterrows():
         table_row = ""
-
-        # Get the TIC ID from the TOI ID
-        toi = float(star["id"].replace("TOI", ""))
-        tic = toi_info.loc[toi]["TIC"]
         
         # Step through column by column
-        table_row += "%s & " % tic
+        table_row += "%s & " % star["TIC"]
         table_row += "%s & " % star["date"].split("T")[0]
         table_row += "%0.1f & " % star["airmass"]
         table_row += "%0.0f & " % star["exp_time"]
