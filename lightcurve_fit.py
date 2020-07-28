@@ -133,6 +133,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     # Save calculated params + uncertainties
     result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
+    result_df.loc[toi][["sma_rstar", "e_sma_rstar"]] = [sma_rstar, e_sma_rstar]
     result_df.loc[toi][["rp_fit", "e_rp_fit"]] = [radius, e_radius]
 
     # Save fitted parameters

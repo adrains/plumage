@@ -1046,6 +1046,298 @@ def shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour, alpha,
 # -----------------------------------------------------------------------------
 # Comparisons
 # ----------------------------------------------------------------------------- 
+def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label, 
+    y_label, cb_label, lims, cmap, show_median_offset,):
+    """
+    Parameters
+    ----------
+    fit, axis: matplotlib.figure.Figure, matplotlib.axes._subplots.AxesSubplot
+        Figure and axis to plot on.
+    
+    fit, e_fit: float array
+        Fitted parameter (i.e. Teff or [Fe/H]) and uncertainty.
+
+    lit, e_lit: float array
+        Literature parameter (i.e. Teff or [Fe/H]) and uncertainty.
+
+    colour: float array
+        Parameter to plot on colour bar (i.e. Teff or [Fe/H]).
+
+    x_label, y_label, cb_label: string
+        Labels for axes and colour bar respectively.
+
+    lims: float array
+        Axis limits, of form [low, high].
+
+    cmap: string
+        Matplotlib colourmap to use for the colour bar.
+
+    show_median_offset: bool, default: False
+        Whether to plot the median uncertainty as text.
+    """
+    # Plot error bars with overplotted scatter points + colour bar
+    axis.errorbar(fit, lit, xerr=e_fit, yerr=e_lit, fmt=".", zorder=0,)
+
+    sc = axis.scatter(fit, lit, c=colour, zorder=1, cmap=cmap)
+
+    cb = fig.colorbar(sc, ax=axis)
+    cb.set_label(cb_label)
+
+    axis.set_xlabel(x_label)
+    axis.set_ylabel(y_label)
+
+    # Plot 1:1 line
+    xx = np.arange(lims[0], lims[1], (lims[1]-lims[0])/100)
+    axis.plot(xx, xx, "--")
+
+    axis.set_xlim(lims)
+    axis.set_ylim(lims)
+
+    axis.set_aspect("equal")
+
+    if show_median_offset:
+        med_offset = np.nanmedian(np.abs(fit - lit))
+        axis.text(
+            x=np.mean(lims), 
+            y=0.9*lims[1], 
+            s=r"$\pm {:0.2f}$".format(med_offset),
+            horizontalalignment="center")
+
+
+def plot_std_comp(
+    observations, 
+    std_info,
+    teff_lims=[3000,4600],
+    feh_lims=[-1.4,0.75],
+    show_median_offset=False,):
+    """Plot 2x3 grid of Teff and [Fe/H] literature comparisons.
+        1 - Mann+15 Teffs
+        2 - Rojas-Ayala+12 Teffs
+        3 - Interferometric Teffs
+        4 - Mann+15 [Fe/H]
+        5 - Rojas-Ayala+12 [Fe/H]
+        6 - CPM [Fe/H]
+
+    Where Mann+15:
+     - https://ui.adsabs.harvard.edu/abs/2015ApJ...804...64M/abstract
+
+    And Rojas-Ayala+12:
+     - https://ui.adsabs.harvard.edu/abs/2012ApJ...748...93R/abstract
+
+    Parameters
+    ----------
+    observations: pandas.DataFrame
+        Table of observations and fit results.
+
+    std_cat: pandas.DataFrame
+        Corresponding table of stellar literature info.
+
+    teff_lims, feh_lims: float array, default:[3000,4600],[-1.4,0.75]
+        Axis limits for Teff and [Fe/H] respectively.
+
+    show_median_offset: bool, default: False
+        Whether to plot the median uncertainty as text.
+    """
+    # Table join
+    #observations.rename(columns={"uid":"source_id"}, inplace=True)
+    obs_join = observations.join(std_info, "source_id", rsuffix="_info")
+
+    plt.close("all")
+    fig, axes = plt.subplots(2,3)
+    fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, 
+                            wspace=0.5)
+
+    # Unpack to improve readability
+    ((ax_teff_m15, ax_teff_ra12, ax_teff_int),
+     (ax_feh_m15, ax_feh_ra12, ax_feh_cpm)) = axes
+
+    # Mann+15 temperatures
+    plot_std_comp_generic(
+        fig,
+        ax_teff_m15, 
+        obs_join["teff_synth"],
+        obs_join["e_teff_synth"],
+        obs_join["teff_m15"],
+        obs_join["e_teff_m15"],
+        obs_join["feh_synth"],
+        r"$T_{\rm eff}\,$K (fit)",
+        r"$T_{\rm eff}\,$K (Mann+15)",
+        "[Fe/H] (fit)",
+        lims=teff_lims,
+        cmap="viridis",
+        show_median_offset=show_median_offset,)
+    
+    # Rojas-Ayala+12 temperatures
+    plot_std_comp_generic(
+        fig,
+        ax_teff_ra12, 
+        obs_join["teff_synth"],
+        obs_join["e_teff_synth"],
+        obs_join["teff_ra12"],
+        obs_join["e_teff_ra12"],
+        obs_join["feh_synth"],
+        r"$T_{\rm eff}\,$K (fit)",
+        r"$T_{\rm eff}\,$K (Rojas-Ayala+12)",
+        "[Fe/H] (fit)",
+        lims=teff_lims,
+        cmap="viridis",
+        show_median_offset=show_median_offset,)
+    
+    # Interferometric temperatures
+    plot_std_comp_generic(
+        fig,
+        ax_teff_int, 
+        obs_join["teff_synth"],
+        obs_join["e_teff_synth"],
+        obs_join["teff_int"],
+        obs_join["e_teff_int"],
+        obs_join["feh_synth"],
+        r"$T_{\rm eff}\,$K (fit)",
+        r"$T_{\rm eff}\,$K (interferometric)",
+        "[Fe/H] (fit)",
+        lims=teff_lims,
+        cmap="viridis",
+        show_median_offset=show_median_offset,)
+
+    # Mann+15 [Fe/H]
+    plot_std_comp_generic(
+        fig,
+        ax_feh_m15, 
+        obs_join["feh_synth"],
+        obs_join["e_feh_synth"],
+        obs_join["feh_m15"],
+        obs_join["e_feh_m15"],
+        obs_join["teff_synth"],
+        r"[Fe/H] (fit)",
+        r"[Fe/H] (Mann+15)",
+        r"$T_{\rm eff}\,$K (fit)",
+        lims=feh_lims,
+        cmap="magma",
+        show_median_offset=show_median_offset,)
+    
+    # Rojas-Ayala+12 [Fe/H]
+    plot_std_comp_generic(
+        fig,
+        ax_feh_ra12, 
+        obs_join["feh_synth"],
+        obs_join["e_feh_synth"],
+        obs_join["feh_ra12"],
+        obs_join["e_feh_ra12"],
+        obs_join["teff_synth"],
+        r"[Fe/H] (fit)",
+        r"[Fe/H] (Rojas-Ayala+12)",
+        r"$T_{\rm eff}\,$K (fit)",
+        lims=feh_lims,
+        cmap="magma",
+        show_median_offset=show_median_offset,)
+
+    # CPM [Fe/H]
+    plot_std_comp_generic(
+        fig,
+        ax_feh_cpm, 
+        obs_join["feh_synth"],
+        obs_join["e_feh_synth"],
+        obs_join["feh_cpm"],
+        obs_join["e_feh_cpm"],
+        obs_join["teff_synth"],
+        r"[Fe/H] (fit)",
+        r"[Fe/H] (CPM)",
+        r"$T_{\rm eff}\,$K (fit)",
+        lims=feh_lims,
+        cmap="magma",
+        show_median_offset=show_median_offset,)
+
+    plt.gcf().set_size_inches(12, 8)
+    plt.tight_layout()
+    plt.savefig("paper/std_comp.pdf")
+    plt.savefig("paper/std_comp.png")
+
+
+def plot_teff_comp(
+    observations, 
+    std_info,
+    x_col="teff_synth",
+    phot_teff_col="teff_m15_bprp",
+    cb_col="feh_synth",
+    teff_lims=[3000,4600],
+    feh_lims=[-1.4,0.75],
+    mask_outside_lims=True,):
+    """Plots a comparison between Teff from colour relations and the fitted
+    spectroscopic Teff.
+
+    Parameters
+    ----------
+    observations: pandas.DataFrame
+        Table of observations and fit results.
+
+    std_cat: pandas.DataFrame
+        Corresponding table of stellar literature info.
+
+    phot_teff_col: string, default: 'teff_m15_bprp'
+        Photometric relation Teff column to use.
+
+    teff_lims: float array, default:[3000,4600]
+        Axis limits for Teff.
+
+    mask_outside_lims: bool, default: True
+        Whether to only plot and consider stars inside the limits.
+    """
+    # Table join
+    #observations.rename(columns={"uid":"source_id"}, inplace=True)
+    obs_join = observations.join(
+        std_info, 
+        "source_id", 
+        rsuffix="_info", 
+        how="inner")
+
+    # Mask stars outside the Teff and [Fe/H] limits
+    if mask_outside_lims:
+        mask_teff = np.logical_and(
+            obs_join["teff_synth"] > teff_lims[0],
+            obs_join["teff_synth"] < teff_lims[1],)
+        mask_feh = np.logical_and(
+            obs_join["feh_synth"] > feh_lims[0],
+            obs_join["feh_synth"] < feh_lims[1],)
+        obs_join = obs_join[np.logical_and(mask_teff, mask_feh)]
+
+    plt.close("all")
+    fig, axis = plt.subplots()
+    
+    # Plot error bars, and overplot scatter points with a colour bar
+    axis.errorbar(
+        obs_join[x_col],
+        obs_join[phot_teff_col],
+        xerr=obs_join["e_{}".format(x_col)],
+        yerr=obs_join["e_{}".format(phot_teff_col)],
+        fmt=".", 
+        zorder=0,)
+
+    sc = axis.scatter(
+        obs_join[x_col], 
+        obs_join[phot_teff_col], 
+        c=obs_join[cb_col], 
+        zorder=1, 
+        cmap="viridis")
+
+    cb = fig.colorbar(sc, ax=axis)
+    cb.set_label("[Fe/H]")
+
+    axis.set_xlabel(r"$T_{\rm eff}\,$K (fit)")
+    axis.set_ylabel(r"$T_{\rm eff}\,$K (rel)")
+
+    # Plot 1:1 line
+    xx = np.arange(teff_lims[0], teff_lims[1], (teff_lims[1]-teff_lims[0])/100)
+    axis.plot(xx, xx, "--")
+
+    axis.set_xlim(teff_lims)
+    axis.set_ylim(teff_lims)
+
+    axis.set_aspect("equal")
+
+    plt.savefig("paper/teff_comp.pdf")
+    plt.savefig("paper/teff_comp.png")
+
+
 def get_gaia_rv(uid, std_params):
     """
     """
@@ -1561,22 +1853,26 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
 
     BTJD_OFFSET = 2457000
 
+    info = toi_info.join(tess_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
+    #info.reset_index(inplace=True)
+    comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
+
     for toi_i, (toi, toi_row) in zip(
-        tqdm(range(len(toi_info)),desc="Plotting"), toi_info.iterrows()):
+        tqdm(range(len(comb_info)),desc="Plotting"), comb_info.iterrows()):
         # Look up TIC ID in tess_info
         tic = toi_row["TIC"]
 
         # Get the literature info
-        tic_info = tess_info[tess_info["TIC"]==tic].iloc[0]
+        #tic_info = tess_info[tess_info.index==tic].iloc[0]
 
-        source_id = tic_info["source_id"]
+        source_id = toi_row["source_id"]
 
-        obs_info = observations[observations["uid"]==source_id]
+        #obs_info = observations[observations.index==source_id]
 
-        if len(obs_info) > 0:
-            obs_info = observations[observations["uid"]==source_id].iloc[0]
-        else:
-            continue
+        #if len(obs_info) > 0:
+        #    obs_info = observations[observations.index==source_id].iloc[0]
+        #else:
+        #    continue
 
         param_cols = ["rp_rstar_fit", "sma_rstar_fit", "inclination_fit"]
 

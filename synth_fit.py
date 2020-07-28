@@ -38,9 +38,9 @@ snr_b_cutoff = 10
 use_blue_spectra = False
 
 # Whether to include photometry in fit
-include_photometry = False
-colour_bands = ['Rp-J', 'J-H', 'H-K']
-e_colour_bands = ['e_Rp-J', 'e_J-H', 'e_H-K']
+include_photometry = True
+colour_bands = np.array(['Rp-J', 'J-H', 'H-K'])
+e_colour_bands = np.array(['e_Rp-J', 'e_J-H', 'e_H-K'])
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
@@ -88,9 +88,17 @@ synth_fits_r = []
 rchi2 = []
 both_arm_synth_fit = []
 fit_used_colours = []
+colours_used = []
 
 # initialise IDL
 idl = synth.idl_init()
+
+# Do table join
+try:
+    observations.rename(columns={"uid":"source_id"}, inplace=True)
+except:
+    print("failed")
+obs_join = observations.join(info_cat, "source_id", rsuffix="_info")
 
 # For every star, do synthetic fitting
 for ob_i in range(0, len(observations)):
@@ -98,7 +106,7 @@ for ob_i in range(0, len(observations)):
     print("{}\n{} - {}\n{}".format(ln, ob_i, observations.iloc[ob_i]["id"],ln))
 
     # Match the star with its literature info
-    star_info = info_cat[info_cat["source_id"]==observations.iloc[ob_i]["uid"]]
+    star_info = info_cat[info_cat.index==observations.iloc[ob_i]["source_id"]]
     if len(star_info) == 0:
         star_info = None
     elif len(star_info) > 0:
@@ -114,6 +122,7 @@ for ob_i in range(0, len(observations)):
         rchi2.append(np.nan)
         both_arm_synth_fit.append(False)
         fit_used_colours.append(False)
+        colours_used.append("000")
 
         continue
     
@@ -121,13 +130,20 @@ for ob_i in range(0, len(observations)):
     #  A) We're including photometry in the fit and
     #  B) We actually have photometry
     if include_photometry and star_info is not None:
-        colours = star_info[colour_bands].values.astype(float)
-        e_colours = star_info[e_colour_bands].values.astype(float)
+        # Make a mask for the colours to use, since some might be nans
+        cmask = np.isfinite(star_info[colour_bands].values.astype(float))
+        colours = star_info[colour_bands].values.astype(float)[cmask]
+        e_colours = star_info[e_colour_bands].values.astype(float)[cmask]
         fit_used_colours.append(True)
+
+        # Now write flags indicating which colours were used
+        flags = str(cmask.astype(int))[1:-1].replace(" ", "")
+        colours_used.append(flags)
     else:
         colours = None
         e_colours = None
         fit_used_colours.append(False)
+        colours_used.append("000")
 
     # Initialise Teff and [Fe/H] and fix logg
     if fix_logg:
@@ -207,7 +223,7 @@ for ob_i in range(0, len(observations)):
         bad_px_mask_b=bad_px_mask_b,
         stellar_colours=colours,
         e_stellar_colours=e_colours,
-        colour_bands=colour_bands,
+        colour_bands=colour_bands[cmask],   # Mask the colours to what we have
         )
 
     # Record results
@@ -257,6 +273,7 @@ else:
 observations["rchi2_synth"] = np.array(rchi2)
 observations["both_arm_synth_fit"] = np.array(both_arm_synth_fit)
 observations["fit_used_colours"] = np.array(fit_used_colours)
+observations["colours_used"] = np.array(colours_used)
 
 utils.update_fits_obs_table(observations, label, path=spec_path)
 

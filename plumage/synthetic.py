@@ -744,6 +744,9 @@ def calc_colour_resid(
     resid: float array
         Uncertainty weighted residual vector between observed and synthetic
         colours.
+    
+    synth_colours: float array
+        Array of synthetic stellar colour corresponding to colour_bands.
     """
     # Input checking
     if (len(stellar_colours) != len(e_stellar_colours) 
@@ -756,9 +759,10 @@ def calc_colour_resid(
                               for cb in colour_bands])
 
     # Calculate the residuals
-    resid = (stellar_colours - synth_colours) / e_stellar_colours
+    arb_scale = 10
+    resid = (stellar_colours - synth_colours) / (e_stellar_colours * arb_scale)
 
-    return resid
+    return resid, synth_colours
 
 
 def calc_synth_fit_resid_both_arms(
@@ -921,7 +925,7 @@ def calc_synth_fit_resid_both_arms(
     
     # Do photometric fit if we've been given data
     if sc_interp is not None:
-        resid_vect_colour = calc_colour_resid(
+        resid_vect_colour, synth_colours = calc_colour_resid(
             teff,
             logg,
             feh,
@@ -939,8 +943,15 @@ def calc_synth_fit_resid_both_arms(
         resid_vect = np.concatenate((resid_vect, resid_vect_colour))
 
     # Print updates
-    print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}".format(
-        teff, logg, feh), "\t{}".format(brc), end="")
+    print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}\t".format(
+        teff, logg, feh), end="")
+    
+    # Print synthetic colours
+    if sc_interp is not None:
+        for cband, csynth in zip(colour_bands, synth_colours):
+            print("{} = {:0.3f}, ".format(cband, csynth), end="")
+
+    print("\t{}".format(brc), end="")
     
     rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
     print("\t--> rchi^2 = {:0.1f}".format(rchi2))
@@ -1058,6 +1069,11 @@ def do_synthetic_fit(
     # If we've been given photometry, initialise synthetic colour interpolator
     else:
         sc_interp = SyntheticColourInterpolator()
+        
+        # Print observed stellar colours
+        for cband, cobs, ecobs in zip(colour_bands, stellar_colours, e_stellar_colours):
+            print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), end="")
+        print("\n")
 
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
