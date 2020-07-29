@@ -413,59 +413,7 @@ def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
         [dims[0], dims[1], int(len(spec_r_subset)/np.prod(dims[:2]))])
 
     return spec_b_subset, spec_r_subset
-
-# -----------------------------------------------------------------------------
-# Single fits file original functions for saving/loading spec/obs
-# ----------------------------------------------------------------------------- 
-def save_observations_fits(observations, label):
-    """Save observations table
-    """
-    save_path = os.path.join("spectra", "observations_{}.fits".format(label))
-    obs_table = Table.from_pandas(observations)
-    obs_table.write(save_path, format="fits", overwrite=True)
-
-
-def load_observations_fits(label):
-    """Load in the saved observation log from a fits file.
-    """
-    load_path = os.path.join("spectra", "observations_{}.fits".format(label))
-    obs_tab = Table(fits.open(load_path)[1].data)
-    obs_pd = obs_tab.to_pandas()
-
-    return obs_pd
-
-
-def save_spectra_fits(spectra, band, label):
-    """Save spectra as a fits file, with a different HDU table per star
-    """
-    save_path = os.path.join("spectra", 
-                             "spectra_{}_{}.fits".format(label, band))
     
-    hdu = fits.HDUList()
-
-    for spectrum in spectra:
-        spec_tab =  Table(spectrum.T, names=["wave", "spec", "e_spec"])
-        hdu.append(fits.BinTableHDU(spec_tab))
-
-    hdu.writeto(save_path, overwrite=True)
-
-
-def load_spectra_fits(band, label):
-    """Load in the spectra from a fits file.
-    """
-    load_path = os.path.join("spectra", 
-                             "spectra_{}_{}.fits".format(label, band))
-
-    fits_file = fits.open(load_path)
-    spectra = []
-
-    for hdu_i in range(1, len(fits_file)):
-        # Convert to numpy array
-        spec_rec = fits_file[hdu_i].data
-        spec_array = np.asarray(spec_rec).view((spec_rec.dtype[1], 3))
-        spectra.append(spec_array.T)
-
-    return np.stack(spectra)
 
 # -----------------------------------------------------------------------------
 # Spectra and table of observations
@@ -653,34 +601,17 @@ def load_fits_obs_table(label, path="spectra"):
     return obs_pd
 
 
-def update_fits_obs_table(observations, label, path="spectra"):
-    """Update table of observations stored in given fits file.
+def convert_1e20_to_nans(fits_table):
+    """Converts all instances of the astropy default filler values 1e20 to nans
 
     Parameters
     ----------
-    observations: pandas dataframe
-        Dataframe containing information about each observation.
-
-    label: string
-        Unique label (e.g. std, TESS) for the resulting fits file.
-    
-    path: string
-        Path to save the fits file to
+    fits_table: astropy.table.table.Table
+        The fits table to convert default 1e20 values to nan in.
     """
-    # All good, so construct the extension name
-    extname = "OBS_TAB"
-
-    # Load in the fits file
-    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
-
-    with fits.open(fits_path, mode="update") as fits_file:
-        if extname in fits_file:
-            # Update table
-            obs_tab = fits.BinTableHDU(Table.from_pandas(observations))
-            fits_file[extname].data = obs_tab.data
-            fits_file.flush()
-        else:
-            raise Exception("No table of observations to update")
+    for col in fits_table.columns:
+        if fits_table[col].dtype == np.dtype('<f8'):
+            fits_table[col][fits_table[col] == 1e20] = np.nan
 
 
 def save_fits_table(extension, dataframe, label, path="spectra"):
@@ -716,14 +647,20 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
     with fits.open(fits_path, mode="update") as fits_file:
         if extension in fits_file:
             # Update table
-            tab = fits.BinTableHDU(Table.from_pandas(dataframe))
-            fits_file[extension].data = tab.data
+            astropy_tab = Table.from_pandas(dataframe)
+            convert_1e20_to_nans(astropy_tab)
+
+            fits_tab = fits.BinTableHDU(astropy_tab)
+            fits_file[extension].data = fits_tab.data
             fits_file.flush()
         else:
             # Save table for first time
-            tab = fits.BinTableHDU(Table.from_pandas(dataframe))
-            tab.header["EXTNAME"] = (extension, valid_ext[extension])
-            fits_file.append(tab)
+            astropy_tab = Table.from_pandas(dataframe)
+            convert_1e20_to_nans(astropy_tab)
+
+            fits_tab = fits.BinTableHDU(astropy_tab)
+            fits_tab.header["EXTNAME"] = (extension, valid_ext[extension])
+            fits_file.append(fits_tab)
             fits_file.flush()
 
 # -----------------------------------------------------------------------------

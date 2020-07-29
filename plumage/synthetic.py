@@ -717,7 +717,8 @@ def calc_colour_resid(
     stellar_colours,
     e_stellar_colours,
     colour_bands,
-    sc_interp,):
+    sc_interp,
+    scale_fac):
     """Calculates the residuals between observed and synthetic colours.
 
     Parameters
@@ -739,6 +740,10 @@ def calc_colour_resid(
     sc_interp: SyntheticColourInterpolator
         SyntheticColourInterpolator object able to interpolate synth colours.
 
+    scale_fac: float, default: 100
+        Multiplicative scaling factor for the photometric colour residuals to
+        scale them relative to their spectroscopic counterparts.
+
     Returns
     -------
     resid: float array
@@ -759,8 +764,7 @@ def calc_colour_resid(
                               for cb in colour_bands])
 
     # Calculate the residuals
-    arb_scale = 10
-    resid = (stellar_colours - synth_colours) / (e_stellar_colours * arb_scale)
+    resid = scale_fac * (stellar_colours - synth_colours) / (e_stellar_colours)
 
     return resid, synth_colours
 
@@ -785,7 +789,8 @@ def calc_synth_fit_resid_both_arms(
     e_stellar_colours,
     colour_bands,
     sc_interp,
-    feh_offset,):
+    feh_offset,
+    scale_fac,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
     band spectrum related arrays are None, will just fit for red spectra. This
@@ -932,7 +937,8 @@ def calc_synth_fit_resid_both_arms(
             stellar_colours,
             e_stellar_colours,
             colour_bands,
-            sc_interp)
+            sc_interp,
+            scale_fac)
 
         if not np.sum(np.isfinite(resid_vect_colour)):
             resid_vect_colour = np.ones_like(resid_vect_colour) * 1E30
@@ -942,17 +948,19 @@ def calc_synth_fit_resid_both_arms(
         # Append this residual vector to the one from our spectra
         resid_vect = np.concatenate((resid_vect, resid_vect_colour))
 
-    # Print updates
+    # Print stellar param update
     print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}\t".format(
         teff, logg, feh), end="")
     
-    # Print synthetic colours
+    # Print synthetic colour update
     if sc_interp is not None:
         for cband, csynth in zip(colour_bands, synth_colours):
             print("{} = {:0.3f}, ".format(cband, csynth), end="")
 
+    # Print whether we're using blue, red, and colour information respectively
     print("\t{}".format(brc), end="")
     
+    # And finally the rchi^2
     rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
     print("\t--> rchi^2 = {:0.1f}".format(rchi2))
 
@@ -978,7 +986,8 @@ def do_synthetic_fit(
     stellar_colours=None,
     e_stellar_colours=None,
     colour_bands=['Rp-J', 'J-H', 'H-K'],
-    feh_offset=10,):
+    feh_offset=10,
+    scale_fac=100,):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
@@ -1071,15 +1080,17 @@ def do_synthetic_fit(
         sc_interp = SyntheticColourInterpolator()
         
         # Print observed stellar colours
-        for cband, cobs, ecobs in zip(colour_bands, stellar_colours, e_stellar_colours):
-            print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), end="")
+        for cband, cobs, ecobs in zip(
+            colour_bands, stellar_colours, e_stellar_colours):
+            print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), 
+                  end="")
         print("\n")
 
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
             band_settings_r, logg, band_settings_b, wave_b, spec_b, e_spec_b, 
             bad_px_mask_b, stellar_colours, e_stellar_colours, colour_bands, 
-            sc_interp, feh_offset)
+            sc_interp, feh_offset, scale_fac)
     
     if logg is None:
         bounds = ((2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset))
@@ -1163,16 +1174,24 @@ def do_synthetic_fit(
         spec_synth_r, 
         band_settings_r["arm"])
 
+    # Generate synthetic colours at the final params
+    if sc_interp is not None:
+        synth_colours = np.array([sc_interp.compute_colour((teff,logg,feh),cb) 
+                              for cb in colour_bands])
+    else:
+        synth_colours = None
+
     # Calculate uncertainties
     jac = opt_res["jac"]
     res = opt_res["fun"]
     cov = np.linalg.inv(jac.T.dot(jac))
     std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
 
-    # Add uncertainties and synthtic spectra to return dict
+    # Add uncertainties, synthtic spectra, and synthetic colours to return dict
     opt_res["std"] = std
     opt_res["spec_synth_b"] = spec_synth_b_norm
     opt_res["spec_synth_r"] = spec_synth_r_norm
+    opt_res["synth_colours"] = synth_colours
 
     return opt_res
 

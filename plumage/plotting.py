@@ -1109,7 +1109,9 @@ def plot_std_comp(
     std_info,
     teff_lims=[3000,4600],
     feh_lims=[-1.4,0.75],
-    show_median_offset=False,):
+    show_median_offset=False,
+    fn_suffix="",
+    title_text="",):
     """Plot 2x3 grid of Teff and [Fe/H] literature comparisons.
         1 - Mann+15 Teffs
         2 - Rojas-Ayala+12 Teffs
@@ -1124,6 +1126,8 @@ def plot_std_comp(
     And Rojas-Ayala+12:
      - https://ui.adsabs.harvard.edu/abs/2012ApJ...748...93R/abstract
 
+    Saves as paper/std_comp<fn_suffix>.<pdf/png>.
+
     Parameters
     ----------
     observations: pandas.DataFrame
@@ -1136,7 +1140,13 @@ def plot_std_comp(
         Axis limits for Teff and [Fe/H] respectively.
 
     show_median_offset: bool, default: False
-        Whether to plot the median uncertainty as text.
+        Whether to plot the median offset as text.
+
+    fn_suffix: string, default: ''
+        Suffix to append to saved figures
+        
+    title_text: string, default: ''
+        Text for fig.suptitle.
     """
     # Table join
     #observations.rename(columns={"uid":"source_id"}, inplace=True)
@@ -1247,10 +1257,11 @@ def plot_std_comp(
         cmap="magma",
         show_median_offset=show_median_offset,)
 
+    fig.suptitle(title_text)
     plt.gcf().set_size_inches(12, 8)
     plt.tight_layout()
-    plt.savefig("paper/std_comp.pdf")
-    plt.savefig("paper/std_comp.png")
+    plt.savefig("paper/std_comp{}.pdf".format(fn_suffix))
+    plt.savefig("paper/std_comp{}.png".format(fn_suffix))
 
 
 def plot_teff_comp(
@@ -1261,9 +1272,14 @@ def plot_teff_comp(
     cb_col="feh_synth",
     teff_lims=[3000,4600],
     feh_lims=[-1.4,0.75],
-    mask_outside_lims=True,):
+    mask_outside_lims=True,
+    show_median_offset=True,
+    fn_suffix="",
+    title_text="",):
     """Plots a comparison between Teff from colour relations and the fitted
     spectroscopic Teff.
+
+    Saves as paper/teff_comp<fn_suffix>.<pdf/png>.
 
     Parameters
     ----------
@@ -1281,6 +1297,15 @@ def plot_teff_comp(
 
     mask_outside_lims: bool, default: True
         Whether to only plot and consider stars inside the limits.
+
+    show_median_offset: bool, default: False
+        Whether to plot the median offset as text.
+
+    fn_suffix: string, default: ''
+        Suffix to append to saved figures
+        
+    title_text: string, default: ''
+        Text for fig.suptitle.
     """
     # Table join
     #observations.rename(columns={"uid":"source_id"}, inplace=True)
@@ -1322,6 +1347,7 @@ def plot_teff_comp(
     cb = fig.colorbar(sc, ax=axis)
     cb.set_label("[Fe/H]")
 
+    fig.suptitle(title_text)
     axis.set_xlabel(r"$T_{\rm eff}\,$K (fit)")
     axis.set_ylabel(r"$T_{\rm eff}\,$K (rel)")
 
@@ -1334,8 +1360,18 @@ def plot_teff_comp(
 
     axis.set_aspect("equal")
 
-    plt.savefig("paper/teff_comp.pdf")
-    plt.savefig("paper/teff_comp.png")
+    # Plot median offset from photometric temperatures
+    if show_median_offset:
+        med_offset = np.nanmedian(
+            np.abs(obs_join["teff_synth"] - obs_join[phot_teff_col]))
+        axis.text(
+            x=np.mean(teff_lims), 
+            y=0.95*teff_lims[1], 
+            s=r"$\pm {:0.2f}\,$K".format(med_offset),
+            horizontalalignment="center")
+
+    plt.savefig("paper/teff_comp{}.pdf".format(fn_suffix))
+    plt.savefig("paper/teff_comp{}.png".format(fn_suffix))
 
 
 def get_gaia_rv(uid, std_params):

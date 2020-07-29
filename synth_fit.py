@@ -42,6 +42,9 @@ include_photometry = True
 colour_bands = np.array(['Rp-J', 'J-H', 'H-K'])
 e_colour_bands = np.array(['e_Rp-J', 'e_J-H', 'e_H-K'])
 
+# Scale factor for synthetic colour residuals
+scale_fac = 1000
+
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
 info_cat = utils.load_info_cat(info_cat_path, only_observed=True) 
@@ -224,7 +227,7 @@ for ob_i in range(0, len(observations)):
         stellar_colours=colours,
         e_stellar_colours=e_colours,
         colour_bands=colour_bands[cmask],   # Mask the colours to what we have
-        )
+        scale_fac=scale_fac,)
 
     # Record results
     params_fit.append(opt_res["x"])
@@ -251,6 +254,14 @@ for ob_i in range(0, len(observations)):
           "logg = {:0.2f} +/- {:0.2f},".format(logg, e_logg),
           "[Fe/H] = {:+0.2f} +/- {:0.2f}\n".format(feh, e_feh),)
 
+    # Print observed stellar colours
+    synth_colours = opt_res["synth_colours"]
+
+    if synth_colours is not None:
+        for cband, csynth in zip(colour_bands[cmask], synth_colours):
+            print("{} = {:0.3f}, ".format(cband, csynth), end="")
+        print("\n")
+
 # -----------------------------------------------------------------------------
 # Save results
 # -----------------------------------------------------------------------------
@@ -274,8 +285,9 @@ observations["rchi2_synth"] = np.array(rchi2)
 observations["both_arm_synth_fit"] = np.array(both_arm_synth_fit)
 observations["fit_used_colours"] = np.array(fit_used_colours)
 observations["colours_used"] = np.array(colours_used)
+observations["colour_resid_scale_factor"] = scale_fac
 
-utils.update_fits_obs_table(observations, label, path=spec_path)
+utils.save_fits_table("OBS_TAB", observations, label, path=spec_path)
 
 # Save best fit synthetic spectra
 synth_fits_b = np.array(synth_fits_b)
