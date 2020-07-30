@@ -12,6 +12,7 @@ import plumage.synthetic as synth
 import plumage.transits as transit
 from tqdm import tqdm
 import matplotlib.transforms as transforms
+import matplotlib.ticker as plticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Ensure the plotting folder exists to save to
@@ -1727,6 +1728,67 @@ def plot_label_comparison(
         # Sort the array
         #mm = np.isin(observations["uid"], std_info[std_info["source"]==source]["source_id"])  
         #obs = observations[mm]
+
+# -----------------------------------------------------------------------------
+# Planet plots
+# ----------------------------------------------------------------------------- 
+def plot_planet_radii_hist(lc_results, bin_width=0.4):
+    """Plots a histogram of stellar radii.
+
+    Parameters
+    ----------
+    lc_results: pandas.core.frame.DataFrame
+        Results DataFrame from light curve fitting
+
+    bin_width: float, default: 0.4
+        The width of the histogram bins in R_E
+    """
+    plt.close("all")
+    fig, axis = plt.subplots()
+
+    max_rp = np.max(lc_results["rp_fit"])
+    bin_edges = np.arange(0, max_rp+bin_width, bin_width)
+
+    axis.hist(lc_results["rp_fit"], bins=bin_edges)
+
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
+
+    axis.set_xlabel(r"Planet radius ($R_E$)")
+    axis.set_ylabel("# Planets")
+
+    plt.tight_layout()
+    plt.savefig("paper/planet_radii_hist.pdf")
+    plt.savefig("paper/planet_radii_hist.png")
+
+
+def plot_planet_period_vs_radius(lc_results):
+    """Plot planet period against planet radii.
+
+    Parameters
+    ----------
+    lc_results: pandas.core.frame.DataFrame
+        Results DataFrame from light curve fitting
+    """
+    plt.close("all")
+    fig, axis = plt.subplots()
+
+    axis.errorbar(
+        lc_results["Period (days)"],
+        lc_results["rp_fit"],
+        xerr=lc_results["Period error"],
+        yerr=lc_results["e_rp_fit"],
+        fmt=".")
+
+    axis.set_xlabel("Orbital Period (days)")
+    axis.set_ylabel(r"Planet radius ($R_E$)")
+
+    axis.set_ylim(-0.1,15)
+
+    plt.tight_layout()
+    plt.savefig("paper/planet_period_vs_radius.pdf")
+    plt.savefig("paper/planet_period_vs_radius.png")
+
 
 # -----------------------------------------------------------------------------
 # Light curve fitting

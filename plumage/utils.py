@@ -413,7 +413,7 @@ def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
         [dims[0], dims[1], int(len(spec_r_subset)/np.prod(dims[:2]))])
 
     return spec_b_subset, spec_r_subset
-    
+
 
 # -----------------------------------------------------------------------------
 # Spectra and table of observations
@@ -569,11 +569,15 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits table
 # -----------------------------------------------------------------------------
-def load_fits_obs_table(label, path="spectra"):
-    """Loads in the data from specified fits image HDU.
+def load_fits_table(extension, label, path="spectra"):
+    """Loads in the data from specified fits table HDU.
 
     Parameters
     ----------
+    extension: string
+        Which fits table extension to save. Currently either 'OBS_TAB' or 
+        'TRANSIT_FITS'
+
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
     
@@ -585,18 +589,22 @@ def load_fits_obs_table(label, path="spectra"):
     obs_pd: pandas dataframe
         Dataframe containing information about each observation.
     """
-    # All good, so construct the extension name
-    extname = "OBS_TAB"
+    # List of valid extensions
+    valid_ext = ["OBS_TAB", "TRANSIT_FITS"]
+
+    if extension not in valid_ext:
+        raise ValueError("Invalid extension type. Must be in {}".format(
+            valid_ext))
 
     # Load in the fits file
-    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+    fits_path = os.path.join(path, "spectra_{}.fits".format(label))
 
     with fits.open(fits_path, mode="readonly") as fits_file:
-        if extname in fits_file:
-            obs_tab = Table(fits_file[extname].data)
+        if extension in fits_file:
+            obs_tab = Table(fits_file[extension].data)
             obs_pd = obs_tab.to_pandas()
         else:
-            raise Exception("No table of observations or wrong fits format")
+            raise Exception("No table of that extension or wrong fits format")
 
     return obs_pd
 

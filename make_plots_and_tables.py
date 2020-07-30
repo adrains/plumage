@@ -29,6 +29,12 @@ bad_px_masks_tess_r = utils.load_fits_image_hdu("bad_px", "tess", arm="r")
 synth_tess_b = utils.load_fits_image_hdu("synth", "tess", arm="b")
 synth_tess_r = utils.load_fits_image_hdu("synth", "tess", arm="r")
 
+# Import light curve fitting results
+lc_results = utils.load_fits_table(
+    "TRANSIT_FITS", 
+    label="tess", 
+    path="spectra")
+
 """
 pplt.plot_all_synthetic_fits(
     spectra_r, 
@@ -83,19 +89,23 @@ pplt.plot_teff_comp(
 # Plot light curve summary
 
 # Plot planet results
-# pplt.plot_planet_radii_hist()
-# pplt.plot_planet_period_vs_radius()
+pplt.plot_planet_radii_hist(lc_results, bin_width=0.4)
+pplt.plot_planet_period_vs_radius(lc_results)
 
 # -----------------------------------------------------------------------------
 # Paper Tables
 # -----------------------------------------------------------------------------
 paper.make_table_targets()
-paper.make_table_observations()
+paper.make_table_observations(obs_tess, tic_info, "std")
 paper.make_table_final_results()
 paper.make_table_planet_params()
 #paper.make_table_fbol()
 #paper.make_table_ldc()
 #paper.make_table_lc_fit_params()
+
+# Standards
+paper.make_table_targets()
+paper.make_table_observations(obs_std, std_info, "std")
 
 """
 pplt.plot_teff_comp(

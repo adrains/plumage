@@ -131,7 +131,6 @@ def make_table_targets(break_row=45):
     """
     # Load in the TESS target info (TODO: function for this)
     tess_info = utils.load_info_cat(remove_fp=True, only_observed=True)
-    exp_scale = -8
     
     cols = OrderedDict([
         ("TIC$^a$", ""),
@@ -236,7 +235,7 @@ def make_table_targets(break_row=45):
     np.savetxt("paper/table_targets_2.tex", table_2, fmt="%s")
 
 
-def make_table_observations(break_row=60):
+def make_table_observations(observations, info_cat, label, break_row=60):
     """Make the LaTeX table to summarise the observations.
 
     Parameters
@@ -244,14 +243,19 @@ def make_table_observations(break_row=60):
     break_row: int
         Which row to break table 1 at and start table 2.
     """
-    # Load in observations and TIC info
-    observations = utils.load_fits_obs_table("TESS", path="spectra")
-    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
-
-    comb_info = observations.join(tic_info, "source_id", rsuffix="_info")
+    # Table join
+    comb_info = observations.join(info_cat, "source_id", rsuffix="_info", how="inner")
     
+    # Pick ID column based on label
+    if label == "tess":
+        id_col = "TIC"
+        id_label = "TIC"
+    else:
+        id_col = "source_id"
+        id_label = "Gaia DR2"
+
     cols = OrderedDict([
-        ("TIC", ""),
+        (id_label, ""),
         ("UT Date", ""), 
         (r"$X$", ""), 
         ("exp", "(sec)"), 
@@ -293,8 +297,8 @@ def make_table_observations(break_row=60):
         table_row = ""
         
         # Step through column by column
-        table_row += "%s & " % star["TIC"]
-        table_row += "%s & " % star["date"].split("T")[0]
+        table_row += "%s & " % star[id_col]
+        table_row += "%s & " % star["date"].split("T")[0][2:]
         table_row += "%0.1f & " % star["airmass"]
         table_row += "%0.0f & " % star["exp_time"]
         table_row += r"%0.2f $\pm$ %0.2f & " % (star["rv"], star["e_rv"])
@@ -316,8 +320,8 @@ def make_table_observations(break_row=60):
     table_2 = header_2 + table_rows[break_row:] + footer
 
     # Write the table
-    np.savetxt("paper/table_observations_1.tex", table_1, fmt="%s")
-    np.savetxt("paper/table_observations_2.tex", table_2, fmt="%s")
+    np.savetxt("paper/table_observations_{}_1.tex".format(label), table_1, fmt="%s")
+    np.savetxt("paper/table_observations_{}_2.tex".format(label), table_2, fmt="%s")
 
 
 def make_table_planet_params(break_row=60,):
@@ -329,23 +333,23 @@ def make_table_planet_params(break_row=60,):
         Which row to break table 1 at and start table 2.
     """
     # Load in observations, TIC, and TOI info
-    observations = utils.load_fits_obs_table("TESS", path="spectra")
-    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
-    #toi_info = utils.load_exofop_toi_cat()
-    toi_info = pd.read_csv("data/exofop_tess_tois2.csv", quoting=1) 
-    
-    #exp_scale = -8
+    observations = utils.load_fits_table("OBS_TAB", "TESS", path="spectra")
+    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)
+
+    lc_results = utils.load_fits_table("TRANSIT_FITS", label="tess", path="spectra")
     
     cols = OrderedDict([
         ("TOI", ""),
         ("TIC", ""),
-        (r"$R_p", r"($R_E$)"),
-        (r"$a$", "(au)"),
-        (r"$i$", r"($^\circ$)"),
-        #(r"$R$", "($R_\odot$)"), 
-        #(r"$M$", "($M_\odot$)"), 
+        ("Period", "(days)"),
+        (r" $a/R_*$ ", r""),     # prior
+        (r"$R_p/R_*$", r""),     # fit params
+        (r"$a/R_*$", r""),       # fit params
+        (r"$i$", r"($^\circ$)"), # fit params
+        (r"$R_p$", r"($R_E$)"),  # physical
+        (r"$a$", "(au)"),        # physical
     ])
-                           
+
     header = []
     header_1 = []
     header_2 = []
@@ -354,12 +358,17 @@ def make_table_planet_params(break_row=60,):
     notes = []
     
     # Construct the header of the table
-    header.append("\\begin{table}")
+    header.append("\\begin{table*}")
     header.append("\\centering")
     header.append("\\label{tab:planet_params}")
 
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
+
+    mc = (r"\multicolumn{3}{c}{TESS} & Prior & \multicolumn{3}{c}{Fit}"
+          r"\multicolumn{2}{c}{Physical} \\")
+
+    header.append(mc)
     header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
     header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
     header.append("\hline")
@@ -372,30 +381,48 @@ def make_table_planet_params(break_row=60,):
     header_2.insert(3, "\\contcaption{Planet params}")
 
     # Populate the table for every science target
-    for star_i, star in toi_info.iterrows():
+    for star_i, star in lc_results.iterrows():
         table_row = ""
         
         # Step through column by column
-        table_row += "%s & " % star["TOI"]
+        table_row += "%s & " % ""#star["TOI"] TODO
         table_row += "%s & " % star["TIC"]
 
-        # Planet params
+        # Period
         table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
-                star["radius_fit"], star["e_radius_fit"])
-            
+                star["Period (days)"], star["Period error"])
+
+        # a/R* (prior)
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(0,0)
+                #star["sma_rstar"], star["e_sma_rstar"]) TODO
+
+        # Rp/R*
         table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["rp_rstar_fit"], star["e_rp_rstar_fit"])
+
+        # a/R*
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["sma_rstar_fit"], star["e_sma_rstar_fit"])
+
+        # Inclination
+        table_row += r"{:0.1f} $\pm$ {:0.1f} &".format(
+            star["inclination_fit"], star["e_inclination_fit"])
+
+        # Rp (physical)
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["rp_fit"], star["e_rp_fit"])
+
+        # SMA (physical)
+        table_row += r"{:0.3f} $\pm$ {:0.3f}".format(
             star["sma"]/const.au.si.value, 
             star["e_sma"]/const.au.si.value)
 
-        table_row += r"{:0.1f} $\pm$ {:0.1f} ".format(
-            star["inclination_fit"], star["e_inclination_fit"])
-        
         table_rows.append(table_row + r"\\")
         
     # Finish the table
     footer.append("\hline")
     footer.append("\end{tabular}")
-    footer.append("\\end{table}")
+    footer.append("\\end{table*}")
     
     # Write the tables
     table_1 = header_1 + table_rows[:break_row] + footer + notes
