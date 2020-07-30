@@ -1044,7 +1044,7 @@ def shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour, alpha,
             previous_true = False
 
 # -----------------------------------------------------------------------------
-# Comparisons
+# Comparisons & other paper plots
 # ----------------------------------------------------------------------------- 
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label, 
     y_label, cb_label, lims, cmap, show_median_offset,):
@@ -1374,114 +1374,65 @@ def plot_teff_comp(
     plt.savefig("paper/teff_comp{}.png".format(fn_suffix))
 
 
-def get_gaia_rv(uid, std_params):
-    """
-    """
-    entry = std_params[std_params["source_id"]==uid]
-    if len(entry) == 0:
-        rv = np.nan
-        e_rv = np.nan
-    elif len(entry) == 1:
-        rv = float(entry["rv"])
-        e_rv = float(entry["e_rv"])
-    elif len(entry) > 1:
-        raise ValueError("Duplicate standard detected in std_params")
-
-    return rv, e_rv
-
-
-def plot_std_rv_comparison(observations, std_params):
-    """
-    """
-    rvs_gaia = []
-    e_rvs_gaia = []
-    markers = []
-
-    for star_i in range(0, len(observations)):
-        rv, e_rv = get_gaia_rv(observations.iloc[star_i]["uid"], std_params)
-        rvs_gaia.append(rv)
-        e_rvs_gaia.append(e_rv)
-
-    rvs_gaia = np.array(rvs_gaia)
-    e_rvs_gaia = np.array(e_rvs_gaia)
-
-    e_rvs = np.sqrt(observations["e_rv"].values**2 + 
-                    (3*np.ones(len(observations)))**2)
-
-    #e_rvs = observations["e_rv"].values
-    plt.close("all")
-    fig, axis = plt.subplots(sharex=True)
-
-    # Setup lower panel for residuals
-    #plt.setp(axis.get_xticklabels(), visible=False)
-    divider = make_axes_locatable(axis)
-    res_ax = divider.append_axes("bottom", size="30%", pad=0)
-    axis.figure.add_axes(res_ax, sharex=axis)
-    xx = np.arange(-200,100) 
-    axis.plot(xx, xx, color="black") 
-    plt.setp(axis.get_xticklabels(), visible=False)
-    
-    axis.errorbar(rvs_gaia, observations["rv"].values, yerr=e_rvs, 
-                 xerr=e_rvs_gaia, fmt=".", zorder=0)
-    scatter = axis.scatter(rvs_gaia, observations["rv"].values, 
-                           c=observations["teff_fit_rv"], marker="o", 
-                           cmap="magma", zorder=1)
-
-    cb = fig.colorbar(scatter, ax=axis)
-    cb.set_label(r"$T_{\rm eff}$")
-
-    # Residuals
-    res_ax.errorbar(rvs_gaia,
-                    observations["rv"].values-rvs_gaia,  
-                    yerr=e_rvs, 
-                    xerr=e_rvs_gaia, fmt=".", zorder=0) 
-    res_ax.scatter(rvs_gaia, 
-                   observations["rv"].values - rvs_gaia, 
-                    c=observations["teff_fit_rv"], marker="o", 
-                    cmap="magma", zorder=1)
-    res_ax.hlines(0, -200, 100, color="black") 
-
-    axis.set_xlim(-200,100)
-    res_ax.set_xlim(-200,100)
-    res_ax.set_ylim(-20, 20)
-
-    res_ax.set_xlabel(r"RV, Gaia DR2 (km$\,$s$^{-1}$)")
-    res_ax.set_ylabel(r"RV, residuals (km$\,$s$^{-1}$)")
-    axis.set_ylabel(r"RV, WiFeS (km$\,$s$^{-1}$)")
-
-    med_diff = np.nanmedian(observations["rv"].values-rvs_gaia)
-    print("Median RV difference: %f km/s" % med_diff)
-
-
-def plot_tess_cmd(
-    tess_info, 
-    plot_only_obs_pc=True, 
+def plot_cmd(
+    info_cat, 
+    info_cat_2=None,
     plot_toi_ids=False,
     colour="Bp-Rp",
     abs_mag="G_mag_abs",
-    ms=50
-    ):
-    """
-    """
-    # Make a mask
-    if plot_only_obs_pc:
-        mask = np.logical_and(tess_info["observed"], tess_info["pc"])
-    else:
-        mask = np.fill(len(tess_info), True)
+    x_label=r"$B_P-R_P$",
+    y_label=r"$M_{\rm G}$",
+    label="tess",):
+    """Plots a colour magnitude diagram using the specified columns and saves
+    the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
+    stars for e.g. comparison with standards.
 
+    Parameters
+    ----------
+    info_cat: pandas.DataFrame
+        Table of stellar literature info.
+
+    info_cat_2: pandas.DataFrame, default: None
+        Table of stellar literature info for second set of stars (e.g. 
+        standards). Optional.
+
+    plot_toi_ids: bool, default: False
+        Plot the TOI IDs on top of the points for diagnostic purposes.
+
+    colour: string, default: 'Bp-Rp'
+        Column name for colour (x) axis of CMD.
+
+    abs_mag: string, default: 'G_mag_abs'
+        Column name for absolute magnitude (y) axis of CMD.
+
+    x_label, y_label: string, default: r'$B_P-R_P$', r'$M_{\rm G}$'
+        Axis labels for X and Y axis respectively.
+
+    label: string, default: 'tess'
+        Label to use in filename, e.g. {label}_cmd.pdf
+    """
     plt.close("all")
     fig, axis = plt.subplots()
+
+    # Plot our first set of stars
     scatter = axis.scatter(
-        tess_info[mask][colour], 
-        tess_info[mask][abs_mag], 
-        s=ms,
-        #c=tess_info[mask]["ruwe"]>1.4,
-        c=np.logical_or(tess_info[mask]["blended_2mass"], tess_info[mask]["ruwe"]>1.4),
-        cmap="seismic"
+        info_cat[colour], 
+        info_cat[abs_mag], 
+        zorder=1,
     )
 
+    # Plot a second set of stars behind (e.g. standards)
+    if info_cat_2 is not None:
+        scatter = axis.scatter(
+        info_cat_2[colour], 
+        info_cat_2[abs_mag], 
+        marker="*",
+        zorder=0,
+    )
+
+    # Optional, but for diagnostic purposes plot the target TOI IDs
     if plot_toi_ids:
-        for star_i, star in tess_info[mask].iterrows():
+        for star_i, star in info_cat.iterrows():
             axis.text(
                 star[colour], 
                 star[abs_mag]-0.1,
@@ -1490,19 +1441,19 @@ def plot_tess_cmd(
                 fontsize="xx-small"
             )
 
-    cb = fig.colorbar(scatter, ax=axis)
-    cb.set_label("RUWE > 1.4")
+    #cb = fig.colorbar(scatter, ax=axis)
+    #cb.set_label("RUWE > 1.4")
 
     # Flip magnitude axis
     ymin, ymax = axis.get_ylim()
     axis.set_ylim((ymax, ymin))
 
-    #plt.xlabel(r"$B_P-R_P$")
-    #plt.ylabel(r"$G_{\rm abs}$")
-    axis.set_xlabel(colour)
-    axis.set_ylabel(abs_mag)
+    axis.set_xlabel(x_label)
+    axis.set_ylabel(y_label)
+
     fig.tight_layout()
-    plt.savefig("paper/tess_cmd.pdf")
+    plt.savefig("paper/{}_cmd.png".format(label))
+    plt.savefig("paper/{}_cmd.pdf".format(label))
 
 
 def plot_hr_diagram(
@@ -1970,3 +1921,84 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
             plot_path, 
             "lc_fit_{}_{}.pdf".format(toi, tic))
         plt.savefig(plt_save_loc)
+
+# -----------------------------------------------------------------------------
+# Radial Velocities
+# ----------------------------------------------------------------------------- 
+def get_gaia_rv(uid, std_params):
+    """
+    """
+    entry = std_params[std_params["source_id"]==uid]
+    if len(entry) == 0:
+        rv = np.nan
+        e_rv = np.nan
+    elif len(entry) == 1:
+        rv = float(entry["rv"])
+        e_rv = float(entry["e_rv"])
+    elif len(entry) > 1:
+        raise ValueError("Duplicate standard detected in std_params")
+
+    return rv, e_rv
+
+
+def plot_std_rv_comparison(observations, std_params):
+    """
+    """
+    rvs_gaia = []
+    e_rvs_gaia = []
+    markers = []
+
+    for star_i in range(0, len(observations)):
+        rv, e_rv = get_gaia_rv(observations.iloc[star_i]["uid"], std_params)
+        rvs_gaia.append(rv)
+        e_rvs_gaia.append(e_rv)
+
+    rvs_gaia = np.array(rvs_gaia)
+    e_rvs_gaia = np.array(e_rvs_gaia)
+
+    e_rvs = np.sqrt(observations["e_rv"].values**2 + 
+                    (3*np.ones(len(observations)))**2)
+
+    #e_rvs = observations["e_rv"].values
+    plt.close("all")
+    fig, axis = plt.subplots(sharex=True)
+
+    # Setup lower panel for residuals
+    #plt.setp(axis.get_xticklabels(), visible=False)
+    divider = make_axes_locatable(axis)
+    res_ax = divider.append_axes("bottom", size="30%", pad=0)
+    axis.figure.add_axes(res_ax, sharex=axis)
+    xx = np.arange(-200,100) 
+    axis.plot(xx, xx, color="black") 
+    plt.setp(axis.get_xticklabels(), visible=False)
+    
+    axis.errorbar(rvs_gaia, observations["rv"].values, yerr=e_rvs, 
+                 xerr=e_rvs_gaia, fmt=".", zorder=0)
+    scatter = axis.scatter(rvs_gaia, observations["rv"].values, 
+                           c=observations["teff_fit_rv"], marker="o", 
+                           cmap="magma", zorder=1)
+
+    cb = fig.colorbar(scatter, ax=axis)
+    cb.set_label(r"$T_{\rm eff}$")
+
+    # Residuals
+    res_ax.errorbar(rvs_gaia,
+                    observations["rv"].values-rvs_gaia,  
+                    yerr=e_rvs, 
+                    xerr=e_rvs_gaia, fmt=".", zorder=0) 
+    res_ax.scatter(rvs_gaia, 
+                   observations["rv"].values - rvs_gaia, 
+                    c=observations["teff_fit_rv"], marker="o", 
+                    cmap="magma", zorder=1)
+    res_ax.hlines(0, -200, 100, color="black") 
+
+    axis.set_xlim(-200,100)
+    res_ax.set_xlim(-200,100)
+    res_ax.set_ylim(-20, 20)
+
+    res_ax.set_xlabel(r"RV, Gaia DR2 (km$\,$s$^{-1}$)")
+    res_ax.set_ylabel(r"RV, residuals (km$\,$s$^{-1}$)")
+    axis.set_ylabel(r"RV, WiFeS (km$\,$s$^{-1}$)")
+
+    med_diff = np.nanmedian(observations["rv"].values-rvs_gaia)
+    print("Median RV difference: %f km/s" % med_diff)
