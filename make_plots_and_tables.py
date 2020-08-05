@@ -21,6 +21,8 @@ bad_px_masks_std_b = utils.load_fits_image_hdu("bad_px", "std", arm="b")
 bad_px_masks_std_r = utils.load_fits_image_hdu("bad_px", "std", arm="r")
 synth_std_b = utils.load_fits_image_hdu("synth", "std", arm="b")
 synth_std_r = utils.load_fits_image_hdu("synth", "std", arm="r")
+synth_std_lit_b = utils.load_fits_image_hdu("synth_lit", "std", arm="b")
+synth_std_lit_r = utils.load_fits_image_hdu("synth_lit", "std", arm="r")
 
 # Load spectra and results for TESS targets
 spec_tess_b, spec_tess_r, obs_tess = utils.load_fits("tess", path=spec_path)
@@ -37,19 +39,34 @@ lc_results = utils.load_fits_table(
 
 """
 pplt.plot_all_synthetic_fits(
-    spectra_r, 
-    synth_spec_r, 
-    bad_px_masks_r,
-    observations,
-    label,
-    info_cat,
-    spectra_b=spectra_b, 
-    synth_spec_b=synth_spec_b, 
-    bad_px_masks_b=bad_px_masks_b,
+    spec_tess_r, 
+    synth_tess_r, 
+    bad_px_masks_tess_r,
+    obs_tess,
+    "tess",
+    tess_info,
+    spectra_b=spec_tess_b, 
+    synth_spec_b=synth_tess_b, 
+    bad_px_masks_b=bad_px_masks_tess_b,
     is_tess=True,
     use_2mass_id=False,
     spec_synth_lit_b=None,
     spec_synth_lit_r=None,)
+
+pplt.plot_all_synthetic_fits(
+    spec_std_r, 
+    synth_std_r, 
+    bad_px_masks_std_r,
+    obs_std,
+    "std",
+    std_info,
+    spectra_b=spec_std_b, 
+    synth_spec_b=synth_std_b, 
+    bad_px_masks_b=bad_px_masks_std_b,
+    is_tess=False,
+    use_2mass_id=False,
+    spec_synth_lit_b=synth_std_lit_b,
+    spec_synth_lit_r=synth_std_lit_r,)
 """
 
 # -----------------------------------------------------------------------------
@@ -96,7 +113,7 @@ pplt.plot_planet_period_vs_radius(lc_results)
 # Paper Tables
 # -----------------------------------------------------------------------------
 paper.make_table_targets()
-paper.make_table_observations(obs_tess, tic_info, "std")
+paper.make_table_observations(obs_tess, tic_info, "tess", break_row=64)
 paper.make_table_final_results()
 paper.make_table_planet_params()
 #paper.make_table_fbol()

@@ -508,7 +508,7 @@ def plot_synthetic_fit(
         plt.savefig(save_path)
 
 
-def plot_cmd(colours, abs_mags, ruwe_mask, target_colour, target_abs_mag, 
+def plot_cmd_diagnostic(colours, abs_mags, ruwe_mask, target_colour, target_abs_mag, 
              target_ruwe, ax, xlabel, y_label, text_min=None):
     """Plots a colour magnitude diagram, outlining those stars with high
     values for Gaia DR2 RUWE (>1.4) and highlighting the current target star.
@@ -668,9 +668,9 @@ def plot_synth_fit_diagnostic(
         mask = info_cat["observed"]
 
     # Get target info
-    sid = obs_info["uid"]
+    sid = obs_info["source_id"]
     is_obs = info_cat["observed"].values
-    star_info = info_cat[is_obs][info_cat[is_obs]["source_id"]==sid].iloc[0]
+    star_info = info_cat[is_obs][info_cat[is_obs].index==sid].iloc[0]
 
     # Get the ID and info about the target
     if is_tess:
@@ -681,26 +681,13 @@ def plot_synth_fit_diagnostic(
             toi, tic, sid))
     
     else:
-        if not use_2mass_id:
-            
-            id_prefix = "Gaia DR2 "
-            id_col = "ID"
-            
-        else:
-            id_prefix = "2MASS J"
-            id_col = "2mass"
-            
-        if len(star_info) < 1:
-            return
-        elif len(star_info) > 1:
-            return
-        else:
-            star_info = star_info.iloc[0]
+        id_prefix = "Gaia DR2 "
+        id_col = "ID"
 
         plt.suptitle("{}, Gaia DR2 {}".format(star_info[id_col], sid))
 
     # Plot Gaia CMD
-    plot_cmd(
+    plot_cmd_diagnostic(
         info_cat[mask]["Bp-Rp"],
         info_cat[mask]["G_mag_abs"],
         info_cat[mask]["ruwe"] > 1.4,
@@ -713,7 +700,7 @@ def plot_synth_fit_diagnostic(
         text_min=text_min)
     
     # Plot 2MASS CMD
-    plot_cmd(
+    plot_cmd_diagnostic(
         info_cat[mask]["J-K"],
         info_cat[mask]["K_mag_abs"],
         info_cat[mask]["ruwe"] > 1.4,
@@ -806,16 +793,51 @@ def plot_synth_fit_diagnostic(
         bad_synth_px_mask=bad_synth_px_mask_b,
         spec_synth_lit=spec_synth_lit_b)
 
+    # Intialise columns to use for two sets of reference stars
+    mann15_cols = ["teff_m15", "e_teff_m15", "logg_m15", 
+                   "feh_m15", "e_feh_m15"]
+    ra12_cols = ["teff_ra12", "e_teff_ra12", "logg_m19", 
+                 "feh_ra12", "e_feh_ra12"]
+    int_cols = ["teff_int", "e_teff_int", "logg_m15", 
+                "feh_m15", "e_feh_m15"] # last three will be blank
+
+    lit_params = np.full(6, np.nan)
+    kind = ""
+    source = ""
+
     # If lit params are known, display
-    if "teff" in star_info and not is_tess:
-        lit_params = star_info[
-            ["teff", "e_teff", "logg", "feh", "e_feh"]].values
+    if (not is_tess and spec_synth_lit_b is not None 
+        and spec_synth_lit_r is not None):
+        # First check which we're using - Mann+15
+        if np.isfinite(np.sum(star_info[mann15_cols].values)):
+            lit_params = star_info[mann15_cols].values
+            kind = "NIR"
+            source = "Mann+15"
+        
+        # Rojas-Ayala+12
+        elif np.isfinite(np.sum(star_info[ra12_cols].values)):
+            lit_params = star_info[ra12_cols].values
+            kind = "NIR"
+            source = "Rojas-Ayala+12"
+
+        # Interferometry
+        elif np.isfinite(np.sum(star_info[["teff_int", "e_teff_int"]].values)):
+            lit_params = star_info[int_cols].values
+            kind = "interferometry"
+            source = str(star_info["source"])
+
+        # Empty
+        else:
+            lit_params = np.full(5, np.nan)
+            kind = ""
+            source = ""
+
         lit_param_label = (r"Lit Params ({}, {}): $T_{{\rm eff}} = {:0.0f} "
                            r"\pm {:0.0f}\,$K, $\log g = {:0.2f}$, [Fe/H]$ = "
                            r"{:0.2f} \pm {:0.2f}$")
         lit_param_label = lit_param_label.format(
-            str(star_info["kind"]),
-            str(star_info["source"]), 
+            kind,
+            source, 
             lit_params[0], 
             lit_params[1], 
             lit_params[2], 
@@ -952,6 +974,10 @@ def plot_all_synthetic_fits(
         else:
             spec_synth_lit_b_i = spec_synth_lit_b[i]
             spec_synth_lit_r_i = spec_synth_lit_r[i]
+
+        # Only bother plotting stars in the paper
+        if observations.iloc[i]["source_id"] not in info_cat.index:
+            continue
 
         # Do plotting
         plot_synth_fit_diagnostic(
@@ -1650,6 +1676,18 @@ def plot_fbol_comp(
 
     plt.gcf().set_size_inches(9, 12)
     plt.savefig("paper/fbol_comp.pdf")
+
+
+def plot_representative_spectra():
+    """Plots a representative set of standard stars
+        ~3000 K --> Gl 447 (Gaia DR2 3796072592206250624)
+        ~3500 K --> Gl 876 (Gaia DR2 2603090003484152064 )
+        ~4000 K --> PM I12507-0046 (Gaia DR2 3689602277083844480)
+        ~4500 K --> HD 131977 (Gaia DR2 6232511606838403968)
+
+
+    """
+    pass
 
 
 def plot_label_comparison(
