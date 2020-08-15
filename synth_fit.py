@@ -35,15 +35,15 @@ snr_ratio = 3
 snr_b_cutoff = 10
 
 # Whether to use blue spectra in fit
-use_blue_spectra = False
+use_blue_spectra = True
 
 # Whether to include photometry in fit
-include_photometry = True
+include_photometry = False
 colour_bands = np.array(['Rp-J', 'J-H', 'H-K'])
 e_colour_bands = np.array(['e_Rp-J', 'e_J-H', 'e_H-K'])
 
 # Scale factor for synthetic colour residuals
-scale_fac = 1000
+scale_fac = 10
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
@@ -72,11 +72,16 @@ band_settings_r = {
     "grid":"R7000",
 }
 
-# Whether to fix logg during fitting
+# Whether to fix logg or teff during fitting
 fix_logg = True
+fix_teff = True
 
-if fix_logg:
+if fix_logg and fix_teff:
+    n_params = 1
+
+elif fix_logg or fix_teff:
     n_params = 2
+
 else:
     n_params = 3
 
@@ -116,7 +121,7 @@ for ob_i in range(0, len(observations)):
         star_info = star_info.iloc[0]
 
     # Check if we're only fitting for a subset of the standards
-    if only_fit_info_cat_stars and star_info is None:
+    if (only_fit_info_cat_stars and star_info is None) or np.isnan(star_info["teff_m15"]):
         params_fit.append(np.full(n_params, np.nan))
         e_params_fit.append(np.full(n_params, np.nan))
         fit_results.append(None)
@@ -129,6 +134,9 @@ for ob_i in range(0, len(observations)):
 
         continue
     
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Initialise colours
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Now get the colours to be included in the fit if:
     #  A) We're including photometry in the fit and
     #  B) We actually have photometry
@@ -143,21 +151,46 @@ for ob_i in range(0, len(observations)):
         flags = str(cmask.astype(int))[1:-1].replace(" ", "")
         colours_used.append(flags)
     else:
+        cmask = np.array([False, False, False])
         colours = None
         e_colours = None
         fit_used_colours.append(False)
         colours_used.append("000")
 
-    # Initialise Teff and [Fe/H] and fix logg
-    if fix_logg:
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Initialise params
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Only fit for [Fe/H] --> 1 param fit
+    if fix_logg and fix_teff:
+        params_init = (
+            observations.iloc[ob_i]["feh_fit_rv"],
+            )
+        logg = star_info["logg_m19"]
+        e_logg = star_info["e_logg_m19"]
+        teff = star_info["teff_m15"]
+        e_teff = star_info["e_teff_m15"]
+
+    # Fit for Teff and [Fe/H] --> 2 param fit
+    elif fix_logg:
         params_init = (
             observations.iloc[ob_i]["teff_fit_rv"],
             observations.iloc[ob_i]["feh_fit_rv"],
             )
         logg = star_info["logg_m19"]
         e_logg = star_info["e_logg_m19"]
+        teff = None
     
-    # Intialise Teff, logg, and [Fe/H], and fit for logg
+    # Fit for logg and [Fe/H] --> 2 param fit
+    elif fix_teff:
+        params_init = (
+            observations.iloc[ob_i]["logg_fit_rv"],
+            observations.iloc[ob_i]["feh_fit_rv"],
+            )
+        logg = None
+        teff = star_info["teff_m15_bprp_jh"] - 80
+        e_teff = star_info["e_teff_m15_bprp_jh"]
+
+    # Fit for Teff, logg, and [Fe/H] --> 3 param fit
     else:
         params_init = (
             observations.iloc[ob_i]["teff_fit_rv"],
@@ -165,7 +198,11 @@ for ob_i in range(0, len(observations)):
             observations.iloc[ob_i]["feh_fit_rv"],
             )
         logg = None
+        teff = None
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Wavelength masks
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Setup temperature dependent wavelength masks for regions where the 
     # synthetic spectra are bad (e.g. missing opacities) at cool teffs
     bad_synth_px_mask_r = synth.make_synth_mask_for_bad_wl_regions(
@@ -176,6 +213,9 @@ for ob_i in range(0, len(observations)):
 
     bad_px_mask_r = np.logical_or(bad_px_masks_r[ob_i], bad_synth_px_mask_r)
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Setup blue/red spectra
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Check if we're going to fit with both red and blue specta. At low SNR, 
     # the measurement of blue SNR isn't reliable, so an approximate metric 
     # (based on comparison to the standard star set cooler than 4500 K) is that
@@ -207,7 +247,9 @@ for ob_i in range(0, len(observations)):
 
         both_arm_synth_fit.append(False)
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Do synthetic fit
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     opt_res = synth.do_synthetic_fit(
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
@@ -219,6 +261,7 @@ for ob_i in range(0, len(observations)):
         idl,
         band_settings_r,
         logg=logg,
+        teff=teff,
         band_settings_b=band_settings_b,
         wave_b=wave_b, 
         spec_b=spec_b, 
@@ -229,7 +272,9 @@ for ob_i in range(0, len(observations)):
         colour_bands=colour_bands[cmask],   # Mask the colours to what we have
         scale_fac=scale_fac,)
 
-    # Record results
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Sort out results
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     params_fit.append(opt_res["x"])
     e_params_fit.append(opt_res["std"])
     fit_results.append(opt_res)
@@ -242,12 +287,25 @@ for ob_i in range(0, len(observations)):
     else:
         synth_fits_b.append(np.ones_like(spectra_b[ob_i, 0])*np.nan)
 
-    if logg is None:
+    # 3 param fit (teff, logg, [Fe/H])
+    if logg is None and teff is None:
         teff, logg, feh = opt_res["x"]
         e_teff, e_logg, e_feh = opt_res["std"]
-    else:
+
+    # 2 param fit (logg, [Fe/H])
+    elif logg is None:
+        logg, feh = opt_res["x"]
+        e_logg, e_feh = opt_res["std"]
+
+    # 2 param fit (teff, [Fe/H])
+    elif teff is None:
         teff, feh = opt_res["x"]
         e_teff, e_feh = opt_res["std"]
+
+    # 1 param fit ([Fe/H])
+    else:
+        feh = float(opt_res["x"])
+        e_feh = float(opt_res["std"])
 
     print("\n---Result---")
     print("Teff = {:0.0f} +/- {:0.0f} K,".format(teff, e_teff), 
@@ -269,13 +327,25 @@ for ob_i in range(0, len(observations)):
 params_fit = np.stack(params_fit)
 e_params_fit = np.stack(e_params_fit)
 
-observations["teff_synth"] = params_fit[:,0]
-observations["e_teff_synth"] = e_params_fit[:,0]
+if fix_logg and fix_teff:
+    observations["feh_synth"] = params_fit[:,0]
+    observations["e_feh_synth"] = e_params_fit[:,0]
 
-if fix_logg:
+elif fix_logg:
+    observations["teff_synth"] = params_fit[:,0]
+    observations["e_teff_synth"] = e_params_fit[:,0]
     observations["feh_synth"] = params_fit[:,1]
     observations["e_feh_synth"] = e_params_fit[:,1]
+
+elif fix_teff:
+    observations["logg_synth"] = params_fit[:,0]
+    observations["e_logg_synth"] = e_params_fit[:,0]
+    observations["feh_synth"] = params_fit[:,1]
+    observations["e_feh_synth"] = e_params_fit[:,1]
+
 else:
+    observations["teff_synth"] = params_fit[:,0]
+    observations["e_teff_synth"] = e_params_fit[:,0]
     observations["logg_synth"] = params_fit[:,1]
     observations["e_logg_synth"] = e_params_fit[:,1]
     observations["feh_synth"] = params_fit[:,2]

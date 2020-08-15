@@ -780,6 +780,7 @@ def calc_synth_fit_resid_both_arms(
     idl,
     band_settings_r, 
     logg, 
+    teff,
     band_settings_b,
     wave_b, 
     spec_b, 
@@ -876,10 +877,17 @@ def calc_synth_fit_resid_both_arms(
         spectra.
     """
     # Unpack params and unscale [Fe/H]
-    if logg is None:
+    if logg is None and teff is None:
         teff, logg, feh = params - np.array([0,0,feh_offset])
-    else:
+
+    elif logg is None:
+        logg, feh = params - np.array([0,feh_offset])
+
+    elif teff is None:
         teff, feh = params - np.array([0,feh_offset])
+
+    else:
+        feh = params[0] - feh_offset
 
     # Initialise boolean flags to indicate which residuals are included in the
     # fit - blue spectra, red spectra, and photometry
@@ -978,6 +986,7 @@ def do_synthetic_fit(
     idl,
     band_settings_r,
     logg=None,
+    teff=None,
     band_settings_b=None,
     wave_b=None, 
     spec_b=None, 
@@ -1030,6 +1039,10 @@ def do_synthetic_fit(
 
     logg: float, default: None
         logg of the star, if fixing this dimension during fitting. If provided,
+        will only use least squares to optimise Teff and [Fe/H]
+
+    teff: float, default: None
+        teff of the star, if fixing this dimension during fitting. If provided,
         will only use least squares to optimise Teff and [Fe/H]
 
     band_settings_r: dict, default: None
@@ -1088,25 +1101,42 @@ def do_synthetic_fit(
 
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-            band_settings_r, logg, band_settings_b, wave_b, spec_b, e_spec_b, 
-            bad_px_mask_b, stellar_colours, e_stellar_colours, colour_bands, 
-            sc_interp, feh_offset, scale_fac)
+            band_settings_r, logg, teff, band_settings_b, wave_b, spec_b, 
+            e_spec_b,  bad_px_mask_b, stellar_colours, e_stellar_colours,  
+            colour_bands, sc_interp, feh_offset, scale_fac)
     
-    if logg is None:
+    # 3 parameter fit (teff, logg, [Fe/H])
+    if logg is None and teff is None:
         bounds = ((2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset))
         scale = (1, 1, 1)
         step = (0.1, 0.1, 0.1)
 
-        params = np.array(params) + np.array([0,0,feh_offset])
-    else:
+    # 2 parameter fit (logg, [Fe/H])
+    elif logg is None:
+        bounds = ((4, -2+feh_offset), (5.5, 0.5+feh_offset))
+        scale = (1, 1)
+        step = (0.1, 0.1)
+
+        params = np.array(params) + np.array([0,feh_offset]) # scale
+
+    # 2 parameter fit (teff, [Fe/H])
+    elif teff is None:
         bounds = ((2800, -2+feh_offset), (6000, 0.5+feh_offset))
         scale = (1, 1)
         step = (0.1, 0.1)
 
-        params = np.array(params) + np.array([0,feh_offset])
+        params = np.array(params) + np.array([0,feh_offset]) # scale
+
+    # 1 parameter fit ([Fe/H])
+    else:
+        bounds = ((-2+feh_offset), (0.5+feh_offset))
+        scale = (1)
+        step = (0.1)
+
+        params = np.array(params) + feh_offset # scale
     
     # Make sure initial teff guess isn't out of bounds, assign default if so
-    if params[0] < bounds[0][0] or params[0] > bounds[1][0]:
+    if teff is None and (params[0] < bounds[0][0] or params[0] > bounds[1][0]):
         params[0] = 5250
 
     # Do fit
@@ -1123,10 +1153,17 @@ def do_synthetic_fit(
     # Unscale [Fe/H]
     opt_res["x"][-1] -= feh_offset
 
-    if logg is None:
+    if logg is None and teff is None:
         teff, logg, feh = opt_res["x"]
-    else:
+    
+    elif logg is None:
+        logg, feh = opt_res["x"]
+
+    elif teff is None:
         teff, feh = opt_res["x"]
+
+    else:
+        feh = float(opt_res["x"])
 
     # Generate, normalise and save synthetic spectra at optimal params
     if band_settings_b is not None:
