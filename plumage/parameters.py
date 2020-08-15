@@ -394,6 +394,94 @@ def compute_logg(masses, e_masses, radii, e_radii,):
 
     return logg, e_logg
 
+
+def compute_casagrande_2020_teff(
+    colour,
+    logg,
+    feh,
+    relation,
+    teff_file="data/casagrande_colour_teff_2020.dat",):
+    """Calculates Teff using a given colour relation and measure of stellar 
+    logg and [Fe/H] per the Casagrande+2020 relations.
+
+    Parameters
+    ----------
+    colour: float
+        The stellar colour corresponding to 'relation'.
+    
+    logg: float
+        Stellar surface gravity in log cgs units.
+
+    feh: float
+        Stellar metallciity relative to solar, i.e. [Fe/H].
+
+    relation: string
+        Colour relation to use. Valid options are:
+            - (Bp-Rp)
+            - (Bp-J)
+            - (Bp-H)
+            - (Bp-K)
+            - (Rp-J)
+            - (Rp-H)
+            - (Rp-K)
+            - (G-J)
+            - (G-H)
+            - (G-K)
+            - (G-Bp)
+            - (G-Rp)
+        Where all colours have been corrected for reddening. Strings should be
+        entered in all lowercase, e.g. "bp-rp".
+    
+    teff_file: string
+        File of coefficients to load.
+
+    Returns
+    -------
+    teff, e_teff: float
+        Calculated stellar effective temperature and corresponding uncertainty.
+    """
+    # Load in 
+    c20_teff = pd.read_csv(
+        teff_file,
+        delim_whitespace=True,
+        comment="#",
+        index_col="colour",) 
+
+    # Ensure relation is valid
+    if relation not in c20_teff.index.values:
+        raise ValueError("Unsupported relation. Must be one of %s"
+                         % c20_teff.index.values)
+
+    # Get the coefficients
+    coeff_cols = ["a{}".format(i) for i in range(15)]
+    coeff = c20_teff.loc[relation][coeff_cols].values
+
+    # Calculate each term of the polynomial
+    poly_terms = [
+        coeff[0],
+        coeff[1]*colour,
+        coeff[2]*colour**2,
+        coeff[3]*colour**3,
+        coeff[4]*colour**5,
+        coeff[5]*logg,
+        coeff[6]*logg*colour,
+        coeff[7]*logg*colour**2,
+        coeff[8]*logg*colour**3,
+        coeff[9]*logg*colour**5,
+        coeff[10]*feh,
+        coeff[11]*feh*colour,
+        coeff[12]*feh*colour**2,
+        coeff[13]*feh*colour**3,
+        coeff[14]*feh*logg*colour,
+    ]
+
+    # And sum to get the final temperature
+    teff = np.sum(poly_terms)
+    e_teff = c20_teff.loc[relation]["sigma_teff"]
+
+    return teff, e_teff
+
+
 # -----------------------------------------------------------------------------
 # Orbital parameters
 # -----------------------------------------------------------------------------
