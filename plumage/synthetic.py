@@ -779,8 +779,8 @@ def calc_synth_fit_resid_both_arms(
     bcor, 
     idl,
     band_settings_r, 
-    logg, 
-    teff,
+    params_fit_keys,
+    params_fixed,
     band_settings_b,
     wave_b, 
     spec_b, 
@@ -830,9 +830,11 @@ def calc_synth_fit_resid_both_arms(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    logg: float
-        logg of the star, if fixing this dimension during fitting. If not None,
-        will only use least squares to optimise Teff and [Fe/H]
+    params_fit_keys: list
+        ...
+
+    params_fixed: 
+        ...
 
     band_settings_r: dict
         Dictionary with settings for WiFeS blue band, used when generating 
@@ -876,18 +878,17 @@ def calc_synth_fit_resid_both_arms(
         Uncertainty weighted residual vector between science and synthetic
         spectra.
     """
-    # Unpack params and unscale [Fe/H]
-    if logg is None and teff is None:
-        teff, logg, feh = params - np.array([0,0,feh_offset])
+    # Unpack params, first teff
+    ti = np.argwhere(params_fit_keys=="teff")
+    teff = params[int(ti)] if len(ti) > 0 else params_fixed["teff"]
 
-    elif logg is None:
-        logg, feh = params - np.array([0,feh_offset])
+    # logg
+    gi = np.argwhere(params_fit_keys=="logg")
+    logg = params[int(gi)] if len(gi) > 0 else params_fixed["logg"]
 
-    elif teff is None:
-        teff, feh = params - np.array([0,feh_offset])
-
-    else:
-        feh = params[0] - feh_offset
+    # [Fe/H] (and unscale)
+    fi = np.argwhere(params_fit_keys=="feh")
+    feh = params[int(fi)] - feh_offset if len(fi) > 0 else params_fixed["feh"]
 
     # Initialise boolean flags to indicate which residuals are included in the
     # fit - blue spectra, red spectra, and photometry
@@ -966,7 +967,7 @@ def calc_synth_fit_resid_both_arms(
             print("{} = {:0.3f}, ".format(cband, csynth), end="")
 
     # Print whether we're using blue, red, and colour information respectively
-    print("\t{}".format(brc), end="")
+    print("\t[b={}, r={}, c={}]".format(*brc), end="")
     
     # And finally the rchi^2
     rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
@@ -985,8 +986,7 @@ def do_synthetic_fit(
     bcor,
     idl,
     band_settings_r,
-    logg=None,
-    teff=None,
+    fit_for_params={"teff":True, "logg":True, "feh":True},
     band_settings_b=None,
     wave_b=None, 
     spec_b=None, 
@@ -1037,13 +1037,8 @@ def do_synthetic_fit(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    logg: float, default: None
-        logg of the star, if fixing this dimension during fitting. If provided,
-        will only use least squares to optimise Teff and [Fe/H]
-
-    teff: float, default: None
-        teff of the star, if fixing this dimension during fitting. If provided,
-        will only use least squares to optimise Teff and [Fe/H]
+    fit_for_params: list, default: [True, True, True]
+        ...
 
     band_settings_r: dict, default: None
         Dictionary with settings for WiFeS blue band, used when generating 
@@ -1084,6 +1079,14 @@ def do_synthetic_fit(
         Dictionary of best fit results returned from 
         scipy.optimize.least_squares.
     """
+    # Initalise boundary conditions on fit
+    bounds = np.array([(2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset)])
+    scale = np.array([1, 1, 1])
+    step = np.array([0.1, 0.1, 0.1])
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Initialise photometry
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # If no photometry, no need to initialise synthetic colour interpolator
     if stellar_colours is None or e_stellar_colours is None:
         sc_interp = None
@@ -1099,79 +1102,77 @@ def do_synthetic_fit(
                   end="")
         print("\n")
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Setup parameters and fit
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Setup a mask for slicing fit bounds/scaling/step
+    param_mask = list(fit_for_params.values())
+
+    # Scale [Fe/H]
+    params["feh"] += feh_offset
+
+    # Initialise param initial guess *to be fit for* as a list, save keys
+    params_init = [params[pp] for pp in params if fit_for_params[pp]]
+    params_init_keys = np.array([pp for pp in params if fit_for_params[pp]])
+
+    # Keep the rest in dictionary form
+    params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
+    
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-            band_settings_r, logg, teff, band_settings_b, wave_b, spec_b, 
-            e_spec_b,  bad_px_mask_b, stellar_colours, e_stellar_colours,  
-            colour_bands, sc_interp, feh_offset, scale_fac)
-    
-    # 3 parameter fit (teff, logg, [Fe/H])
-    if logg is None and teff is None:
-        bounds = ((2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset))
-        scale = (1, 1, 1)
-        step = (0.1, 0.1, 0.1)
-
-    # 2 parameter fit (logg, [Fe/H])
-    elif logg is None:
-        bounds = ((4, -2+feh_offset), (5.5, 0.5+feh_offset))
-        scale = (1, 1)
-        step = (0.1, 0.1)
-
-        params = np.array(params) + np.array([0,feh_offset]) # scale
-
-    # 2 parameter fit (teff, [Fe/H])
-    elif teff is None:
-        bounds = ((2800, -2+feh_offset), (6000, 0.5+feh_offset))
-        scale = (1, 1)
-        step = (0.1, 0.1)
-
-        params = np.array(params) + np.array([0,feh_offset]) # scale
-
-    # 1 parameter fit ([Fe/H])
-    else:
-        bounds = ((-2+feh_offset), (0.5+feh_offset))
-        scale = (1)
-        step = (0.1)
-
-        params = np.array(params) + feh_offset # scale
-    
-    # Make sure initial teff guess isn't out of bounds, assign default if so
-    if teff is None and (params[0] < bounds[0][0] or params[0] > bounds[1][0]):
-        params[0] = 5250
+            band_settings_r, params_init_keys, params_fixed, band_settings_b, 
+            wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_colours, 
+            e_stellar_colours, colour_bands, sc_interp, feh_offset, scale_fac)
 
     # Do fit
     opt_res = least_squares(
         calc_synth_fit_resid_both_arms, 
-        params, 
+        params_init, 
         jac="3-point",
-        bounds=bounds,
-        x_scale=scale,
-        diff_step=step,
+        bounds=bounds[:,param_mask],
+        x_scale=scale[param_mask],
+        diff_step=step[param_mask],
         args=args, 
     )
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Sort out fit results
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Calculate uncertainties
+    jac = opt_res["jac"]
+    res = opt_res["fun"]
+    cov = np.linalg.inv(jac.T.dot(jac))
+    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+    opt_res["std"] = std
+
+    # Teff
+    ti = np.argwhere(params_init_keys=="teff")
+    opt_res["teff"] = opt_res["x"][int(ti)] if len(ti) > 0 else params["teff"]
+    opt_res["e_teff"] = opt_res["std"][int(ti)] if len(ti) > 0 else np.nan
+
+    # logg
+    gi = np.argwhere(params_init_keys=="logg")
+    opt_res["logg"] = opt_res["x"][int(gi)] if len(gi) > 0 else params["logg"]
+    opt_res["e_logg"] = opt_res["std"][int(gi)] if len(gi) > 0 else np.nan
+
+    # [Fe/H]
+    fi = np.argwhere(params_init_keys=="feh")
+    opt_res["feh"] = opt_res["x"][int(fi)] if len(fi) > 0 else params["feh"]
+    opt_res["e_feh"] = opt_res["std"][int(fi)] if len(fi) > 0 else np.nan
+
     # Unscale [Fe/H]
-    opt_res["x"][-1] -= feh_offset
+    opt_res["feh"] -= feh_offset
 
-    if logg is None and teff is None:
-        teff, logg, feh = opt_res["x"]
-    
-    elif logg is None:
-        logg, feh = opt_res["x"]
-
-    elif teff is None:
-        teff, feh = opt_res["x"]
-
-    else:
-        feh = float(opt_res["x"])
-
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Get synthetic spectra and colours at optimal params
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Generate, normalise and save synthetic spectra at optimal params
     if band_settings_b is not None:
         _, spec_synth_b = get_idl_spectrum(
             idl, 
-            teff, 
-            logg, 
-            feh, 
+            opt_res["teff"], 
+            opt_res["logg"], 
+            opt_res["feh"], 
             wl_min=band_settings_b["wl_min"], 
             wl_max=band_settings_b["wl_max"], 
             ipres=band_settings_b["inst_res_pow"],
@@ -1192,9 +1193,9 @@ def do_synthetic_fit(
 
     _, spec_synth_r = get_idl_spectrum(
         idl, 
-        teff, 
-        logg, 
-        feh, 
+        opt_res["teff"], 
+        opt_res["logg"], 
+        opt_res["feh"], 
         wl_min=band_settings_r["wl_min"], 
         wl_max=band_settings_r["wl_max"], 
         ipres=band_settings_r["inst_res_pow"],
@@ -1213,22 +1214,21 @@ def do_synthetic_fit(
 
     # Generate synthetic colours at the final params
     if sc_interp is not None:
-        synth_colours = np.array([sc_interp.compute_colour((teff,logg,feh),cb) 
-                              for cb in colour_bands])
+        synth_colours = np.array(
+            [sc_interp.compute_colour(
+                (opt_res["teff"],opt_res["logg"],opt_res["feh"]),cb) 
+            for cb in colour_bands])
     else:
         synth_colours = None
 
-    # Calculate uncertainties
-    jac = opt_res["jac"]
-    res = opt_res["fun"]
-    cov = np.linalg.inv(jac.T.dot(jac))
-    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
-
-    # Add uncertainties, synthtic spectra, and synthetic colours to return dict
-    opt_res["std"] = std
+    # Add synthetic spectra and synthetic colours to return dict
     opt_res["spec_synth_b"] = spec_synth_b_norm
     opt_res["spec_synth_r"] = spec_synth_r_norm
     opt_res["synth_colours"] = synth_colours
+
+    # Calculate rchi^2
+    opt_res["rchi2"] = (np.sum(opt_res["fun"]**2) 
+                        / (len(opt_res["fun"])-len(params_init)))
 
     return opt_res
 
