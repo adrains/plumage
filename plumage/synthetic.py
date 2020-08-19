@@ -623,14 +623,8 @@ def calc_synth_fit_resid_one_arm(
     teff, logg, feh: float
         Stellar parameters for star.
 
-    wave_sci: float array
-        Wavelength scale corresponding to spec_sci.
-
-    spec_sci: float array
-        The science spectrum corresponding to wave_sci.
-
-    e_spec_sci: float array
-        Uncertainties on science spectrum.
+    wave_sci, spec_sci, e_spec_sci: float array
+        The science wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask: boolean array
         Array of bad pixels (i.e. bad pixels are True) for red arm
@@ -717,8 +711,7 @@ def calc_colour_resid(
     stellar_colours,
     e_stellar_colours,
     colour_bands,
-    sc_interp,
-    scale_fac):
+    sc_interp,):
     """Calculates the residuals between observed and synthetic colours.
 
     Parameters
@@ -740,10 +733,6 @@ def calc_colour_resid(
     sc_interp: SyntheticColourInterpolator
         SyntheticColourInterpolator object able to interpolate synth colours.
 
-    scale_fac: float, default: 100
-        Multiplicative scaling factor for the photometric colour residuals to
-        scale them relative to their spectroscopic counterparts.
-
     Returns
     -------
     resid: float array
@@ -764,7 +753,7 @@ def calc_colour_resid(
                               for cb in colour_bands])
 
     # Calculate the residuals
-    resid = scale_fac * (stellar_colours - synth_colours) / (e_stellar_colours)
+    resid = (stellar_colours - synth_colours) / (e_stellar_colours)
 
     return resid, synth_colours
 
@@ -803,14 +792,8 @@ def calc_synth_fit_resid_both_arms(
     params: float array
         Initial parameter guess of form (teff, logg, [Fe/H])
 
-    wave_r: float array
-        Wavelength scale for the red spectrum.
-
-    spec_r: float array
-        The red spectrum corresponding to wave_r.
-
-    e_spec_r: float array
-        Uncertainties on red spectra.
+    wave_r, spec_r, e_spec_r: float array
+        The red wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_r: boolean array
         Array of bad pixels (i.e. bad pixels are True) for red arm
@@ -842,19 +825,13 @@ def calc_synth_fit_resid_both_arms(
         parameters that are fixed during fitting. Will contain those parameters
         not in params_fit_keys.
 
-    band_settings_r: dict
+    band_settings_b: dict
         Dictionary with settings for WiFeS blue band, used when generating 
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    wave_b: float array, optional
-        Wavelength scale for the blue spectrum.
-
-    spec_b: float array, optional
-        The red spectrum corresponding to wave_r.
-
-    e_spec_b: float array, optional
-        Uncertainties on red spectra.
+    wave_r, spec_b, e_spec_b: float array
+        The blue wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_b: boolean, optional
         Array of bad pixels (i.e. bad pixels are True) for red arm
@@ -874,9 +851,13 @@ def calc_synth_fit_resid_both_arms(
     sc_interp: SyntheticColourInterpolator
         SyntheticColourInterpolator object able to interpolate synth colours.
 
-    feh_offset: float, default: 10
+    feh_offset: float
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
+
+    scale_fac: int
+        Multiplicative scaling factor for the photometric colour residuals to
+        scale them relative to their spectroscopic counterparts.
 
     suppress_fit_diagnostics: bool, default: False
         Whether to suppress printed diagnostics. 
@@ -901,72 +882,76 @@ def calc_synth_fit_resid_both_arms(
 
     # Initialise boolean flags to indicate which residuals are included in the
     # fit - blue spectra, red spectra, and photometry
-    brc = [False, True, False]
+    used_blue = False
+    used_red = False
+    used_colour = False
 
+    # Initialise empty residual arrays
+    resid_vect_r = []
+    resid_vect_b = []
+    resid_vect_colour = []
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Fit red
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
-        teff,
-        logg,
-        feh, 
-        wave_r, 
-        spec_r, 
-        e_spec_r, 
-        bad_px_mask_r,
-        rv, 
-        bcor, 
-        idl,
-        band_settings_r,)
+        teff, logg, feh, wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor, 
+        idl, band_settings_r,)
+
+    # Scale by RMS error
+    #resid_vect_r -= np.median(resid_vect_r)
     
-    # Do blue if we've been given it
+    # Update flag
+    used_red = True
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Fit blue
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if ((wave_b is not None) and (spec_b is not None) 
         and (e_spec_b is not None) and (bad_px_mask_b is not None)):
         # Determine blue residuals
         resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
-            teff,
-            logg,
-            feh, 
-            wave_b, 
-            spec_b, 
-            e_spec_b, 
-            bad_px_mask_b,
-            rv, 
-            bcor, 
-            idl,
-            band_settings_b,)
+            teff, logg, feh, wave_b, spec_b, e_spec_b, bad_px_mask_b, rv, bcor, 
+            idl, band_settings_b,)
         
-        # Combine residual vectors
-        resid_vect = np.concatenate((resid_vect_b, resid_vect_r))
-
-        brc[0] = True
+        # Scale by RMS error
+        #resid_vect_b -= np.median(resid_vect_b)
     
-    else:
-        # Default blue synth spec
-        spec_synth_b = None
-
-        # Just use red residual vector
-        resid_vect = resid_vect_r
+        # Update flag
+        used_blue = True
     
-    # Do photometric fit if we've been given data
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Fit colours
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if sc_interp is not None:
         resid_vect_colour, synth_colours = calc_colour_resid(
-            teff,
-            logg,
-            feh,
-            stellar_colours,
-            e_stellar_colours,
-            colour_bands,
-            sc_interp,
-            scale_fac)
+            teff, logg, feh, stellar_colours, e_stellar_colours, colour_bands,
+            sc_interp,)
 
-        if not np.sum(np.isfinite(resid_vect_colour)):
-            resid_vect_colour = np.ones_like(resid_vect_colour) * 1E30
-        else:
-            brc[2] = True
+        # Scale by mean
+        #resid_vect_colour -= np.median(resid_vect_colour)
 
-        # Append this residual vector to the one from our spectra
-        resid_vect = np.concatenate((resid_vect, resid_vect_colour))
+        # Do additional scaling by multiplying by scale_fac. This increases the
+        # weighting of the photometric colours, thus accounting for correlated
+        # spectral pixels that add to the residuals, without adding extra
+        # information to the fit.
+        resid_vect_colour *= scale_fac
+    
+        # Update flag
+        used_colour = True
 
+        #if not np.sum(np.isfinite(resid_vect_colour)):
+        #    resid_vect_colour = np.ones_like(resid_vect_colour) * 1E30
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Make final residual vector
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    resid_vect = np.concatenate(
+        (resid_vect_b, resid_vect_r, resid_vect_colour))
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Print diagnostics
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if not suppress_fit_diagnostics:
         # Print stellar param update
         print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}\t".format(
@@ -978,11 +963,12 @@ def calc_synth_fit_resid_both_arms(
                 print("{} = {:0.3f}, ".format(cband, csynth), end="")
 
         # Print whether we're using blue, red, and colour information
-        print("\t[b={}, r={}, c={}]".format(*brc), end="")
+        print("\t[b={}, r={}, c={}]".format(
+            used_blue, used_red, used_colour), end="")
         
         # And finally the rchi^2
         rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
-        print("\t--> rchi^2 = {:0.1f}".format(rchi2))
+        print("\t--> rchi^2 = {:0.5f}".format(rchi2))
 
     return resid_vect
 
@@ -1015,14 +1001,8 @@ def do_synthetic_fit(
 
     Parameters
     ----------
-    wave_r: float array
-        Wavelength scale for the red spectrum.
-
-    spec_r: float array
-        The red spectrum corresponding to wave_r.
-
-    e_spec_r: float array
-        Uncertainties on red spectra.
+    wave_r, spec_r, e_spec_r: float array
+        The red wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_r: boolean array
         Array of bad pixels (i.e. bad pixels are True) for red arm
@@ -1053,19 +1033,13 @@ def do_synthetic_fit(
         indicates the parameter will be fitted for as part of the least sqaures
         fit, and False indicates the parameter will be fixed.
 
-    band_settings_r: dict, default: None
+    band_settings_b: dict, default: None
         Dictionary with settings for WiFeS blue band, used when generating 
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    wave_b: float array, optional
-        Wavelength scale for the blue spectrum.
-
-    spec_b: float array, optional
-        The red spectrum corresponding to wave_r.
-
-    e_spec_b: float array, optional
-        Uncertainties on red spectra.
+    wave_b, spec_b, e_spec_b: float array
+        The blue wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_b: boolean, optional
         Array of bad pixels (i.e. bad pixels are True) for red arm
@@ -1087,8 +1061,8 @@ def do_synthetic_fit(
         improve compatability with diff_step.
 
     scale_fac: int, default: 100
-        Scaling factor to weight the residuals from photometry versus those 
-        from the spectra.
+        Multiplicative scaling factor for the photometric colour residuals to
+        scale them relative to their spectroscopic counterparts.
 
     Returns
     -------
@@ -1273,7 +1247,109 @@ def make_chi2_map(
     valley_teff_width=50,
     desc="",
     n_fits_valley_fact=4,):
-    """
+    """Samples the chi^2 space in Teff and [Fe/H] in a box around central 
+    literature values of Teff and [Fe/H].
+
+    Parameters
+    ----------
+    teff_actual, logg_actual, feh_actual: float
+        Literature parameters for the star to be used as the centre of the
+        chi^2 'box'.
+
+    wave_r, spec_r, e_spec_r: float array
+        The red wavelength scale, spectrum, and uncertainties vectors.
+
+    bad_px_mask_r: boolean array
+        Array of bad pixels (i.e. bad pixels are True) for red arm
+        corresponding to wave_r.
+
+    rv: float
+        Radial velocity in km/s
+
+    bcor: float:
+        Barycentric velocity in km/s
+
+    idl: pidly.IDL
+        pidly.IDL object to interface with Thomas Nordlander's synthetic 
+        MARCS spectra through IDL.
+
+    band_settings_r: dict
+        Dictionary with settings for WiFeS red band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
+
+    params_fit_keys: string list
+        List of parameters that are to be fitted for, either:
+         - 'teff'
+         - 'logg'
+         - 'feh'
+
+    params_fixed: dict
+        Dictionary pairing of parameter ('teff', 'logg', 'feh') for those
+        parameters that are fixed during fitting. Will contain those parameters
+        not in params_fit_keys.
+
+    band_settings_b, band_settings_r: dict
+        Dictionary with settings for WiFeS B and R band, used when generating 
+        synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
+        "n_px", "wl_per_px", "wl_broadening", "arm"]
+
+    wave_b, spec_b, e_spec_b: float array
+        The blue wavelength scale, spectrum, and uncertainties vectors.
+
+    bad_px_mask_b: boolean, optional
+        Array of bad pixels (i.e. bad pixels are True) for blue arm
+        corresponding to wave_b.
+
+    stellar_colours: float array, default: None
+        Array of observed stellar colour corresponding to colour_bands. If None
+        photometry is not used in the fit.
+
+    e_stellar_colours: float array, default: None
+        Array of observed stellar colour uncertainties. If None photometry is 
+        not used in the fit.
+
+    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
+        Colour bands to use in the fit.
+
+    teff_span, feh_spane: float, default: 400, 1.0
+        Width of the chi^2 box in Teff and [Fe/H], centred on the literature
+        values of Teff and [Fe/H].
+    
+    n_fits: int, default: 100
+        Number of random samples to make in Teff-[Fe/H] for the chi^2 map.
+
+    feh_offset: float, default: 10
+        Arbitrary offset to add to [Fe/H] so that it never goes below zero to
+        improve compatability with diff_step.
+
+    scale_fac: int, default: 100
+        Scaling factor to weight the residuals from photometry versus those 
+        from the spectra.
+
+    feh_lims: float tuple, default: (-2, 0.5)
+        Limits for [Fe/H] when sampling.
+
+    feh_min_step: float, default: 0.05
+        Step size in [Fe/H] for mapping the valley floor.
+
+    valley_teff_interp: None or scipy.interpolate.interp1d
+        Interpolator for chi^2 valley to better sample region around valley.
+
+    valley_teff_width: float, default: 50
+        Width of valley to sample in on recursive function call.
+
+    desc: string, default:""
+        String to add to TQDM progress bar on recursive call.
+
+    n_fits_valley_fact: int, default: 4
+        Amount to scale n_fits by on recursive function call to account for
+        rejection sampling when doing recursive call to populate the valley.
+
+    Returns
+    -------
+    teffs, fehs, rchi2s: float array
+        Sampled Teffs, [Fe/H] and resulting rchi^2s.
     """
     # Generate n_fits realisations of our parameters
     teffs = teff_span*np.random.random_sample(n_fits) + teff_actual-teff_span/2
