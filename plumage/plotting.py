@@ -1070,6 +1070,112 @@ def shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour, alpha,
         else:
             previous_true = False
 
+
+def plot_chi2_map(
+    teff_actual,
+    e_teff_actual,
+    feh_actual,
+    e_feh_actual,
+    teffs,
+    fehs,
+    rchi2s,
+    levels=6,
+    size=100,
+    do_log10_rchi2s=True,
+    use_n_log_levels=False,
+    feh_slice_step=0.05,
+    n_minima=5,):
+    """Visualise chi^2 space as follows:
+        1) Teff vs [Fe/H] scatter plot with chi^2 colours
+        2) Teff vs [Fe/H] with chi^2 contours
+        3) chi^2 values along the valley of minima
+
+    Where 1) and 2) plot the literature value of the star, and track points 
+    along the valley.
+    """
+    # Initialise
+    plt.close("all")
+    fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
+
+    # Log chi^2
+    if do_log10_rchi2s:
+        rchi2s = np.log10(rchi2s)
+    
+    # Whether to use N levels in logspace instead
+    if do_log10_rchi2s and use_n_log_levels:
+        levels = np.logspace(
+            np.log10(rchi2s.min()), 
+            np.log10(rchi2s.max()), 
+            levels)
+
+    # 1) Scatter plot
+    sc = sc_ax.scatter(teffs, fehs, c=rchi2s, s=size)
+    sc_ax.errorbar(
+        teff_actual, 
+        feh_actual, 
+        xerr=e_teff_actual, 
+        yerr=e_feh_actual, 
+        fmt="ro",
+        ecolor="red",)
+    
+    # Plot a line along the chi^2 valley
+    opt_fehs = []
+    opt_teffs = []
+    opt_rchi2s = []
+
+    for feh_step in np.arange(fehs.min(), fehs.max(), feh_slice_step):
+        slice_mask = np.logical_and(
+            fehs > feh_step, 
+            fehs < feh_step+feh_slice_step)
+
+        rslice = rchi2s[slice_mask]
+
+        # Skip if no points in this slice
+        if len(rslice) == 0:
+            continue
+        else:
+            min_i = int(np.argmin(rslice))
+
+        opt_fehs.append(fehs[slice_mask][min_i])
+        opt_teffs.append(teffs[slice_mask][min_i])
+        opt_rchi2s.append(rchi2s[slice_mask][min_i])
+
+    sc_ax.plot(opt_teffs, opt_fehs, "x--", color="orange")
+
+    sc_ax.set_xlabel(r"$T_{\rm eff}$")
+    sc_ax.set_ylabel("[Fe/H]")
+    sc_ax.set_aspect(1./sc_ax.get_data_ratio())
+
+    # Plot the N lowest points sampled
+    sorted_i = np.argsort(rchi2s)
+    sorted_teffs = teffs[sorted_i]
+    sorted_fehs = fehs[sorted_i]
+    sorted_rchi2s = rchi2s[sorted_i]
+    
+    for min_i in range(n_minima):
+        sc_ax.plot(sorted_teffs[min_i], sorted_fehs[min_i], "+", color="red")
+        cont_ax.plot(sorted_teffs[min_i], sorted_fehs[min_i], "+", color="red")
+
+    # 2) Plot a contour plot with the same data
+    cont_ax.tricontourf(teffs, fehs, rchi2s, levels)
+    cont_ax.errorbar(
+        teff_actual, 
+        feh_actual, 
+        xerr=e_teff_actual, 
+        yerr=e_feh_actual, 
+        fmt="ro",
+        ecolor="red")
+
+    cont_ax.set_xlabel(r"$T_{\rm eff}$")
+    cont_ax.set_aspect(1./cont_ax.get_data_ratio())
+    cont_ax.plot(opt_teffs, opt_fehs, "x--", color="orange")
+
+    # 3) Plot the valley as its own plot
+    val_ax.plot(opt_rchi2s, opt_fehs, "x--", color="orange")
+    val_ax.set_xlabel("rchi^2")
+    val_ax.set_aspect(1./val_ax.get_data_ratio())
+
+
 # -----------------------------------------------------------------------------
 # Comparisons & other paper plots
 # ----------------------------------------------------------------------------- 

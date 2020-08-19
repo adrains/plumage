@@ -791,7 +791,8 @@ def calc_synth_fit_resid_both_arms(
     colour_bands,
     sc_interp,
     feh_offset,
-    scale_fac,):
+    scale_fac,
+    suppress_fit_diagnostics=False,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
     band spectrum related arrays are None, will just fit for red spectra. This
@@ -830,11 +831,16 @@ def calc_synth_fit_resid_both_arms(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    params_fit_keys: list
-        ...
+    params_fit_keys: string list
+        List of parameters that are to be fitted for, either:
+         - 'teff'
+         - 'logg'
+         - 'feh'
 
-    params_fixed: 
-        ...
+    params_fixed: dict
+        Dictionary pairing of parameter ('teff', 'logg', 'feh') for those
+        parameters that are fixed during fitting. Will contain those parameters
+        not in params_fit_keys.
 
     band_settings_r: dict
         Dictionary with settings for WiFeS blue band, used when generating 
@@ -871,6 +877,9 @@ def calc_synth_fit_resid_both_arms(
     feh_offset: float, default: 10
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
+
+    suppress_fit_diagnostics: bool, default: False
+        Whether to suppress printed diagnostics. 
 
     Returns
     -------
@@ -957,21 +966,23 @@ def calc_synth_fit_resid_both_arms(
         # Append this residual vector to the one from our spectra
         resid_vect = np.concatenate((resid_vect, resid_vect_colour))
 
-    # Print stellar param update
-    print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}\t".format(
-        teff, logg, feh), end="")
-    
-    # Print synthetic colour update
-    if sc_interp is not None:
-        for cband, csynth in zip(colour_bands, synth_colours):
-            print("{} = {:0.3f}, ".format(cband, csynth), end="")
+    # Print diagnostics
+    if not suppress_fit_diagnostics:
+        # Print stellar param update
+        print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}\t".format(
+            teff, logg, feh), end="")
+        
+        # Print synthetic colour update
+        if sc_interp is not None:
+            for cband, csynth in zip(colour_bands, synth_colours):
+                print("{} = {:0.3f}, ".format(cband, csynth), end="")
 
-    # Print whether we're using blue, red, and colour information respectively
-    print("\t[b={}, r={}, c={}]".format(*brc), end="")
-    
-    # And finally the rchi^2
-    rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
-    print("\t--> rchi^2 = {:0.1f}".format(rchi2))
+        # Print whether we're using blue, red, and colour information
+        print("\t[b={}, r={}, c={}]".format(*brc), end="")
+        
+        # And finally the rchi^2
+        rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
+        print("\t--> rchi^2 = {:0.1f}".format(rchi2))
 
     return resid_vect
 
@@ -1037,8 +1048,10 @@ def do_synthetic_fit(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    fit_for_params: list, default: [True, True, True]
-        ...
+    fit_for_params: dict, default: {"teff":True, "logg":True, "feh":True}
+        Dictionary mapping stellar parameters to a boolean, where a True
+        indicates the parameter will be fitted for as part of the least sqaures
+        fit, and False indicates the parameter will be fixed.
 
     band_settings_r: dict, default: None
         Dictionary with settings for WiFeS blue band, used when generating 
@@ -1073,6 +1086,10 @@ def do_synthetic_fit(
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
 
+    scale_fac: int, default: 100
+        Scaling factor to weight the residuals from photometry versus those 
+        from the spectra.
+
     Returns
     -------
     optimize_result: dict
@@ -1087,20 +1104,12 @@ def do_synthetic_fit(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Initialise photometry
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # If no photometry, no need to initialise synthetic colour interpolator
-    if stellar_colours is None or e_stellar_colours is None:
-        sc_interp = None
-
-    # If we've been given photometry, initialise synthetic colour interpolator
-    else:
-        sc_interp = SyntheticColourInterpolator()
-        
-        # Print observed stellar colours
-        for cband, cobs, ecobs in zip(
-            colour_bands, stellar_colours, e_stellar_colours):
-            print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), 
-                  end="")
-        print("\n")
+    # Intialises sc_interp if provided colours, otherwise None
+    sc_interp = initialise_synth_colour_interp(
+        stellar_colours, 
+        e_stellar_colours, 
+        colour_bands,
+        do_print=True,)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Setup parameters and fit
@@ -1231,6 +1240,182 @@ def do_synthetic_fit(
                         / (len(opt_res["fun"])-len(params_init)))
 
     return opt_res
+
+
+def make_chi2_map(
+    teff_actual,
+    logg_actual,
+    feh_actual,
+    wave_r, 
+    spec_r, 
+    e_spec_r, 
+    bad_px_mask_r, 
+    rv, 
+    bcor, 
+    idl, 
+    band_settings_r, 
+    band_settings_b, 
+    wave_b, 
+    spec_b, 
+    e_spec_b,  
+    bad_px_mask_b, 
+    stellar_colours, 
+    e_stellar_colours, 
+    colour_bands,
+    teff_span=400,
+    feh_span=1.0, 
+    n_fits=100,
+    feh_offset=0, 
+    scale_fac=1,
+    feh_lims=(-2,0.5),
+    feh_min_step=0.05,
+    valley_teff_interp=None,
+    valley_teff_width=50,
+    desc="",
+    n_fits_valley_fact=4,):
+    """
+    """
+    # Generate n_fits realisations of our parameters
+    teffs = teff_span*np.random.random_sample(n_fits) + teff_actual-teff_span/2
+    fehs = feh_span*np.random.random_sample(n_fits) + feh_actual-feh_span/2
+
+    # Ensure none of our parameters are outside model bounds
+    valid_points = np.logical_and(fehs > feh_lims[0], fehs < feh_lims[1])
+    teffs = teffs[valid_points]
+    fehs = fehs[valid_points]
+
+    # Check if we should only be generating points along the valley
+    if valley_teff_interp is not None:
+        valley_teffs = valley_teff_interp(fehs)
+        valley_mask = np.logical_and(
+            np.abs(teffs - valley_teffs) < valley_teff_width,
+            ~np.isnan(valley_teffs))
+        teffs = teffs[valley_mask]
+        fehs = fehs[valley_mask]
+
+    # Initialise our vector of rchi^2s
+    rchi2s = []
+
+    # Initialise our synthetic colour interpolator
+    sc_interp = initialise_synth_colour_interp(
+        stellar_colours, 
+        e_stellar_colours, 
+        colour_bands,
+        do_print=False,)
+
+    # For every set of parameters, compute residuals
+    for teff, feh in zip(tqdm(teffs, desc="fitting {}".format(desc)), fehs):
+        # Prepare the parameter structures
+        params_init = np.array([teff, feh])
+        params_init_keys = np.array(["teff", "feh"])
+        params_fixed = {"logg":logg_actual}
+
+        # Comput residuals at given params
+        resid_vect = calc_synth_fit_resid_both_arms(params_init, wave_r, 
+            spec_r,  e_spec_r, bad_px_mask_r, rv, bcor , idl, band_settings_r, 
+            params_init_keys, params_fixed, band_settings_b, wave_b, spec_b, 
+            e_spec_b, bad_px_mask_b, stellar_colours, e_stellar_colours, 
+            colour_bands, sc_interp, feh_offset, scale_fac, 
+            suppress_fit_diagnostics=True,)
+
+        # Calculate the reduced chi^2
+        rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params_init))
+
+        rchi2s.append(rchi2)
+
+    # Recursively call make_chi2_map to generate a higher density of points
+    # along the valley. This call is one done once, and depends on having an 
+    # interpolator for the valley.
+    if valley_teff_interp is None:
+        # Generate an interpolator for the valley, which takes input of [Fe/H]
+        # and returns a Teff. On the second call to make_chi2_map, we only 
+        # keep points in close proximity to the valley to better sample it,
+        # without the time cost of sampling the entire box.
+        calc_valley_teff =  make_chi2_valley_interpolator(
+            teffs, 
+            fehs, 
+            rchi2s, 
+            feh_min_step,)
+
+        # Since we're doing rejection sampling, increase the number of points
+        # we initially sample to ensure lots of points along the valley
+        n_fits *= n_fits_valley_fact
+
+        # Recursively call make_chi2_map
+        r_teffs, r_fehs, r_rchi2s = make_chi2_map(
+            teff_actual, logg_actual, feh_actual,wave_r,spec_r, e_spec_r, 
+            bad_px_mask_r, rv, bcor, idl, band_settings_r, band_settings_b, 
+            wave_b, spec_b, e_spec_b, bad_px_mask_b, stellar_colours, 
+            e_stellar_colours, colour_bands, teff_span, feh_span, n_fits, 
+            feh_offset, scale_fac, feh_lims, feh_min_step, calc_valley_teff, 
+            valley_teff_width, desc=" (valley)",)
+
+        # Combine the two sets of points
+        teffs = np.concatenate((teffs, r_teffs))
+        fehs = np.concatenate((fehs, r_fehs))
+        rchi2s = np.concatenate((rchi2s, r_rchi2s))
+
+    # All done, return
+    return teffs, fehs, np.array(rchi2s)
+
+
+def make_chi2_valley_interpolator(teffs, fehs, rchi2s, feh_slice_step):
+    """Makes an interpolation function for the rchi^2 valley in terms of teff
+    and [Fe/H].
+
+    Parameters
+    ----------
+    teffs: float array
+        List of teffs corresponding to fehs and rchi2s.
+
+    fehs: float array
+        List of fehs corresponding to teffs and rchi2s.
+
+    rchi2s: float array
+        List of rchi^2s corresponding to teffs and fehs.
+
+    feh_slice_step: float
+        Step size in [Fe/H] for mapping the valley floor.
+
+    Returns
+    -------
+    calc_valley_teff: scipy.interpolate.interp1d
+        1D interpolator taking [Fe/H] and producing the corresponding Teff 
+        point along the rchi^2 minima valley.
+    """
+    # Ensure in numpy.array form
+    teffs = np.array(teffs)
+    fehs = np.array(fehs)
+    rchi2s = np.array(rchi2s)
+
+    # Initialise arrays to hold points in valley
+    valley_fehs = []
+    valley_teffs = []
+    valley_rchi2s = []
+
+    # In steps of feh_slice_step working along the [Fe/H] axis, determine the 
+    # minimum rchi2 and save it and the corresponding Teff and [Fe/H]
+    for feh_step in np.arange(fehs.min(), fehs.max(), feh_slice_step):
+        slice_mask = np.logical_and(
+            fehs > feh_step, 
+            fehs < feh_step+feh_slice_step)
+
+        rslice = rchi2s[slice_mask]
+
+        # Skip if no points in this slice
+        if len(rslice) == 0:
+            continue
+        else:
+            min_i = int(np.argmin(rslice))
+
+        valley_fehs.append(fehs[slice_mask][min_i])
+        valley_teffs.append(teffs[slice_mask][min_i])
+        valley_rchi2s.append(rchi2s[slice_mask][min_i])
+
+    # Interpolator to calculate the temperature in the valley given [Fe/H]
+    calc_valley_teff = interp1d(valley_fehs, valley_teffs, bounds_error=False)
+
+    return calc_valley_teff
 
 # -----------------------------------------------------------------------------
 # Synthetic Photometry
@@ -1400,6 +1585,29 @@ def calc_synth_colour_array(wave, fluxes, colour_bands):
 
     return np.array(colours)
 
+def initialise_synth_colour_interp(
+    stellar_colours, 
+    e_stellar_colours, 
+    colour_bands,
+    do_print=False):
+    """
+    """
+    if stellar_colours is None or e_stellar_colours is None:
+        sc_interp = None
+
+    # If we've been given photometry, initialise synthetic colour interpolator
+    else:
+        sc_interp = SyntheticColourInterpolator()
+        
+        if do_print:
+            # Print observed stellar colours
+            for cband, cobs, ecobs in zip(
+                colour_bands, stellar_colours, e_stellar_colours):
+                print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), 
+                    end="")
+            print("\n")
+
+    return sc_interp
 
 # -----------------------------------------------------------------------------
 # Working with Casagrande BC code
