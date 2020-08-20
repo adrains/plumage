@@ -1080,11 +1080,16 @@ def plot_chi2_map(
     fehs,
     rchi2s,
     levels=6,
-    size=100,
-    do_log10_rchi2s=True,
-    use_n_log_levels=False,
+    point_size=100,
+    do_log10_rchi2s=False,
+    use_n_log_levels=True,
     feh_slice_step=0.05,
-    n_minima=5,):
+    n_minima=5,
+    star_id="",
+    source_id="",
+    save_path="plots/",
+    used_phot=False,
+    phot_scale=1,):
     """Visualise chi^2 space as follows:
         1) Teff vs [Fe/H] scatter plot with chi^2 colours
         2) Teff vs [Fe/H] with chi^2 contours
@@ -1093,6 +1098,10 @@ def plot_chi2_map(
     Where 1) and 2) plot the literature value of the star, and track points 
     along the valley.
     """
+    # Ensure plot path exists
+    if not os.path.isdir(save_path):
+        os.mkdir(save_path)
+
     # Initialise
     plt.close("all")
     fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
@@ -1102,14 +1111,14 @@ def plot_chi2_map(
         rchi2s = np.log10(rchi2s)
     
     # Whether to use N levels in logspace instead
-    if do_log10_rchi2s and use_n_log_levels:
+    if use_n_log_levels:
         levels = np.logspace(
             np.log10(rchi2s.min()), 
             np.log10(rchi2s.max()), 
             levels)
 
     # 1) Scatter plot
-    sc = sc_ax.scatter(teffs, fehs, c=rchi2s, s=size)
+    sc = sc_ax.scatter(teffs, fehs, c=rchi2s, s=point_size)
     sc_ax.errorbar(
         teff_actual, 
         feh_actual, 
@@ -1174,6 +1183,16 @@ def plot_chi2_map(
     val_ax.plot(opt_rchi2s, opt_fehs, "x--", color="orange")
     val_ax.set_xlabel("rchi^2")
     val_ax.set_aspect(1./val_ax.get_data_ratio())
+
+    # Title and save the plot
+    title = (r"{} ({})$T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}"
+              ", phot={}, scaling={}")
+    plt.suptitle(title.format(
+        star_id, source_id, teff_actual, feh_actual, used_phot, phot_scale))
+    plt.gcf().set_size_inches(12, 4)
+    plt.tight_layout()
+    plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
+        teff_actual, source_id))
 
 
 # -----------------------------------------------------------------------------
