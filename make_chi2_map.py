@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "tess"
+label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -25,7 +25,7 @@ bad_px_masks_r = utils.load_fits_image_hdu("bad_px", label, arm="r")
 use_blue_spectra = False
 
 # Whether to include photometry in fit
-include_photometry = False
+include_photometry = True
 colour_bands = np.array(['Bp-Rp', 'Rp-J', 'J-H', 'H-K'])
 e_colour_bands = np.array(['e_Bp-Rp', 'e_Rp-J', 'e_J-H', 'e_H-K'])
 
@@ -36,7 +36,7 @@ if not use_bprp_colour:
     e_colour_bands = e_colour_bands[1:]
 
 # Scale factor for synthetic colour residuals
-scale_fac = 1
+scale_fac = 100
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
@@ -86,6 +86,14 @@ else:
     id_col = "TOI"
     skip = False
 
+# Masking
+mask_blue = True
+mask_missing_opacities = True
+mask_tio = True
+mask_sodium_wings = True
+low_cutoff = 6400
+high_cutoff = 6600
+
 # -----------------------------------------------------------------------------
 # Run
 # -----------------------------------------------------------------------------
@@ -123,7 +131,13 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         spectra_r[star_i, 0], 
         star_info["rv"], 
         star_info["bcor"],
-        star_info[teff_col])
+        star_info[teff_col],
+        mask_blue=mask_blue,
+        mask_missing_opacities=mask_missing_opacities,
+        mask_tio=mask_tio,
+        mask_sodium_wings=mask_sodium_wings,
+        low_cutoff=low_cutoff,
+        high_cutoff=high_cutoff,)
 
     bad_px_mask_r = np.logical_or(bad_px_masks_r[star_i], bad_synth_px_mask_r)
 
@@ -191,6 +205,6 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         use_n_log_levels=True,
         star_id=star_info[id_col],
         source_id=source_id,
-        save_path="plots/chi2_maps_{}".format(label),
+        save_path="plots/chi2_maps_{}_phot_x{:0.0f}".format(label, scale_fac),
         used_phot=include_photometry,
         phot_scale=scale_fac,)

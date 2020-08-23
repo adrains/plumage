@@ -283,7 +283,18 @@ def plot_all_spectra(wave, spectra, teffs, loggs, fehs):
 # -----------------------------------------------------------------------------
 # Template spectra
 # -----------------------------------------------------------------------------
-def make_synth_mask_for_bad_wl_regions(wave, rv, bcor, teff, cutoff_temp=4000):
+def make_synth_mask_for_bad_wl_regions(
+    wave, 
+    rv, 
+    bcor, 
+    teff, 
+    cutoff_temp=3800,
+    mask_blue=True,
+    mask_missing_opacities=True,
+    mask_tio=True,
+    mask_sodium_wings=True,
+    low_cutoff=None,
+    high_cutoff=None,):
     """Makes a bad pixel mask corresponding to where Thomas Nordlander's 
     synthetic MARCS models are inconsistent with observational data at cooler
     temperatures. The wavelength is corrected to the rest frame before 
@@ -317,20 +328,39 @@ def make_synth_mask_for_bad_wl_regions(wave, rv, bcor, teff, cutoff_temp=4000):
     # Initialise mask for bad regions
     bad_reg_mask = np.zeros_like(wave)
 
-    # Don't mask anything if we're above the cutoff temperature
-    if teff > cutoff_temp:
+    # Don't mask anything if we're above the cutoff temperature *and* we aren't
+    # bulk masking outside of our two cutoffs
+    if teff > cutoff_temp and low_cutoff is None and high_cutoff is None:
         return bad_reg_mask.astype(bool)
 
     # List of badly fitting regions for Thomas Nordlander's MARCS model library
     # These wavelengths are in the *rest frame*
-    bad_regions = [
-        [0, 4700],      # Blue
-        [5498, 5585],   # ???
-        [5615, 5759],   # ~ TiO
-        [5809, 5840],   # ~ TiO
-        [5847, 5886],   # Na doublet blue wing
-        [5898, 5987],   # Na doublet red wing
-        [6029, 6159],]  # ~ Ca/Fe molecular line or photodissociation opacity
+    bad_regions = []
+
+    if mask_blue:
+        # Everything bluer than 4700 A
+        bad_regions.append([0, 4700])
+    
+    if mask_missing_opacities:
+        # ???
+        bad_regions.append([5498, 5585])
+        
+        # ~ Ca/Fe molecular line or photodissociation opacity
+        bad_regions.append([6029, 6159])
+
+    if mask_tio:
+        bad_regions.append([5615, 5759])
+        bad_regions.append([5809, 5840])
+
+    if mask_sodium_wings:
+        bad_regions.append([5847, 5886])
+        bad_regions.append([5898, 5987])
+
+    # Mask out anything outside of low and high cutoff if provided
+    if (low_cutoff is not None and high_cutoff is not None 
+        and low_cutoff < high_cutoff):
+        bad_regions.append([0, low_cutoff])
+        bad_regions.append([high_cutoff, 1E10])
     
     # Shift wavelength vector to rest frame
     wave_rf = wave * (1-(rv-bcor)/(const.c.si.value/1000))
