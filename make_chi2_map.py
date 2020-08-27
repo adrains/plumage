@@ -89,10 +89,22 @@ else:
 # Masking
 mask_blue = True
 mask_missing_opacities = True
-mask_tio = True
-mask_sodium_wings = True
-low_cutoff = 6400
-high_cutoff = 6600
+mask_tio = False
+mask_sodium_wings = False
+
+# Ca
+low_cutoff = 6350
+high_cutoff = 6500
+
+# TiO
+low_cutoff = 6700
+high_cutoff = 6850
+
+# All
+low_cutoff = None
+high_cutoff = None
+
+map_desc = "all"
 
 # -----------------------------------------------------------------------------
 # Run
@@ -154,7 +166,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         e_colours = None
 
     # Make map
-    teffs, fehs, rchi2s = synth.make_chi2_map(
+    teffs, fehs, rchi2s, residuals, synth_spectra_r = synth.make_chi2_map(
         star_info[teff_col],
         star_info["logg_m19"],
         star_info[feh_col],
@@ -180,7 +192,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         scale_fac=scale_fac,)
 
     # Save
-    results_dict[source_id] = [teffs, fehs, rchi2s]
+    results_dict[source_id] = [teffs, fehs, rchi2s, residuals, synth_spectra_r]
 
     # Get uncertainties
     if label == "std":
@@ -199,12 +211,15 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         teffs,
         fehs,
         rchi2s,
+        spectra_r[star_i, 0],
+        synth_spectra_r,
         levels=10,
         feh_slice_step=0.04,
         do_log10_rchi2s=False,
         use_n_log_levels=True,
         star_id=star_info[id_col],
         source_id=source_id,
-        save_path="plots/chi2_maps_{}_phot_x{:0.0f}".format(label, scale_fac),
+        save_path="plots/chi2_maps_{}_{}_phot_x{:0.0f}".format(
+            label, map_desc, scale_fac),
         used_phot=include_photometry,
         phot_scale=scale_fac,)

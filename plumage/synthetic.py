@@ -342,7 +342,7 @@ def make_synth_mask_for_bad_wl_regions(
         bad_regions.append([0, 4700])
     
     if mask_missing_opacities:
-        # ???
+        # Unknown feature
         bad_regions.append([5498, 5585])
         
         # ~ Ca/Fe molecular line or photodissociation opacity
@@ -811,7 +811,8 @@ def calc_synth_fit_resid_both_arms(
     sc_interp,
     feh_offset,
     scale_fac,
-    suppress_fit_diagnostics=False,):
+    suppress_fit_diagnostics=False,
+    return_synth_models=False,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
     band spectrum related arrays are None, will just fit for red spectra. This
@@ -916,6 +917,11 @@ def calc_synth_fit_resid_both_arms(
     used_red = False
     used_colour = False
 
+    # Intitialise empty models
+    spec_synth_b = None
+    spec_synth_r = None
+    synth_colours = None
+
     # Initialise empty residual arrays
     resid_vect_r = []
     resid_vect_b = []
@@ -1000,7 +1006,10 @@ def calc_synth_fit_resid_both_arms(
         rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
         print("\t--> rchi^2 = {:0.5f}".format(rchi2))
 
-    return resid_vect
+    if return_synth_models:
+        return resid_vect, spec_synth_b, spec_synth_r, synth_colours
+    else:
+        return resid_vect
 
 
 def do_synthetic_fit(
@@ -1399,7 +1408,9 @@ def make_chi2_map(
         teffs = teffs[valley_mask]
         fehs = fehs[valley_mask]
 
-    # Initialise our vector of rchi^2s
+    # Initialise our return vectors
+    synth_spectra_r = []
+    residuals = []
     rchi2s = []
 
     # Initialise our synthetic colour interpolator
@@ -1417,17 +1428,19 @@ def make_chi2_map(
         params_fixed = {"logg":logg_actual}
 
         # Comput residuals at given params
-        resid_vect = calc_synth_fit_resid_both_arms(params_init, wave_r, 
-            spec_r,  e_spec_r, bad_px_mask_r, rv, bcor , idl, band_settings_r, 
-            params_init_keys, params_fixed, band_settings_b, wave_b, spec_b, 
-            e_spec_b, bad_px_mask_b, stellar_colours, e_stellar_colours, 
-            colour_bands, sc_interp, feh_offset, scale_fac, 
-            suppress_fit_diagnostics=True,)
+        resid, _, synth_spec_r, _ = calc_synth_fit_resid_both_arms(
+            params_init, wave_r, spec_r,  e_spec_r, bad_px_mask_r, rv, bcor , 
+            idl, band_settings_r, params_init_keys, params_fixed, 
+            band_settings_b, wave_b, spec_b, e_spec_b, bad_px_mask_b, 
+            stellar_colours, e_stellar_colours, colour_bands, sc_interp, 
+            feh_offset, scale_fac, suppress_fit_diagnostics=True, 
+            return_synth_models=True,)
+
+        synth_spectra_r.append(synth_spec_r)
+        residuals.append(resid)
 
         # Calculate the reduced chi^2
-        rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params_init))
-
-        rchi2s.append(rchi2)
+        rchi2s.append(np.sum(resid**2) / (len(resid)-len(params_init)))
 
     # Recursively call make_chi2_map to generate a higher density of points
     # along the valley. This call is one done once, and depends on having an 
@@ -1448,7 +1461,7 @@ def make_chi2_map(
         n_fits *= n_fits_valley_fact
 
         # Recursively call make_chi2_map
-        r_teffs, r_fehs, r_rchi2s = make_chi2_map(
+        r_teffs, r_fehs, r_rchi2s, r_residuals, r_spectra = make_chi2_map(
             teff_actual, logg_actual, feh_actual,wave_r,spec_r, e_spec_r, 
             bad_px_mask_r, rv, bcor, idl, band_settings_r, band_settings_b, 
             wave_b, spec_b, e_spec_b, bad_px_mask_b, stellar_colours, 
@@ -1460,9 +1473,16 @@ def make_chi2_map(
         teffs = np.concatenate((teffs, r_teffs))
         fehs = np.concatenate((fehs, r_fehs))
         rchi2s = np.concatenate((rchi2s, r_rchi2s))
+        residuals = np.concatenate((residuals, r_residuals))
+        synth_spectra_r = np.concatenate((synth_spectra_r, r_spectra))
+
+    # Convert to numpy arrays
+    rchi2s = np.array(rchi2s)
+    residuals = np.stack(residuals)
+    synth_spectra_r = np.stack(synth_spectra_r)
 
     # All done, return
-    return teffs, fehs, np.array(rchi2s)
+    return teffs, fehs, rchi2s, residuals, synth_spectra_r
 
 
 def make_chi2_valley_interpolator(teffs, fehs, rchi2s, feh_slice_step):

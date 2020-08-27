@@ -1079,6 +1079,8 @@ def plot_chi2_map(
     teffs,
     fehs,
     rchi2s,
+    wave,
+    synth_spectra,
     levels=6,
     point_size=100,
     do_log10_rchi2s=False,
@@ -1104,7 +1106,15 @@ def plot_chi2_map(
 
     # Initialise
     plt.close("all")
-    fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
+    fig = plt.figure()
+    gs = fig.add_gridspec(nrows=3, ncols=3)
+    sc_ax = fig.add_subplot(gs[0, 0])
+    cont_ax = fig.add_subplot(gs[0, 1])
+    val_ax = fig.add_subplot(gs[0, 2])
+    spec_ax = fig.add_subplot(gs[1, :])
+    spec_diff_ax = fig.add_subplot(gs[2, :])
+    
+    #fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
 
     # Log chi^2
     if do_log10_rchi2s:
@@ -1131,6 +1141,7 @@ def plot_chi2_map(
     opt_fehs = []
     opt_teffs = []
     opt_rchi2s = []
+    opt_spec = []
 
     for feh_step in np.arange(fehs.min(), fehs.max(), feh_slice_step):
         slice_mask = np.logical_and(
@@ -1148,6 +1159,7 @@ def plot_chi2_map(
         opt_fehs.append(fehs[slice_mask][min_i])
         opt_teffs.append(teffs[slice_mask][min_i])
         opt_rchi2s.append(rchi2s[slice_mask][min_i])
+        opt_spec.append(synth_spectra[slice_mask][min_i])
 
     sc_ax.plot(opt_teffs, opt_fehs, "x--", color="orange")
 
@@ -1184,15 +1196,37 @@ def plot_chi2_map(
     val_ax.set_xlabel("rchi^2")
     val_ax.set_aspect(1./val_ax.get_data_ratio())
 
+    # 4) Spectra
+    colours = plt.cm.cividis(np.linspace(0, 1, len(opt_spec)))
+    
+    for spec_i, synth_spec in enumerate(opt_spec):
+        spec_ax.plot(wave, synth_spec, color=colours[spec_i], linewidth=0.2, 
+            label=opt_fehs[spec_i], alpha=0.5)
+    
+    spec_ax.set_xlim([wave[0], wave[-1]])
+    spec_ax.set_ylim([np.min(opt_spec), np.max(opt_spec)])
+    #spec_ax.set_xlabel("Wavelength (A)")
+    spec_ax.set_ylabel("Flux")
+    #spec_ax.legend()
+
+    # 5) Sensitivity
+    spec_std = np.std(np.stack(opt_spec), axis=0)
+    spec_diff_ax.plot(wave, spec_std, linewidth=0.2)
+    spec_diff_ax.set_xlabel("Wavelength (A)")
+    spec_diff_ax.set_ylabel(r"Valley $\sigma$")
+    spec_diff_ax.set_xlim([wave[0], wave[-1]])
+    spec_diff_ax.set_ylim([np.min(spec_std), np.max(spec_std)])
+
     # Title and save the plot
     title = (r"{} ({})$T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}"
               ", phot={}, scaling={}")
     plt.suptitle(title.format(
         star_id, source_id, teff_actual, feh_actual, used_phot, phot_scale))
-    plt.gcf().set_size_inches(12, 4)
+    plt.gcf().set_size_inches(12, 12)
     plt.tight_layout()
     plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
         teff_actual, source_id))
+
 
 
 # -----------------------------------------------------------------------------
