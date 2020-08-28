@@ -8,6 +8,7 @@ from astropy import constants as const
 import pidly
 import pandas as pd
 from tqdm import tqdm
+from collections import OrderedDict
 import astropy.constants as const
 from astropy import units as u
 from scipy.optimize import leastsq, least_squares
@@ -1032,7 +1033,8 @@ def do_synthetic_fit(
     e_stellar_colours=None,
     colour_bands=['Rp-J', 'J-H', 'H-K'],
     feh_offset=10,
-    scale_fac=100,):
+    scale_fac=100,
+    suppress_fit_diagnostics=False):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
@@ -1103,6 +1105,9 @@ def do_synthetic_fit(
         Multiplicative scaling factor for the photometric colour residuals to
         scale them relative to their spectroscopic counterparts.
 
+    suppress_fit_diagnostics: bool, default: False
+        Whether to suppress printed diagnostics. 
+
     Returns
     -------
     optimize_result: dict
@@ -1122,7 +1127,7 @@ def do_synthetic_fit(
         stellar_colours, 
         e_stellar_colours, 
         colour_bands,
-        do_print=True,)
+        do_print=not suppress_fit_diagnostics,)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Setup parameters and fit
@@ -1130,8 +1135,9 @@ def do_synthetic_fit(
     # Setup a mask for slicing fit bounds/scaling/step
     param_mask = list(fit_for_params.values())
 
-    # Scale [Fe/H]
-    params["feh"] += feh_offset
+    # Scale [Fe/H] if fitting for
+    if fit_for_params["feh"]:
+        params["feh"] += feh_offset
 
     # Initialise param initial guess *to be fit for* as a list, save keys
     params_init = [params[pp] for pp in params if fit_for_params[pp]]
@@ -1144,7 +1150,8 @@ def do_synthetic_fit(
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
             band_settings_r, params_init_keys, params_fixed, band_settings_b, 
             wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_colours, 
-            e_stellar_colours, colour_bands, sc_interp, feh_offset, scale_fac)
+            e_stellar_colours, colour_bands, sc_interp, feh_offset, scale_fac,
+            suppress_fit_diagnostics,)
 
     # Do fit
     opt_res = least_squares(
@@ -1182,8 +1189,9 @@ def do_synthetic_fit(
     opt_res["feh"] = opt_res["x"][int(fi)] if len(fi) > 0 else params["feh"]
     opt_res["e_feh"] = opt_res["std"][int(fi)] if len(fi) > 0 else np.nan
 
-    # Unscale [Fe/H]
-    opt_res["feh"] -= feh_offset
+    # Unscale [Fe/H] if fitted for
+    if fit_for_params["feh"]:
+        opt_res["feh"] -= feh_offset
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Get synthetic spectra and colours at optimal params
@@ -1280,6 +1288,7 @@ def make_chi2_map(
     n_fits=100,
     feh_offset=0, 
     scale_fac=1,
+    teff_lims=(2500,8000),
     feh_lims=(-2,0.5),
     feh_min_step=0.05,
     valley_teff_interp=None,
@@ -1366,8 +1375,8 @@ def make_chi2_map(
         Scaling factor to weight the residuals from photometry versus those 
         from the spectra.
 
-    feh_lims: float tuple, default: (-2, 0.5)
-        Limits for [Fe/H] when sampling.
+    teff_lims, feh_lims: float tuple, default: (2500, 8000), (-2, 0.5)
+        Limits for Teff and [Fe/H] when sampling.
 
     feh_min_step: float, default: 0.05
         Step size in [Fe/H] for mapping the valley floor.
@@ -1390,28 +1399,33 @@ def make_chi2_map(
     teffs, fehs, rchi2s: float array
         Sampled Teffs, [Fe/H] and resulting rchi^2s.
     """
+    # Set Teff bounds to not go outside of grid
+    teff_smin = teff_actual - teff_span/2
+    teff_smax = teff_actual + teff_span/2
+
+    teff_min = teff_smin if teff_smin > teff_lims[0] else teff_lims[0]
+    teff_max = teff_smax if teff_smax < teff_lims[1] else teff_lims[1]
+
+    # Set [Fe/H] bounds to not go outside of grid
+    feh_smin = feh_actual - feh_span/2
+    feh_smax = feh_actual + feh_span/2
+
+    feh_min = feh_smin if feh_smin > feh_lims[0] else feh_lims[0]
+    feh_max = feh_smax if feh_smax < feh_lims[1] else feh_lims[1]
+
     # Generate n_fits realisations of our parameters
-    teffs = teff_span*np.random.random_sample(n_fits) + teff_actual-teff_span/2
-    fehs = feh_span*np.random.random_sample(n_fits) + feh_actual-feh_span/2
+    teffs = np.linspace(teff_min, teff_max, n_fits+1)
+    fehs = np.linspace(feh_min, feh_max, n_fits+1)
 
-    # Ensure none of our parameters are outside model bounds
-    valid_points = np.logical_and(fehs > feh_lims[0], fehs < feh_lims[1])
-    teffs = teffs[valid_points]
-    fehs = fehs[valid_points]
+    # Meshgrid
+    tt, ff = np.meshgrid(teffs, fehs)
 
-    # Check if we should only be generating points along the valley
-    if valley_teff_interp is not None:
-        valley_teffs = valley_teff_interp(fehs)
-        valley_mask = np.logical_and(
-            np.abs(teffs - valley_teffs) < valley_teff_width,
-            ~np.isnan(valley_teffs))
-        teffs = teffs[valley_mask]
-        fehs = fehs[valley_mask]
+    grid_teffs = tt.flatten()
+    grid_fehs = ff.flatten()
 
     # Initialise our return vectors
     synth_spectra_r = []
-    residuals = []
-    rchi2s = []
+    grid_resid = []
 
     # Initialise our synthetic colour interpolator
     sc_interp = initialise_synth_colour_interp(
@@ -1420,8 +1434,8 @@ def make_chi2_map(
         colour_bands,
         do_print=False,)
 
-    # For every set of parameters, compute residuals
-    for teff, feh in zip(tqdm(teffs, desc="fitting {}".format(desc)), fehs):
+    # Compute residuals for our grid of Teff and [Fe/H]
+    for teff, feh in zip(tqdm(grid_teffs, desc="fitting grid"), grid_fehs):
         # Prepare the parameter structures
         params_init = np.array([teff, feh])
         params_init_keys = np.array(["teff", "feh"])
@@ -1437,52 +1451,152 @@ def make_chi2_map(
             return_synth_models=True,)
 
         synth_spectra_r.append(synth_spec_r)
-        residuals.append(resid)
+        grid_resid.append(resid)
 
-        # Calculate the reduced chi^2
-        rchi2s.append(np.sum(resid**2) / (len(resid)-len(params_init)))
-
-    # Recursively call make_chi2_map to generate a higher density of points
-    # along the valley. This call is one done once, and depends on having an 
-    # interpolator for the valley.
-    if valley_teff_interp is None:
-        # Generate an interpolator for the valley, which takes input of [Fe/H]
-        # and returns a Teff. On the second call to make_chi2_map, we only 
-        # keep points in close proximity to the valley to better sample it,
-        # without the time cost of sampling the entire box.
-        calc_valley_teff =  make_chi2_valley_interpolator(
-            teffs, 
-            fehs, 
-            rchi2s, 
-            feh_min_step,)
-
-        # Since we're doing rejection sampling, increase the number of points
-        # we initially sample to ensure lots of points along the valley
-        n_fits *= n_fits_valley_fact
-
-        # Recursively call make_chi2_map
-        r_teffs, r_fehs, r_rchi2s, r_residuals, r_spectra = make_chi2_map(
-            teff_actual, logg_actual, feh_actual,wave_r,spec_r, e_spec_r, 
-            bad_px_mask_r, rv, bcor, idl, band_settings_r, band_settings_b, 
-            wave_b, spec_b, e_spec_b, bad_px_mask_b, stellar_colours, 
-            e_stellar_colours, colour_bands, teff_span, feh_span, n_fits, 
-            feh_offset, scale_fac, feh_lims, feh_min_step, calc_valley_teff, 
-            valley_teff_width, desc=" (valley)",)
-
-        # Combine the two sets of points
-        teffs = np.concatenate((teffs, r_teffs))
-        fehs = np.concatenate((fehs, r_fehs))
-        rchi2s = np.concatenate((rchi2s, r_rchi2s))
-        residuals = np.concatenate((residuals, r_residuals))
-        synth_spectra_r = np.concatenate((synth_spectra_r, r_spectra))
-
-    # Convert to numpy arrays
-    rchi2s = np.array(rchi2s)
-    residuals = np.stack(residuals)
+    grid_resid = np.stack(grid_resid)
     synth_spectra_r = np.stack(synth_spectra_r)
 
+
+    # Now for each of our [Fe/H] grid points, find the optimal Teff, thus 
+    # mapping out the valley floor
+    valley_teffs = []
+    valley_fehs = []
+    valley_resid = []
+
+    for feh in tqdm(fehs, desc="Finding valley"):
+        # Prepare the parameter structures
+        params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+        fit_for_params = OrderedDict([
+            ("teff",True), ("logg",False), ("feh",False),])
+
+        opt_res = do_synthetic_fit(
+            wave_r, # Red wl
+            spec_r, # Red spec
+            e_spec_r, # Red uncertainties
+            bad_px_mask_r,
+            params_init, 
+            rv, 
+            bcor,
+            idl,
+            band_settings_r,
+            fit_for_params=fit_for_params,
+            band_settings_b=band_settings_b,
+            wave_b=wave_b, 
+            spec_b=spec_b, 
+            e_spec_b=e_spec_b, 
+            bad_px_mask_b=bad_px_mask_b,
+            stellar_colours=stellar_colours,
+            e_stellar_colours=e_stellar_colours,
+            colour_bands=colour_bands,
+            scale_fac=scale_fac,
+            suppress_fit_diagnostics=True,)
+
+        valley_teffs.append(float(opt_res["x"]))
+        valley_fehs.append(feh)
+        valley_resid.append(opt_res["fun"])
+    
+    valley_teffs = np.array(valley_teffs)
+    valley_fehs = np.array(valley_fehs)
+    valley_resid = np.stack(valley_resid)
+
+    # Now that we have the valley floor, we know the global min rchi^2. Use
+    # this to scale the residuals, before returning the resulting values.
+    n_b = len(spec_b) if spec_b is not None else 0
+    n_r = len(spec_r) if spec_r is not None else 0
+    n_c = len(stellar_colours) if stellar_colours is not None else 0
+
+    # Determine minimum chi^2. Note that this assumes we'll never let logg 
+    # float, as we're saying there're always 2 fitted params (Tef, [Fe/H])
+
+    # BLUE
+    if n_b > 0:
+        rchi2_min_b = np.min(np.sum(valley_resid[:, :n_b]**2, axis=1) / (n_b - 2))
+        
+        grid_resid_b = grid_resid[:, :n_b] / rchi2_min_b
+        grid_rchi2_b = np.sum(grid_resid_b**2, axis=1)# / (n_b - 2)
+        
+        valley_resid_b = valley_resid[:, :n_b] / rchi2_min_b
+        valley_rchi2_b = np.sum(valley_resid_b**2, axis=1)# / (n_b - 2)
+
+    else:
+        rchi2_min_b = np.nan
+        grid_resid_b = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_b = np.nan
+        valley_resid_b = np.empty((valley_resid.shape[0], 0))
+        valley_rchi2_b = np.ones_like(valley_teffs) * np.nan
+
+    # RED
+    if n_r > 0:
+        rchi2_min_r = np.min(np.sum(valley_resid[:, n_b:n_r]**2, axis=1) / (n_r - 2))
+
+        grid_resid_r = grid_resid[:, n_b:n_r] / rchi2_min_r
+        grid_rchi2_r = np.sum(grid_resid_r**2, axis=1)# / (n_r - 2)
+
+        valley_resid_r = valley_resid[:, n_b:n_r] / rchi2_min_r
+        valley_rchi2_r = np.sum(valley_resid_r**2, axis=1)# / (n_r - 2)
+    
+    else:
+        rchi2_min_r = np.nan
+        grid_resid_r = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_r = np.ones_like(grid_teffs) * np.nan
+        valley_resid_r = np.empty((valley_resid.shape[0], 0))
+        valley_rchi2_r = np.ones_like(valley_teffs) * np.nan
+
+    # COLOUR
+    if n_c > 0:
+        rchi2_min_c = np.min(np.sum(valley_resid[:, -n_c:]**2, axis=1) / (n_c - 2))
+
+        grid_resid_c = grid_resid[:, -n_c:] / rchi2_min_c
+        grid_rchi2_c = np.sum(grid_resid_c**2, axis=1)# / (n_c - 2)
+
+        valley_resid_c = valley_resid[:, -n_c:] / rchi2_min_c
+        valley_rchi2_c = np.sum(valley_resid_c**2, axis=1)# / (n_c - 2)
+    
+    else:
+        rchi2_min_c = np.nan
+        grid_resid_c = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_c = np.ones_like(grid_teffs) * np.nan
+        valley_resid_c = np.empty((valley_resid.shape[0], 0))
+        valley_rchi2_c = np.ones_like(valley_teffs) * np.nan
+
+    # Combine
+    grid_resid_all = np.hstack((grid_resid_b, grid_resid_r, grid_resid_c))
+    grid_rchi2_all = np.sum(grid_resid_all**2, axis=1)# / (len(grid_resid_all) - 2)
+
+    valley_resid_all = np.hstack((valley_resid_b, valley_resid_r, valley_resid_c))
+    valley_rchi2_all = np.sum(valley_resid_all**2, axis=1)# / (len(valley_resid_all) - 2)
+
+    chi2_map_dict = {
+        # Grid coordinates, residuals, and rchi^2s
+        "grid_teffs":grid_teffs,
+        "grid_fehs":grid_fehs,
+        "grid_resid_b":grid_resid_b,
+        "grid_rchi2_b":grid_rchi2_b,
+        "grid_resid_r":grid_resid_r,
+        "grid_rchi2_r":grid_rchi2_r,
+        "grid_resid_c":grid_resid_c,
+        "grid_rchi2_c":grid_rchi2_c,
+        "grid_resid_all":grid_resid_all,
+        "grid_rchi2_all":grid_rchi2_all,
+        # Valley coordinates, residuals, and rchi^2s
+        "valley_teffs":valley_teffs,
+        "valley_fehs":valley_fehs,
+        "valley_resid_b":valley_resid_b,
+        "valley_rchi2_b":valley_rchi2_b,
+        "valley_resid_r":valley_resid_r,
+        "valley_rchi2_r":valley_rchi2_r,
+        "valley_resid_c":valley_resid_c,
+        "valley_rchi2_c":valley_rchi2_c,
+        "valley_resid_all":valley_resid_all,
+        "valley_rchi2_all":valley_rchi2_all,
+        # Scaling values
+        "rchi2_min_b":rchi2_min_b,
+        "rchi2_min_r":rchi2_min_r,
+        "rchi2_min_c":rchi2_min_c,
+    }
+
     # All done, return
-    return teffs, fehs, rchi2s, residuals, synth_spectra_r
+    return chi2_map_dict, synth_spectra_r
 
 
 def make_chi2_valley_interpolator(teffs, fehs, rchi2s, feh_slice_step):

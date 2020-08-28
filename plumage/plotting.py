@@ -1076,9 +1076,7 @@ def plot_chi2_map(
     e_teff_actual,
     feh_actual,
     e_feh_actual,
-    teffs,
-    fehs,
-    rchi2s,
+    chi2_map_dict,
     wave,
     synth_spectra,
     levels=6,
@@ -1107,28 +1105,33 @@ def plot_chi2_map(
     # Initialise
     plt.close("all")
     fig = plt.figure()
-    gs = fig.add_gridspec(nrows=3, ncols=3)
+    gs = fig.add_gridspec(nrows=1, ncols=3)
     sc_ax = fig.add_subplot(gs[0, 0])
     cont_ax = fig.add_subplot(gs[0, 1])
     val_ax = fig.add_subplot(gs[0, 2])
-    spec_ax = fig.add_subplot(gs[1, :])
-    spec_diff_ax = fig.add_subplot(gs[2, :])
+    #spec_ax = fig.add_subplot(gs[1, :])
+    #spec_diff_ax = fig.add_subplot(gs[2, :])
     
     #fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
 
     # Log chi^2
     if do_log10_rchi2s:
-        rchi2s = np.log10(rchi2s)
+        rchi2s = np.log10(chi2_map_dict["grid_rchi2_all"])
     
     # Whether to use N levels in logspace instead
     if use_n_log_levels:
         levels = np.logspace(
-            np.log10(rchi2s.min()), 
-            np.log10(rchi2s.max()), 
+            np.log10(chi2_map_dict["grid_rchi2_all"].min()), 
+            np.log10(chi2_map_dict["grid_rchi2_all"].max()), 
             levels)
 
     # 1) Scatter plot
-    sc = sc_ax.scatter(teffs, fehs, c=rchi2s, s=point_size)
+    sc = sc_ax.scatter(
+        chi2_map_dict["grid_teffs"], 
+        chi2_map_dict["grid_fehs"], 
+        c=chi2_map_dict["grid_rchi2_all"], 
+        s=point_size)
+
     sc_ax.errorbar(
         teff_actual, 
         feh_actual, 
@@ -1138,47 +1141,23 @@ def plot_chi2_map(
         ecolor="red",)
     
     # Plot a line along the chi^2 valley
-    opt_fehs = []
-    opt_teffs = []
-    opt_rchi2s = []
-    opt_spec = []
-
-    for feh_step in np.arange(fehs.min(), fehs.max(), feh_slice_step):
-        slice_mask = np.logical_and(
-            fehs > feh_step, 
-            fehs < feh_step+feh_slice_step)
-
-        rslice = rchi2s[slice_mask]
-
-        # Skip if no points in this slice
-        if len(rslice) == 0:
-            continue
-        else:
-            min_i = int(np.argmin(rslice))
-
-        opt_fehs.append(fehs[slice_mask][min_i])
-        opt_teffs.append(teffs[slice_mask][min_i])
-        opt_rchi2s.append(rchi2s[slice_mask][min_i])
-        opt_spec.append(synth_spectra[slice_mask][min_i])
-
-    sc_ax.plot(opt_teffs, opt_fehs, "x--", color="orange")
+    sc_ax.plot(
+        chi2_map_dict["valley_teffs"], 
+        chi2_map_dict["valley_fehs"], 
+        "x--", 
+        color="orange")
 
     sc_ax.set_xlabel(r"$T_{\rm eff}$")
     sc_ax.set_ylabel("[Fe/H]")
     sc_ax.set_aspect(1./sc_ax.get_data_ratio())
 
-    # Plot the N lowest points sampled
-    sorted_i = np.argsort(rchi2s)
-    sorted_teffs = teffs[sorted_i]
-    sorted_fehs = fehs[sorted_i]
-    sorted_rchi2s = rchi2s[sorted_i]
-    
-    for min_i in range(n_minima):
-        sc_ax.plot(sorted_teffs[min_i], sorted_fehs[min_i], "+", color="red")
-        cont_ax.plot(sorted_teffs[min_i], sorted_fehs[min_i], "+", color="red")
-
     # 2) Plot a contour plot with the same data
-    cont_ax.tricontourf(teffs, fehs, rchi2s, levels)
+    cont_ax.tricontourf(
+        chi2_map_dict["grid_teffs"], 
+        chi2_map_dict["grid_fehs"], 
+        chi2_map_dict["grid_rchi2_all"], 
+        levels)
+
     cont_ax.errorbar(
         teff_actual, 
         feh_actual, 
@@ -1189,13 +1168,22 @@ def plot_chi2_map(
 
     cont_ax.set_xlabel(r"$T_{\rm eff}$")
     cont_ax.set_aspect(1./cont_ax.get_data_ratio())
-    cont_ax.plot(opt_teffs, opt_fehs, "x--", color="orange")
+    cont_ax.plot(
+        chi2_map_dict["valley_teffs"], 
+        chi2_map_dict["valley_fehs"], 
+        "x--", 
+        color="orange")
 
     # 3) Plot the valley as its own plot
-    val_ax.plot(opt_rchi2s, opt_fehs, "x--", color="orange")
+    val_ax.plot(
+        chi2_map_dict["valley_rchi2_all"], 
+        chi2_map_dict["valley_fehs"], 
+        "x--", 
+        color="orange")
+
     val_ax.set_xlabel("rchi^2")
     val_ax.set_aspect(1./val_ax.get_data_ratio())
-
+    """
     # 4) Spectra
     colours = plt.cm.cividis(np.linspace(0, 1, len(opt_spec)))
     
@@ -1216,13 +1204,13 @@ def plot_chi2_map(
     spec_diff_ax.set_ylabel(r"Valley $\sigma$")
     spec_diff_ax.set_xlim([wave[0], wave[-1]])
     spec_diff_ax.set_ylim([np.min(spec_std), np.max(spec_std)])
-
+    """
     # Title and save the plot
     title = (r"{} ({})$T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}"
               ", phot={}, scaling={}")
     plt.suptitle(title.format(
         star_id, source_id, teff_actual, feh_actual, used_phot, phot_scale))
-    plt.gcf().set_size_inches(12, 12)
+    plt.gcf().set_size_inches(12, 4)
     plt.tight_layout()
     plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
         teff_actual, source_id))

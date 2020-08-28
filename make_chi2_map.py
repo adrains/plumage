@@ -29,14 +29,14 @@ include_photometry = True
 colour_bands = np.array(['Bp-Rp', 'Rp-J', 'J-H', 'H-K'])
 e_colour_bands = np.array(['e_Bp-Rp', 'e_Rp-J', 'e_J-H', 'e_H-K'])
 
-use_bprp_colour = False
+use_bprp_colour = True
 
 if not use_bprp_colour:
     colour_bands = colour_bands[1:]
     e_colour_bands = e_colour_bands[1:]
 
 # Scale factor for synthetic colour residuals
-scale_fac = 100
+scale_fac = 1
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
@@ -72,7 +72,7 @@ band_settings_r = {
 
 teff_span = 500
 feh_span = 1.2
-n_fits = 1000
+n_fits = 10
 
 if label == "std":
     teff_col = "teff_m15"
@@ -166,7 +166,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         e_colours = None
 
     # Make map
-    teffs, fehs, rchi2s, residuals, synth_spectra_r = synth.make_chi2_map(
+    chi2_map_dict, synth_spectra_r = synth.make_chi2_map(
         star_info[teff_col],
         star_info["logg_m19"],
         star_info[feh_col],
@@ -179,7 +179,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         idl,
         band_settings_r,
         band_settings_b=band_settings_b,
-        wave_b=None, #wave_b, 
+        wave_b=spectra_b[star_i, 0], #wave_b, 
         spec_b=None, #spec_b, 
         e_spec_b=None, #e_spec_b, 
         bad_px_mask_b=None, #bad_px_mask_b,
@@ -192,7 +192,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         scale_fac=scale_fac,)
 
     # Save
-    results_dict[source_id] = [teffs, fehs, rchi2s, residuals, synth_spectra_r]
+    results_dict[source_id] = [chi2_map_dict, synth_spectra_r]
 
     # Get uncertainties
     if label == "std":
@@ -208,9 +208,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         e_teff,
         star_info[feh_col],
         e_feh,
-        teffs,
-        fehs,
-        rchi2s,
+        chi2_map_dict,
         spectra_r[star_i, 0],
         synth_spectra_r,
         levels=10,
@@ -223,3 +221,5 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
             label, map_desc, scale_fac),
         used_phot=include_photometry,
         phot_scale=scale_fac,)
+
+    break
