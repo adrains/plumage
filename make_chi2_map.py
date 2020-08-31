@@ -22,7 +22,7 @@ bad_px_masks_b = utils.load_fits_image_hdu("bad_px", label, arm="b")
 bad_px_masks_r = utils.load_fits_image_hdu("bad_px", label, arm="r")
 
 # Whether to use blue spectra in fit
-use_blue_spectra = False
+use_blue_spectra = True
 
 # Whether to include photometry in fit
 include_photometry = True
@@ -36,7 +36,7 @@ if not use_bprp_colour:
     e_colour_bands = e_colour_bands[1:]
 
 # Scale factor for synthetic colour residuals
-scale_fac = 1
+phot_scale_fac = 1
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
@@ -70,7 +70,7 @@ band_settings_r = {
 #source_id = "3101920046552857728"   # Gl 250 B (CPM)
 #source_id = "3195919322830293760"   # Gl 166 C (CPM)
 
-teff_span = 500
+teff_span = 600
 feh_span = 1.2
 n_fits = 10
 
@@ -104,7 +104,7 @@ high_cutoff = 6850
 low_cutoff = None
 high_cutoff = None
 
-map_desc = "all"
+map_desc = "all_scaled"
 
 # -----------------------------------------------------------------------------
 # Run
@@ -153,6 +153,32 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
 
     bad_px_mask_r = np.logical_or(bad_px_masks_r[star_i], bad_synth_px_mask_r)
 
+    # Setup Blue
+    if use_blue_spectra:
+        wave_b = spectra_b[star_i, 0]
+        spec_b = spectra_b[star_i, 1]
+        e_spec_b = spectra_b[star_i, 2]
+
+        bad_synth_px_mask_b = synth.make_synth_mask_for_bad_wl_regions(
+            spectra_b[star_i, 0], 
+            star_info["rv"], 
+            star_info["bcor"],
+            star_info[teff_col],
+            mask_blue=mask_blue,
+            mask_missing_opacities=mask_missing_opacities,
+            mask_tio=mask_tio,
+            mask_sodium_wings=mask_sodium_wings,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,)
+
+        bad_px_mask_b = np.logical_or(bad_px_masks_b[star_i], bad_synth_px_mask_b)
+
+    else:
+        wave_b = None
+        spec_b = None
+        e_spec_b = None
+        bad_px_mask_b = None
+
     # Initialise colours
     if include_photometry:
         # Make a mask for the colours to use, since some might be nans
@@ -180,16 +206,16 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         band_settings_r,
         band_settings_b=band_settings_b,
         wave_b=spectra_b[star_i, 0], #wave_b, 
-        spec_b=None, #spec_b, 
-        e_spec_b=None, #e_spec_b, 
-        bad_px_mask_b=None, #bad_px_mask_b,
+        spec_b=spec_b, 
+        e_spec_b=e_spec_b, 
+        bad_px_mask_b=bad_px_mask_b,
         stellar_colours=colours,
         e_stellar_colours=e_colours,
         colour_bands=colour_bands[cmask],  # Mask the colours to what we have
         teff_span=teff_span,
         feh_span=feh_span, 
         n_fits=n_fits,
-        scale_fac=scale_fac,)
+        phot_scale_fac=phot_scale_fac,)
 
     # Save
     results_dict[source_id] = [chi2_map_dict, synth_spectra_r]
@@ -211,15 +237,12 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         chi2_map_dict,
         spectra_r[star_i, 0],
         synth_spectra_r,
-        levels=10,
-        feh_slice_step=0.04,
-        do_log10_rchi2s=False,
-        use_n_log_levels=True,
+        n_levels=10,
         star_id=star_info[id_col],
         source_id=source_id,
         save_path="plots/chi2_maps_{}_{}_phot_x{:0.0f}".format(
-            label, map_desc, scale_fac),
+            label, map_desc, phot_scale_fac),
         used_phot=include_photometry,
-        phot_scale=scale_fac,)
+        phot_scale_fac=phot_scale_fac,)
 
-    break
+    #break

@@ -1079,17 +1079,15 @@ def plot_chi2_map(
     chi2_map_dict,
     wave,
     synth_spectra,
-    levels=6,
+    n_levels=10,
     point_size=100,
-    do_log10_rchi2s=False,
-    use_n_log_levels=True,
     feh_slice_step=0.05,
     n_minima=5,
     star_id="",
     source_id="",
     save_path="plots/",
     used_phot=False,
-    phot_scale=1,):
+    phot_scale_fac=1,):
     """Visualise chi^2 space as follows:
         1) Teff vs [Fe/H] scatter plot with chi^2 colours
         2) Teff vs [Fe/H] with chi^2 contours
@@ -1105,84 +1103,111 @@ def plot_chi2_map(
     # Initialise
     plt.close("all")
     fig = plt.figure()
-    gs = fig.add_gridspec(nrows=1, ncols=3)
-    sc_ax = fig.add_subplot(gs[0, 0])
-    cont_ax = fig.add_subplot(gs[0, 1])
-    val_ax = fig.add_subplot(gs[0, 2])
+    gs = fig.add_gridspec(nrows=4, ncols=3)
+
+    axes = {}
+
+    axes["sc_ax_b"] = fig.add_subplot(gs[0, 0])
+    axes["cont_ax_b"] = fig.add_subplot(gs[0, 1])
+    axes["val_ax_b"] = fig.add_subplot(gs[0, 2])
+
+    axes["sc_ax_r"] = fig.add_subplot(gs[1, 0])
+    axes["cont_ax_r"] = fig.add_subplot(gs[1, 1])
+    axes["val_ax_r"] = fig.add_subplot(gs[1, 2])
+
+    axes["sc_ax_c"] = fig.add_subplot(gs[2, 0])
+    axes["cont_ax_c"] = fig.add_subplot(gs[2, 1])
+    axes["val_ax_c"] = fig.add_subplot(gs[2, 2])
+
+    axes["sc_ax_all"] = fig.add_subplot(gs[3, 0])
+    axes["cont_ax_all"] = fig.add_subplot(gs[3, 1])
+    axes["val_ax_all"] = fig.add_subplot(gs[3, 2])
     #spec_ax = fig.add_subplot(gs[1, :])
     #spec_diff_ax = fig.add_subplot(gs[2, :])
     
     #fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
 
-    # Log chi^2
-    if do_log10_rchi2s:
-        rchi2s = np.log10(chi2_map_dict["grid_rchi2_all"])
-    
-    # Whether to use N levels in logspace instead
-    if use_n_log_levels:
+    kinds = ["b","r","c","all"]
+    titles = ["Blue", "Red", "Colour", "Combined"]
+
+    for kind, title in zip(kinds, titles):
+        if chi2_map_dict["grid_resid_{}".format(kind)].shape[1] == 0:
+            continue
+
+        # Extract axes
+        sc_ax = axes["sc_ax_{}".format(kind)]
+        cont_ax = axes["cont_ax_{}".format(kind)]
+        val_ax = axes["val_ax_{}".format(kind)]
+
+        # Whether to use N levels in logspace instead
         levels = np.logspace(
-            np.log10(chi2_map_dict["grid_rchi2_all"].min()), 
-            np.log10(chi2_map_dict["grid_rchi2_all"].max()), 
+            np.log10(chi2_map_dict["grid_rchi2_{}".format(kind)].min()), 
+            np.log10(chi2_map_dict["grid_rchi2_{}".format(kind)].max()), 
+            n_levels)
+
+        # 1) Scatter plot
+        sc = sc_ax.scatter(
+            chi2_map_dict["grid_teffs"], 
+            chi2_map_dict["grid_fehs"], 
+            c=chi2_map_dict["grid_rchi2_{}".format(kind)], 
+            s=point_size)
+
+        sc_ax.errorbar(
+            teff_actual, 
+            feh_actual, 
+            xerr=e_teff_actual, 
+            yerr=e_feh_actual, 
+            fmt="ro",
+            ecolor="red",)
+        
+        # Plot a line along the chi^2 valley
+        sc_ax.plot(
+            chi2_map_dict["valley_teffs_{}".format(kind)], 
+            chi2_map_dict["valley_fehs"], 
+            "x--", 
+            color="orange")
+
+        sc_ax.set_xlabel(r"$T_{\rm eff}$")
+        sc_ax.set_ylabel("[Fe/H]")
+        sc_ax.set_aspect(1./sc_ax.get_data_ratio())
+
+        # 2) Plot a contour plot with the same data
+        cont_ax.tricontourf(
+            chi2_map_dict["grid_teffs"], 
+            chi2_map_dict["grid_fehs"], 
+            chi2_map_dict["grid_rchi2_{}".format(kind)], 
             levels)
 
-    # 1) Scatter plot
-    sc = sc_ax.scatter(
-        chi2_map_dict["grid_teffs"], 
-        chi2_map_dict["grid_fehs"], 
-        c=chi2_map_dict["grid_rchi2_all"], 
-        s=point_size)
+        cont_ax.errorbar(
+            teff_actual, 
+            feh_actual, 
+            xerr=e_teff_actual, 
+            yerr=e_feh_actual, 
+            fmt="ro",
+            ecolor="red")
 
-    sc_ax.errorbar(
-        teff_actual, 
-        feh_actual, 
-        xerr=e_teff_actual, 
-        yerr=e_feh_actual, 
-        fmt="ro",
-        ecolor="red",)
-    
-    # Plot a line along the chi^2 valley
-    sc_ax.plot(
-        chi2_map_dict["valley_teffs"], 
-        chi2_map_dict["valley_fehs"], 
-        "x--", 
-        color="orange")
+        if title == "Colour":
+            cont_ax.set_title("{} (x{})".format(title, phot_scale_fac))
+        else:
+            cont_ax.set_title(title)
 
-    sc_ax.set_xlabel(r"$T_{\rm eff}$")
-    sc_ax.set_ylabel("[Fe/H]")
-    sc_ax.set_aspect(1./sc_ax.get_data_ratio())
+        cont_ax.set_xlabel(r"$T_{\rm eff}$")
+        cont_ax.set_aspect(1./cont_ax.get_data_ratio())
+        cont_ax.plot(
+            chi2_map_dict["valley_teffs_{}".format(kind)], 
+            chi2_map_dict["valley_fehs"], 
+            "x--", 
+            color="orange")
 
-    # 2) Plot a contour plot with the same data
-    cont_ax.tricontourf(
-        chi2_map_dict["grid_teffs"], 
-        chi2_map_dict["grid_fehs"], 
-        chi2_map_dict["grid_rchi2_all"], 
-        levels)
+        # 3) Plot the valley as its own plot
+        val_ax.plot(
+            chi2_map_dict["valley_rchi2_{}".format(kind)], 
+            chi2_map_dict["valley_fehs"], 
+            "x--", 
+            color="orange")
 
-    cont_ax.errorbar(
-        teff_actual, 
-        feh_actual, 
-        xerr=e_teff_actual, 
-        yerr=e_feh_actual, 
-        fmt="ro",
-        ecolor="red")
-
-    cont_ax.set_xlabel(r"$T_{\rm eff}$")
-    cont_ax.set_aspect(1./cont_ax.get_data_ratio())
-    cont_ax.plot(
-        chi2_map_dict["valley_teffs"], 
-        chi2_map_dict["valley_fehs"], 
-        "x--", 
-        color="orange")
-
-    # 3) Plot the valley as its own plot
-    val_ax.plot(
-        chi2_map_dict["valley_rchi2_all"], 
-        chi2_map_dict["valley_fehs"], 
-        "x--", 
-        color="orange")
-
-    val_ax.set_xlabel("rchi^2")
-    val_ax.set_aspect(1./val_ax.get_data_ratio())
+        val_ax.set_xlabel("rchi^2")
+        val_ax.set_aspect(1./val_ax.get_data_ratio())
     """
     # 4) Spectra
     colours = plt.cm.cividis(np.linspace(0, 1, len(opt_spec)))
@@ -1206,11 +1231,10 @@ def plot_chi2_map(
     spec_diff_ax.set_ylim([np.min(spec_std), np.max(spec_std)])
     """
     # Title and save the plot
-    title = (r"{} ({})$T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}"
-              ", phot={}, scaling={}")
+    title = (r"{} ({}), $T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}")
     plt.suptitle(title.format(
-        star_id, source_id, teff_actual, feh_actual, used_phot, phot_scale))
-    plt.gcf().set_size_inches(12, 4)
+        star_id, source_id, teff_actual, feh_actual,), y=1.0, fontsize="x-small")
+    plt.gcf().set_size_inches(6, 8)
     plt.tight_layout()
     plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
         teff_actual, source_id))

@@ -339,8 +339,8 @@ def make_synth_mask_for_bad_wl_regions(
     bad_regions = []
 
     if mask_blue:
-        # Everything bluer than 4700 A
-        bad_regions.append([0, 4700])
+        # Everything bluer than 4500 A (formerly 4,700 A)
+        bad_regions.append([0, 4500])
     
     if mask_missing_opacities:
         # Unknown feature
@@ -811,7 +811,8 @@ def calc_synth_fit_resid_both_arms(
     colour_bands,
     sc_interp,
     feh_offset,
-    scale_fac,
+    resid_norm_fac, 
+    phot_scale_fac,
     suppress_fit_diagnostics=False,
     return_synth_models=False,):
     """Calculates the uncertainty weighted residuals between a science spectrum
@@ -887,9 +888,10 @@ def calc_synth_fit_resid_both_arms(
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
 
-    scale_fac: int
-        Multiplicative scaling factor for the photometric colour residuals to
-        scale them relative to their spectroscopic counterparts.
+    resid_norm_fac: int
+        ..
+
+    phot_scale_fac,
 
     suppress_fit_diagnostics: bool, default: False
         Whether to suppress printed diagnostics. 
@@ -931,15 +933,18 @@ def calc_synth_fit_resid_both_arms(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Fit red
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
-        teff, logg, feh, wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor, 
-        idl, band_settings_r,)
+    if ((wave_r is not None) and (spec_r is not None) 
+        and (e_spec_r is not None) and (bad_px_mask_r is not None)):
+        # Determine red residuals
+        resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
+            teff, logg, feh, wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor, 
+            idl, band_settings_r,)
 
-    # Scale by RMS error
-    #resid_vect_r -= np.median(resid_vect_r)
-    
-    # Update flag
-    used_red = True
+        # Normalise residuals by minimum rchi^2
+        resid_vect_r /= resid_norm_fac["red"]
+        
+        # Update flag
+        used_red = True
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Fit blue
@@ -951,8 +956,8 @@ def calc_synth_fit_resid_both_arms(
             teff, logg, feh, wave_b, spec_b, e_spec_b, bad_px_mask_b, rv, bcor, 
             idl, band_settings_b,)
         
-        # Scale by RMS error
-        #resid_vect_b -= np.median(resid_vect_b)
+        # Normalise residuals by minimum rchi^2
+        resid_vect_b /= resid_norm_fac["blue"]
     
         # Update flag
         used_blue = True
@@ -965,20 +970,17 @@ def calc_synth_fit_resid_both_arms(
             teff, logg, feh, stellar_colours, e_stellar_colours, colour_bands,
             sc_interp,)
 
-        # Scale by mean
-        #resid_vect_colour -= np.median(resid_vect_colour)
+        # Normalise residuals by minimum rchi^2
+        resid_vect_colour /= resid_norm_fac["colour"]
 
         # Do additional scaling by multiplying by scale_fac. This increases the
         # weighting of the photometric colours, thus accounting for correlated
         # spectral pixels that add to the residuals, without adding extra
         # information to the fit.
-        resid_vect_colour *= scale_fac
+        resid_vect_colour *= phot_scale_fac
     
         # Update flag
         used_colour = True
-
-        #if not np.sum(np.isfinite(resid_vect_colour)):
-        #    resid_vect_colour = np.ones_like(resid_vect_colour) * 1E30
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Make final residual vector
@@ -1033,7 +1035,8 @@ def do_synthetic_fit(
     e_stellar_colours=None,
     colour_bands=['Rp-J', 'J-H', 'H-K'],
     feh_offset=10,
-    scale_fac=100,
+    resid_norm_fac={'blue':1, 'red':1, 'colour':1,},
+    phot_scale_fac=1,
     suppress_fit_diagnostics=False):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
@@ -1101,7 +1104,7 @@ def do_synthetic_fit(
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
 
-    scale_fac: int, default: 100
+    resid_norm_fac: dict, default: {'blue':1, 'red':1, 'colour':1,}
         Multiplicative scaling factor for the photometric colour residuals to
         scale them relative to their spectroscopic counterparts.
 
@@ -1150,8 +1153,8 @@ def do_synthetic_fit(
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
             band_settings_r, params_init_keys, params_fixed, band_settings_b, 
             wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_colours, 
-            e_stellar_colours, colour_bands, sc_interp, feh_offset, scale_fac,
-            suppress_fit_diagnostics,)
+            e_stellar_colours, colour_bands, sc_interp, feh_offset, 
+            resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
 
     # Do fit
     opt_res = least_squares(
@@ -1221,26 +1224,30 @@ def do_synthetic_fit(
     else:
         spec_synth_b_norm = None
 
-    _, spec_synth_r = get_idl_spectrum(
-        idl, 
-        opt_res["teff"], 
-        opt_res["logg"], 
-        opt_res["feh"], 
-        wl_min=band_settings_r["wl_min"], 
-        wl_max=band_settings_r["wl_max"], 
-        ipres=band_settings_r["inst_res_pow"],
-        grid=band_settings_r["grid"],
-        resolution=band_settings_r["wl_broadening"],
-        norm="abs",
-        do_resample=True, 
-        wl_per_px=band_settings_r["wl_per_px"],
-        rv_bcor=(rv-bcor),
-        )
+    if band_settings_r is not None:
+        _, spec_synth_r = get_idl_spectrum(
+            idl, 
+            opt_res["teff"], 
+            opt_res["logg"], 
+            opt_res["feh"], 
+            wl_min=band_settings_r["wl_min"], 
+            wl_max=band_settings_r["wl_max"], 
+            ipres=band_settings_r["inst_res_pow"],
+            grid=band_settings_r["grid"],
+            resolution=band_settings_r["wl_broadening"],
+            norm="abs",
+            do_resample=True, 
+            wl_per_px=band_settings_r["wl_per_px"],
+            rv_bcor=(rv-bcor),
+            )
 
-    spec_synth_r_norm = spec.norm_spec_by_wl_region(
-        wave_r, 
-        spec_synth_r, 
-        band_settings_r["arm"])
+        spec_synth_r_norm = spec.norm_spec_by_wl_region(
+            wave_r, 
+            spec_synth_r, 
+            band_settings_r["arm"])
+    
+    else:
+        spec_synth_r_norm = None
 
     # Generate synthetic colours at the final params
     if sc_interp is not None:
@@ -1287,7 +1294,7 @@ def make_chi2_map(
     feh_span=1.0, 
     n_fits=100,
     feh_offset=0, 
-    scale_fac=1,
+    phot_scale_fac=1,
     teff_lims=(2500,8000),
     feh_lims=(-2,0.5),
     feh_min_step=0.05,
@@ -1434,7 +1441,11 @@ def make_chi2_map(
         colour_bands,
         do_print=False,)
 
-    # Compute residuals for our grid of Teff and [Fe/H]
+    resid_norm_fac = {'blue':1, 'red':1, 'colour':1,}
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Compute residuals for our *grid* of Teff and [Fe/H]
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     for teff, feh in zip(tqdm(grid_teffs, desc="fitting grid"), grid_fehs):
         # Prepare the parameter structures
         params_init = np.array([teff, feh])
@@ -1447,8 +1458,8 @@ def make_chi2_map(
             idl, band_settings_r, params_init_keys, params_fixed, 
             band_settings_b, wave_b, spec_b, e_spec_b, bad_px_mask_b, 
             stellar_colours, e_stellar_colours, colour_bands, sc_interp, 
-            feh_offset, scale_fac, suppress_fit_diagnostics=True, 
-            return_synth_models=True,)
+            feh_offset, resid_norm_fac=resid_norm_fac, phot_scale_fac=1, 
+            suppress_fit_diagnostics=True, return_synth_models=True,)
 
         synth_spectra_r.append(synth_spec_r)
         grid_resid.append(resid)
@@ -1456,29 +1467,232 @@ def make_chi2_map(
     grid_resid = np.stack(grid_resid)
     synth_spectra_r = np.stack(synth_spectra_r)
 
-
     # Now for each of our [Fe/H] grid points, find the optimal Teff, thus 
     # mapping out the valley floor
-    valley_teffs = []
-    valley_fehs = []
-    valley_resid = []
+    # Setup for valley determination
+    valley_fehs = fehs
 
-    for feh in tqdm(fehs, desc="Finding valley"):
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Determine location of valley for blue spectra
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if spec_b is not None:
+        # Intitialise
+        valley_teffs_b = []
+        valley_resid_b = []
+
+        for feh in tqdm(fehs, desc="Finding blue valley"):
+            # Prepare the parameter structures
+            params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+            fit_for_params = OrderedDict([
+                ("teff",True), ("logg",False), ("feh",False),])
+
+            opt_res = do_synthetic_fit(
+                wave_r=None, # Red wl
+                spec_r=None, # Red spec
+                e_spec_r=None, # Red uncertainties
+                bad_px_mask_r=None,
+                params=params_init, 
+                rv=rv, 
+                bcor=bcor,
+                idl=idl,
+                band_settings_r=None,
+                fit_for_params=fit_for_params,
+                band_settings_b=band_settings_b,
+                wave_b=wave_b, 
+                spec_b=spec_b, 
+                e_spec_b=e_spec_b, 
+                bad_px_mask_b=bad_px_mask_b,
+                stellar_colours=None,
+                e_stellar_colours=None,
+                colour_bands=None,
+                phot_scale_fac=1,
+                suppress_fit_diagnostics=True,)
+
+            valley_teffs_b.append(float(opt_res["x"]))
+            valley_resid_b.append(opt_res["fun"])
+        
+        valley_teffs_b = np.array(valley_teffs_b)
+        valley_resid_b = np.stack(valley_resid_b)
+
+        # Calculate
+        n_b = len(spec_b)
+        rchi2_min_b = np.min(np.sum(valley_resid_b**2, axis=1) / (n_b - 2))
+        
+        grid_resid_b = grid_resid[:, :n_b] / rchi2_min_b
+        grid_rchi2_b = np.sum(grid_resid_b**2, axis=1)# / (n_b - 2)
+        
+        valley_resid_b /=  rchi2_min_b
+        valley_rchi2_b = np.sum(valley_resid_b**2, axis=1)# / (n_b - 2)
+
+    # No blue, so default
+    else:
+        n_b = 0
+        valley_teffs_b = np.ones_like(valley_fehs) * np.nan
+        rchi2_min_b = np.nan
+
+        grid_resid_b = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_b = np.nan
+
+        valley_resid_b = np.empty((len(valley_fehs), 0))
+        valley_rchi2_b = np.ones_like(valley_fehs) * np.nan
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Determine location of valley for red spectra
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if spec_r is not None:
+        # Intitialise
+        valley_teffs_r = []
+        valley_resid_r = []
+
+        for feh in tqdm(fehs, desc="Finding red valley"):
+            # Prepare the parameter structures
+            params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+            fit_for_params = OrderedDict([
+                ("teff",True), ("logg",False), ("feh",False),])
+
+            opt_res = do_synthetic_fit(
+                wave_r=wave_r,
+                spec_r=spec_r,
+                e_spec_r=e_spec_r,
+                bad_px_mask_r=bad_px_mask_r,
+                params=params_init, 
+                rv=rv, 
+                bcor=bcor,
+                idl=idl,
+                band_settings_r=band_settings_r,
+                fit_for_params=fit_for_params,
+                band_settings_b=None,
+                wave_b=None, 
+                spec_b=None, 
+                e_spec_b=None, 
+                bad_px_mask_b=None,
+                stellar_colours=None,
+                e_stellar_colours=None,
+                colour_bands=None,
+                phot_scale_fac=1,
+                suppress_fit_diagnostics=True,)
+
+            valley_teffs_r.append(float(opt_res["x"]))
+            valley_resid_r.append(opt_res["fun"])
+        
+        valley_teffs_r = np.array(valley_teffs_r)
+        valley_resid_r = np.stack(valley_resid_r)
+
+        # Calculate
+        n_r = len(spec_r)
+        rchi2_min_r = np.min(np.sum(valley_resid_r**2, axis=1) / (n_r - 2))
+        
+        grid_resid_r = grid_resid[:, n_b:(n_b+n_r)] / rchi2_min_r
+        grid_rchi2_r = np.sum(grid_resid_r**2, axis=1)# / (n_b - 2)
+        
+        valley_resid_r /=  rchi2_min_r
+        valley_rchi2_r = np.sum(valley_resid_r**2, axis=1)# / (n_b - 2)
+
+    # No red, so default
+    else:
+        n_r = 0
+        valley_teffs_r = np.ones_like(valley_fehs) * np.nan
+        rchi2_min_r = np.nan
+
+        grid_resid_r = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_r = np.nan
+
+        valley_resid_r = np.empty((len(valley_fehs), 0))
+        valley_rchi2_r = np.ones_like(valley_fehs) * np.nan
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Determine location of valley for photometric colours
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if stellar_colours is not None:
+        # Intitialise
+        valley_teffs_c = []
+        valley_resid_c = []
+
+        for feh in tqdm(fehs, desc="Finding colour valley"):
+            # Prepare the parameter structures
+            params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+            fit_for_params = OrderedDict([
+                ("teff",True), ("logg",False), ("feh",False),])
+
+            opt_res = do_synthetic_fit(
+                wave_r=None,
+                spec_r=None,
+                e_spec_r=None,
+                bad_px_mask_r=None,
+                params=params_init, 
+                rv=rv, 
+                bcor=bcor,
+                idl=idl,
+                band_settings_r=None,
+                fit_for_params=fit_for_params,
+                band_settings_b=None,
+                wave_b=None, 
+                spec_b=None, 
+                e_spec_b=None, 
+                bad_px_mask_b=None,
+                stellar_colours=stellar_colours,
+                e_stellar_colours=e_stellar_colours,
+                colour_bands=colour_bands,
+                phot_scale_fac=1,
+                suppress_fit_diagnostics=True,)
+
+            valley_teffs_c.append(float(opt_res["x"]))
+            valley_resid_c.append(opt_res["fun"])
+        
+        valley_teffs_c = np.array(valley_teffs_c)
+        valley_resid_c = np.stack(valley_resid_c)
+
+        # Calculate
+        n_c = len(stellar_colours)
+        rchi2_min_c = np.min(np.sum(valley_resid_c**2, axis=1) / (n_c - 2))
+        
+        grid_resid_c = grid_resid[:, -n_c:] / rchi2_min_c
+        grid_rchi2_c = np.sum(grid_resid_c**2, axis=1)# / (n_b - 2)
+        
+        valley_resid_c /=  rchi2_min_c
+        valley_rchi2_c = np.sum(valley_resid_c**2, axis=1)# / (n_b - 2)
+
+    # No colours, so default
+    else:
+        n_c = 0
+        valley_teffs_c = np.ones_like(valley_fehs) * np.nan
+        rchi2_min_c = np.nan
+
+        grid_resid_c = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_c = np.nan
+
+        valley_resid_c = np.empty((len(valley_fehs), 0))
+        valley_rchi2_c = np.ones_like(valley_fehs) * np.nan
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Determine location of valley with everything
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Intitialise
+    valley_teffs_all = []
+    valley_resid_all = []
+
+    # Initialise the scaling
+    resid_norm_fac = {
+        'blue':rchi2_min_b,
+        'red':rchi2_min_r,
+        'colour':rchi2_min_c,}
+
+    for feh in tqdm(fehs, desc="Finding final weighted valley"):
         # Prepare the parameter structures
         params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
         fit_for_params = OrderedDict([
             ("teff",True), ("logg",False), ("feh",False),])
 
         opt_res = do_synthetic_fit(
-            wave_r, # Red wl
-            spec_r, # Red spec
-            e_spec_r, # Red uncertainties
-            bad_px_mask_r,
-            params_init, 
-            rv, 
-            bcor,
-            idl,
-            band_settings_r,
+            wave_r=wave_r,
+            spec_r=spec_r,
+            e_spec_r=e_spec_r,
+            bad_px_mask_r=bad_px_mask_r,
+            params=params_init, 
+            rv=rv, 
+            bcor=bcor,
+            idl=idl,
+            band_settings_r=band_settings_r,
             fit_for_params=fit_for_params,
             band_settings_b=band_settings_b,
             wave_b=wave_b, 
@@ -1488,83 +1702,25 @@ def make_chi2_map(
             stellar_colours=stellar_colours,
             e_stellar_colours=e_stellar_colours,
             colour_bands=colour_bands,
-            scale_fac=scale_fac,
+            resid_norm_fac=resid_norm_fac,
+            phot_scale_fac=phot_scale_fac,
             suppress_fit_diagnostics=True,)
 
-        valley_teffs.append(float(opt_res["x"]))
-        valley_fehs.append(feh)
-        valley_resid.append(opt_res["fun"])
+        valley_teffs_all.append(float(opt_res["x"]))
+        valley_resid_all.append(opt_res["fun"])
     
-    valley_teffs = np.array(valley_teffs)
-    valley_fehs = np.array(valley_fehs)
-    valley_resid = np.stack(valley_resid)
+    valley_teffs_all = np.array(valley_teffs_all)
+    valley_resid_all = np.stack(valley_resid_all)
 
-    # Now that we have the valley floor, we know the global min rchi^2. Use
-    # this to scale the residuals, before returning the resulting values.
-    n_b = len(spec_b) if spec_b is not None else 0
-    n_r = len(spec_r) if spec_r is not None else 0
-    n_c = len(stellar_colours) if stellar_colours is not None else 0
+    valley_rchi2_all = np.sum(valley_resid_all**2, axis=1)# / (n_b - 2)
 
     # Determine minimum chi^2. Note that this assumes we'll never let logg 
     # float, as we're saying there're always 2 fitted params (Tef, [Fe/H])
 
-    # BLUE
-    if n_b > 0:
-        rchi2_min_b = np.min(np.sum(valley_resid[:, :n_b]**2, axis=1) / (n_b - 2))
-        
-        grid_resid_b = grid_resid[:, :n_b] / rchi2_min_b
-        grid_rchi2_b = np.sum(grid_resid_b**2, axis=1)# / (n_b - 2)
-        
-        valley_resid_b = valley_resid[:, :n_b] / rchi2_min_b
-        valley_rchi2_b = np.sum(valley_resid_b**2, axis=1)# / (n_b - 2)
-
-    else:
-        rchi2_min_b = np.nan
-        grid_resid_b = np.empty((grid_resid.shape[0], 0))
-        grid_rchi2_b = np.nan
-        valley_resid_b = np.empty((valley_resid.shape[0], 0))
-        valley_rchi2_b = np.ones_like(valley_teffs) * np.nan
-
-    # RED
-    if n_r > 0:
-        rchi2_min_r = np.min(np.sum(valley_resid[:, n_b:n_r]**2, axis=1) / (n_r - 2))
-
-        grid_resid_r = grid_resid[:, n_b:n_r] / rchi2_min_r
-        grid_rchi2_r = np.sum(grid_resid_r**2, axis=1)# / (n_r - 2)
-
-        valley_resid_r = valley_resid[:, n_b:n_r] / rchi2_min_r
-        valley_rchi2_r = np.sum(valley_resid_r**2, axis=1)# / (n_r - 2)
-    
-    else:
-        rchi2_min_r = np.nan
-        grid_resid_r = np.empty((grid_resid.shape[0], 0))
-        grid_rchi2_r = np.ones_like(grid_teffs) * np.nan
-        valley_resid_r = np.empty((valley_resid.shape[0], 0))
-        valley_rchi2_r = np.ones_like(valley_teffs) * np.nan
-
-    # COLOUR
-    if n_c > 0:
-        rchi2_min_c = np.min(np.sum(valley_resid[:, -n_c:]**2, axis=1) / (n_c - 2))
-
-        grid_resid_c = grid_resid[:, -n_c:] / rchi2_min_c
-        grid_rchi2_c = np.sum(grid_resid_c**2, axis=1)# / (n_c - 2)
-
-        valley_resid_c = valley_resid[:, -n_c:] / rchi2_min_c
-        valley_rchi2_c = np.sum(valley_resid_c**2, axis=1)# / (n_c - 2)
-    
-    else:
-        rchi2_min_c = np.nan
-        grid_resid_c = np.empty((grid_resid.shape[0], 0))
-        grid_rchi2_c = np.ones_like(grid_teffs) * np.nan
-        valley_resid_c = np.empty((valley_resid.shape[0], 0))
-        valley_rchi2_c = np.ones_like(valley_teffs) * np.nan
-
-    # Combine
-    grid_resid_all = np.hstack((grid_resid_b, grid_resid_r, grid_resid_c))
+    # Combine (and scale photometry here)
+    grid_resid_all = np.hstack((
+        grid_resid_b, grid_resid_r, grid_resid_c*phot_scale_fac))
     grid_rchi2_all = np.sum(grid_resid_all**2, axis=1)# / (len(grid_resid_all) - 2)
-
-    valley_resid_all = np.hstack((valley_resid_b, valley_resid_r, valley_resid_c))
-    valley_rchi2_all = np.sum(valley_resid_all**2, axis=1)# / (len(valley_resid_all) - 2)
 
     chi2_map_dict = {
         # Grid coordinates, residuals, and rchi^2s
@@ -1578,21 +1734,27 @@ def make_chi2_map(
         "grid_rchi2_c":grid_rchi2_c,
         "grid_resid_all":grid_resid_all,
         "grid_rchi2_all":grid_rchi2_all,
-        # Valley coordinates, residuals, and rchi^2s
-        "valley_teffs":valley_teffs,
+        # Valley Teff, [Fe/H], residuals, rchi^2s, and scaling factors
         "valley_fehs":valley_fehs,
+        # Blue valley
+        "valley_teffs_b":valley_teffs_b,
         "valley_resid_b":valley_resid_b,
         "valley_rchi2_b":valley_rchi2_b,
+        "rchi2_min_b":rchi2_min_b,
+        # Red valley
+        "valley_teffs_r":valley_teffs_r,
         "valley_resid_r":valley_resid_r,
         "valley_rchi2_r":valley_rchi2_r,
+        "rchi2_min_r":rchi2_min_r,
+        # Colour valley
+        "valley_teffs_c":valley_teffs_c,
         "valley_resid_c":valley_resid_c,
         "valley_rchi2_c":valley_rchi2_c,
+        "rchi2_min_c":rchi2_min_c,
+        # Combined valley
+        "valley_teffs_all":valley_teffs_all,
         "valley_resid_all":valley_resid_all,
         "valley_rchi2_all":valley_rchi2_all,
-        # Scaling values
-        "rchi2_min_b":rchi2_min_b,
-        "rchi2_min_r":rchi2_min_r,
-        "rchi2_min_c":rchi2_min_c,
     }
 
     # All done, return
