@@ -102,7 +102,7 @@ high_cutoff = 6850
 low_cutoff = None
 high_cutoff = None
 
-map_desc = "all_scaled_J-H_only"
+map_desc = "all_bb"
 
 # -----------------------------------------------------------------------------
 # Run
@@ -193,7 +193,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         e_colours = None
 
     # Make map
-    chi2_map_dict, synth_spectra_r = synth.make_chi2_map(
+    chi2_map_dict = synth.make_chi2_map(
         star_info[teff_col],
         star_info["logg_m19"],
         star_info[feh_col],
@@ -219,7 +219,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         phot_scale_fac=phot_scale_fac,)
 
     # Save
-    results_dict[source_id] = [chi2_map_dict, synth_spectra_r]
+    results_dict[source_id] = chi2_map_dict
 
     # Get uncertainties
     if label == "std":
@@ -236,8 +236,6 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         star_info[feh_col],
         e_feh,
         chi2_map_dict,
-        spectra_r[star_i, 0],
-        synth_spectra_r,
         n_levels=20,
         star_id=star_info[id_col],
         source_id=source_id,

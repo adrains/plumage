@@ -1698,6 +1698,37 @@ def make_chi2_map(
 
     valley_rchi2_all = np.sum(valley_resid_all**2, axis=1)# / (n_a - 2)
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Get broadband spectra at literature values, plus top and bottom of valley
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    black_body_synth_settings = {
+        "ipres":2000,
+        "wl_min":3000,
+        "wl_max":60000,
+        "wl_per_px":1.0,
+        "grid":"full",
+        "norm":"abs",
+        "do_resample":True,
+        "rv_bcor":(rv-bcor),
+    }
+    
+    # Top of valley - i.e. metal rich
+    _, spec_bb_high_feh = get_idl_spectrum(
+        idl, valley_teffs_r[0], logg_actual, valley_fehs[0], 
+        **black_body_synth_settings,)
+
+    # Bottom of valley - i.e. metal poor
+    _, spec_bb_low_feh = get_idl_spectrum(
+        idl, valley_teffs_r[-1], logg_actual, valley_fehs[-1], 
+        **black_body_synth_settings,)
+
+    # And at literature value
+    wave_black_body, spec_bb_lit = get_idl_spectrum(
+        idl, teff_actual, logg_actual, feh_actual, **black_body_synth_settings)
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Wrap up
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Determine minimum chi^2. Note that this assumes we'll never let logg 
     # float, as we're saying there're always 2 fitted params (Tef, [Fe/H])
 
@@ -1739,10 +1770,15 @@ def make_chi2_map(
         "valley_teffs_all":valley_teffs_all,
         "valley_resid_all":valley_resid_all,
         "valley_rchi2_all":valley_rchi2_all,
+        # Spectra
+        "wave_black_body":wave_black_body,
+        "spec_bb_low_feh":spec_bb_low_feh,
+        "spec_bb_high_feh":spec_bb_high_feh,
+        "spec_bb_lit":spec_bb_lit,
     }
 
     # All done, return
-    return chi2_map_dict, synth_spectra_r
+    return chi2_map_dict#, synth_spectra_r
 
 
 def make_chi2_valley_interpolator(teffs, fehs, rchi2s, feh_slice_step):
@@ -1811,7 +1847,9 @@ def load_filter_profile(
     min_wl=1200, 
     max_wl=30000, 
     gaia_filt_path="data/GaiaDR2_Passbands.dat",
-    tmass_filt_path="data/2mass_{}_profile.txt"):
+    tmass_filt_path="data/2mass_{}_profile.txt",
+    wise_filt_path="data/wise_{}_profile.txt",
+    do_zero_pad=True,):
     """Load in the specified filter profile and zero pad both ends in 
     preparation for feeding into an interpolation function.
     """
@@ -1819,10 +1857,12 @@ def load_filter_profile(
 
     filters_gaia = np.array(["G", "BP", "RP"])
     filters_2mass = np.array(["J", "H", "K"])
+    filters_wise = np.array(["W1", "W2", "W3", "W4"])
 
-    if filt not in filters_gaia and filt not in filters_2mass:
-        raise ValueError("Filter must be either {} or {}".format(
-            filters_gaia, filters_2mass))
+    all_filt = np.concatenate((filters_gaia, filters_2mass, filters_wise))
+
+    if filt not in all_filt:
+        raise ValueError("Filter must be either {}".format(all_filt))
 
     # 2MASS filter profiles
     if filt in filters_2mass:
@@ -1843,17 +1883,29 @@ def load_filter_profile(
         wl = gpb["wl"].values * 10
         filt_profile = gpb["{}_pb".format(filt)].values
     
+    # WISE filter profiles
+    elif filt in filters_wise:
+        # Load the filter profile, and convert to Angstroms
+        wpb = pd.read_csv(wise_filt_path.format(filt), delim_whitespace=True)
+
+        wl = wpb["wl"].values * 10**4
+        filt_profile = wpb["pb"].values
+
     # Pre- and post- append zeros from min_wl to max_wl
-    prepad_wl = np.arange(min_wl, wl[0], 1000)
-    prepad = np.zeros_like(prepad_wl)
+    if do_zero_pad:
+        prepad_wl = np.arange(min_wl, wl[0], 1000)
+        prepad = np.zeros_like(prepad_wl)
+        
+        postpad_wl = np.arange(wl[-1], max_wl, 1000)[1:]
+        postpad = np.zeros_like(postpad_wl)
+        
+        wl_filt = np.concatenate((prepad_wl, wl, postpad_wl))
+        filt_profile = np.concatenate((prepad, filt_profile, postpad))
+        
+        return wl_filt, filt_profile
     
-    postpad_wl = np.arange(wl[-1], max_wl, 1000)[1:]
-    postpad = np.zeros_like(postpad_wl)
-    
-    wl_filt = np.concatenate((prepad_wl, wl, postpad_wl))
-    filt_profile = np.concatenate((prepad, filt_profile, postpad))
-    
-    return wl_filt, filt_profile
+    else:
+        return wl, filt_profile
 
 
 def calc_synth_mag(wave, fluxes, filt):

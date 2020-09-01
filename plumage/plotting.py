@@ -13,7 +13,9 @@ import plumage.transits as transit
 from tqdm import tqdm
 import matplotlib.transforms as transforms
 import matplotlib.ticker as plticker
+from scipy.interpolate import interp1d
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 # Ensure the plotting folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -1077,12 +1079,8 @@ def plot_chi2_map(
     feh_actual,
     e_feh_actual,
     chi2_map_dict,
-    wave,
-    synth_spectra,
     n_levels=10,
     point_size=100,
-    feh_slice_step=0.05,
-    n_minima=5,
     star_id="",
     source_id="",
     save_path="plots/",
@@ -1103,29 +1101,31 @@ def plot_chi2_map(
     # Initialise
     plt.close("all")
     fig = plt.figure()
-    gs = fig.add_gridspec(nrows=4, ncols=3)
+    gs = fig.add_gridspec(nrows=4, ncols=5)
 
     axes = {}
 
-    axes["sc_ax_b"] = fig.add_subplot(gs[0, 0])
-    axes["cont_ax_b"] = fig.add_subplot(gs[0, 1])
-    axes["val_ax_b"] = fig.add_subplot(gs[0, 2])
+    #axes["sc_ax_b"] = fig.add_subplot(gs[0, 0])
+    axes["cont_ax_b"] = fig.add_subplot(gs[0, 0])
+    axes["val_ax_b"] = fig.add_subplot(gs[0, 1])
 
-    axes["sc_ax_r"] = fig.add_subplot(gs[1, 0])
-    axes["cont_ax_r"] = fig.add_subplot(gs[1, 1])
-    axes["val_ax_r"] = fig.add_subplot(gs[1, 2])
+    #axes["sc_ax_r"] = fig.add_subplot(gs[1, 0])
+    axes["cont_ax_r"] = fig.add_subplot(gs[1, 0])
+    axes["val_ax_r"] = fig.add_subplot(gs[1, 1])
 
-    axes["sc_ax_c"] = fig.add_subplot(gs[2, 0])
-    axes["cont_ax_c"] = fig.add_subplot(gs[2, 1])
-    axes["val_ax_c"] = fig.add_subplot(gs[2, 2])
+    #axes["sc_ax_c"] = fig.add_subplot(gs[2, 0])
+    axes["cont_ax_c"] = fig.add_subplot(gs[2, 0])
+    axes["val_ax_c"] = fig.add_subplot(gs[2, 1])
 
-    axes["sc_ax_all"] = fig.add_subplot(gs[3, 0])
-    axes["cont_ax_all"] = fig.add_subplot(gs[3, 1])
-    axes["val_ax_all"] = fig.add_subplot(gs[3, 2])
-    #spec_ax = fig.add_subplot(gs[1, :])
-    #spec_diff_ax = fig.add_subplot(gs[2, :])
-    
-    #fig, (sc_ax, cont_ax, val_ax) = plt.subplots(1,3)
+    #axes["sc_ax_all"] = fig.add_subplot(gs[3, 0])
+    axes["cont_ax_all"] = fig.add_subplot(gs[3, 0])
+    axes["val_ax_all"] = fig.add_subplot(gs[3, 1])
+
+    # Spectra axes
+    black_body_ax = fig.add_subplot(gs[0,2:])
+    optical_ax = fig.add_subplot(gs[1,2:])
+    nir_ax = fig.add_subplot(gs[2,2:])
+    ir_ax = fig.add_subplot(gs[3,2:])
 
     kinds = ["b","r","c","all"]
     titles = ["Blue", "Red", "Colour", "Combined"]
@@ -1135,7 +1135,7 @@ def plot_chi2_map(
             continue
 
         # Extract axes
-        sc_ax = axes["sc_ax_{}".format(kind)]
+        #sc_ax = axes["sc_ax_{}".format(kind)]
         cont_ax = axes["cont_ax_{}".format(kind)]
         val_ax = axes["val_ax_{}".format(kind)]
 
@@ -1146,6 +1146,7 @@ def plot_chi2_map(
             n_levels)
 
         # 1) Scatter plot
+        """
         sc = sc_ax.scatter(
             chi2_map_dict["grid_teffs"], 
             chi2_map_dict["grid_fehs"], 
@@ -1170,7 +1171,7 @@ def plot_chi2_map(
         sc_ax.set_xlabel(r"$T_{\rm eff}$")
         sc_ax.set_ylabel("[Fe/H]")
         sc_ax.set_aspect(1./sc_ax.get_data_ratio())
-
+        """
         # 2) Plot a contour plot with the same data
         cont_ax.tricontourf(
             chi2_map_dict["grid_teffs"], 
@@ -1199,6 +1200,9 @@ def plot_chi2_map(
             "x--", 
             color="orange")
 
+        cont_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
+        cont_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
+
         # 3) Plot the valley as its own plot
         val_ax.plot(
             chi2_map_dict["valley_rchi2_{}".format(kind)], 
@@ -1208,37 +1212,99 @@ def plot_chi2_map(
 
         val_ax.set_xlabel("rchi^2")
         val_ax.set_aspect(1./val_ax.get_data_ratio())
-    """
-    # 4) Spectra
-    colours = plt.cm.cividis(np.linspace(0, 1, len(opt_spec)))
-    
-    for spec_i, synth_spec in enumerate(opt_spec):
-        spec_ax.plot(wave, synth_spec, color=colours[spec_i], linewidth=0.2, 
-            label=opt_fehs[spec_i], alpha=0.5)
-    
-    spec_ax.set_xlim([wave[0], wave[-1]])
-    spec_ax.set_ylim([np.min(opt_spec), np.max(opt_spec)])
-    #spec_ax.set_xlabel("Wavelength (A)")
-    spec_ax.set_ylabel("Flux")
-    #spec_ax.legend()
 
-    # 5) Sensitivity
-    spec_std = np.std(np.stack(opt_spec), axis=0)
-    spec_diff_ax.plot(wave, spec_std, linewidth=0.2)
-    spec_diff_ax.set_xlabel("Wavelength (A)")
-    spec_diff_ax.set_ylabel(r"Valley $\sigma$")
-    spec_diff_ax.set_xlim([wave[0], wave[-1]])
-    spec_diff_ax.set_ylim([np.min(spec_std), np.max(spec_std)])
-    """
+    # Black body spectra
+    wave_bb = chi2_map_dict["wave_black_body"]
+    plot_black_body_axis(black_body_ax, chi2_map_dict, wl_min=0, wl_max=1E6,)
+
+    # Plot optical spectra
+    plot_black_body_axis(optical_ax, chi2_map_dict, wl_min=3E3, wl_max=1.1E4,)
+    plot_passband(optical_ax, "G", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "BP", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "RP", wave_bb, 3E3, 1.1E4)
+
+    # Plot NIR spectra
+    plot_black_body_axis(nir_ax, chi2_map_dict, wl_min=1E4, wl_max=2.4E4,)
+    plot_passband(nir_ax, "J", wave_bb, 1E4, 2.4E4)
+    plot_passband(nir_ax, "H", wave_bb, 1E4, 2.4E4)
+    plot_passband(nir_ax, "K", wave_bb, 1E4, 2.4E4)
+
+    # Plot IR spectra
+    plot_black_body_axis(ir_ax, chi2_map_dict, wl_min=2.5E4, wl_max=6E4,)
+    plot_passband(ir_ax, "W1", wave_bb, 2.5E4, 6E4)
+    plot_passband(ir_ax, "W2", wave_bb, 2.5E4, 6E4)
+
+    ir_ax.set_xlabel("Wavelength (A)")
+
     # Title and save the plot
     title = (r"{} ({}), $T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}")
     plt.suptitle(title.format(
         star_id, source_id, teff_actual, feh_actual,), y=1.0, fontsize="x-small")
-    plt.gcf().set_size_inches(6, 8)
+    plt.gcf().set_size_inches(12, 8)
     plt.tight_layout()
     plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
         teff_actual, source_id))
 
+
+def plot_black_body_axis(
+    axis, 
+    chi2_map_dict,
+    wl_min, 
+    wl_max,):
+    """
+    """
+    wl_mask = np.logical_and(
+        chi2_map_dict["wave_black_body"] > wl_min, 
+        chi2_map_dict["wave_black_body"] < wl_max)
+
+    wave_bb = chi2_map_dict["wave_black_body"][wl_mask]
+
+    spec_bb_low_feh = chi2_map_dict["spec_bb_low_feh"][wl_mask]
+    spec_bb_low_feh /= np.max(spec_bb_low_feh)
+
+    spec_bb_high_feh = chi2_map_dict["spec_bb_high_feh"][wl_mask]
+    spec_bb_high_feh /= np.max(spec_bb_high_feh)
+
+    spec_bb_lit = chi2_map_dict["spec_bb_lit"][wl_mask]
+    spec_bb_lit /= np.max(spec_bb_lit)
+
+    axis.plot(wave_bb, spec_bb_low_feh, linewidth=0.2, alpha=0.8, label="low [Fe/H]")
+    axis.plot(wave_bb, spec_bb_high_feh, linewidth=0.2, alpha=0.8, label="high [Fe/H]")
+    axis.plot(wave_bb, spec_bb_lit, linewidth=0.2, alpha=0.8, label="literature")
+
+    axis.legend(loc="best", fontsize="x-small")
+
+
+def plot_passband(axis, filt, wave, wl_min, wl_max,):
+    """
+    """
+    PROFILE_COLOURS = {
+        "G":"green", 
+        "BP":"blue", 
+        "RP":"red",
+        "J":"purple",
+        "H":"crimson",
+        "K":"darkorange",
+        "W1":"forestgreen",
+        "W2":"darkgreen",
+        "W3":"darkcyan",
+        "W4":"darkslategrey",}
+
+    # Initialise mask
+    wl_mask = np.logical_and(wave > wl_min, wave < wl_max)
+
+    # Load and interpolate onto our wavelength scale
+    wl_filt, profile_filt = synth.load_filter_profile(
+        filt, min_wl=wave[0], max_wl=wave[1], do_zero_pad=False)
+
+    calc_filt_profile = interp1d(wl_filt, profile_filt, bounds_error=False,
+        fill_value=np.nan,)
+
+    profile_filt_interp = calc_filt_profile(wave)
+
+    # Plot
+    axis.plot(wave[wl_mask], profile_filt_interp[wl_mask], label=filt, 
+        color=PROFILE_COLOURS[filt], linewidth=0.2,)
 
 
 # -----------------------------------------------------------------------------
