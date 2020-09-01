@@ -1297,11 +1297,7 @@ def make_chi2_map(
     phot_scale_fac=1,
     teff_lims=(2500,8000),
     feh_lims=(-2,0.5),
-    feh_min_step=0.05,
-    valley_teff_interp=None,
-    valley_teff_width=50,
-    desc="",
-    n_fits_valley_fact=4,):
+    feh_min_step=0.05,):
     """Samples the chi^2 space in Teff and [Fe/H] in a box around central 
     literature values of Teff and [Fe/H].
 
@@ -1387,19 +1383,6 @@ def make_chi2_map(
 
     feh_min_step: float, default: 0.05
         Step size in [Fe/H] for mapping the valley floor.
-
-    valley_teff_interp: None or scipy.interpolate.interp1d
-        Interpolator for chi^2 valley to better sample region around valley.
-
-    valley_teff_width: float, default: 50
-        Width of valley to sample in on recursive function call.
-
-    desc: string, default:""
-        String to add to TQDM progress bar on recursive call.
-
-    n_fits_valley_fact: int, default: 4
-        Amount to scale n_fits by on recursive function call to account for
-        rejection sampling when doing recursive call to populate the valley.
 
     Returns
     -------
@@ -1516,19 +1499,19 @@ def make_chi2_map(
 
         # Calculate
         n_b = len(spec_b)
-        rchi2_min_b = np.min(np.sum(valley_resid_b**2, axis=1) / (n_b - 2))
+        resid_scale_fac_b = np.min(np.sum(valley_resid_b**2, axis=1))**0.5
         
-        grid_resid_b = grid_resid[:, :n_b] / rchi2_min_b
+        grid_resid_b = grid_resid[:, :n_b] / resid_scale_fac_b
         grid_rchi2_b = np.sum(grid_resid_b**2, axis=1)# / (n_b - 2)
         
-        valley_resid_b /=  rchi2_min_b
+        valley_resid_b /=  resid_scale_fac_b
         valley_rchi2_b = np.sum(valley_resid_b**2, axis=1)# / (n_b - 2)
 
     # No blue, so default
     else:
         n_b = 0
         valley_teffs_b = np.ones_like(valley_fehs) * np.nan
-        rchi2_min_b = np.nan
+        resid_scale_fac_b = np.nan
 
         grid_resid_b = np.empty((grid_resid.shape[0], 0))
         grid_rchi2_b = np.nan
@@ -1580,19 +1563,19 @@ def make_chi2_map(
 
         # Calculate
         n_r = len(spec_r)
-        rchi2_min_r = np.min(np.sum(valley_resid_r**2, axis=1) / (n_r - 2))
+        resid_scale_fac_r = np.min(np.sum(valley_resid_r**2, axis=1))**0.5
         
-        grid_resid_r = grid_resid[:, n_b:(n_b+n_r)] / rchi2_min_r
-        grid_rchi2_r = np.sum(grid_resid_r**2, axis=1)# / (n_b - 2)
+        grid_resid_r = grid_resid[:, n_b:(n_b+n_r)] / resid_scale_fac_r
+        grid_rchi2_r = np.sum(grid_resid_r**2, axis=1)# / (n_r - 2)
         
-        valley_resid_r /=  rchi2_min_r
-        valley_rchi2_r = np.sum(valley_resid_r**2, axis=1)# / (n_b - 2)
+        valley_resid_r /=  resid_scale_fac_r
+        valley_rchi2_r = np.sum(valley_resid_r**2, axis=1)# / (n_r - 2)
 
     # No red, so default
     else:
         n_r = 0
         valley_teffs_r = np.ones_like(valley_fehs) * np.nan
-        rchi2_min_r = np.nan
+        resid_scale_fac_r = np.nan
 
         grid_resid_r = np.empty((grid_resid.shape[0], 0))
         grid_rchi2_r = np.nan
@@ -1644,19 +1627,19 @@ def make_chi2_map(
 
         # Calculate
         n_c = len(stellar_colours)
-        rchi2_min_c = np.min(np.sum(valley_resid_c**2, axis=1) / (n_c - 2))
+        resid_scale_fac_c = np.min(np.sum(valley_resid_c**2, axis=1))**0.5
         
-        grid_resid_c = grid_resid[:, -n_c:] / rchi2_min_c
-        grid_rchi2_c = np.sum(grid_resid_c**2, axis=1)# / (n_b - 2)
+        grid_resid_c = grid_resid[:, -n_c:] / resid_scale_fac_c
+        grid_rchi2_c = np.sum(grid_resid_c**2, axis=1)# / (n_c - 2)
         
-        valley_resid_c /=  rchi2_min_c
-        valley_rchi2_c = np.sum(valley_resid_c**2, axis=1)# / (n_b - 2)
+        valley_resid_c /=  resid_scale_fac_c
+        valley_rchi2_c = np.sum(valley_resid_c**2, axis=1)# / (n_c - 2)
 
     # No colours, so default
     else:
         n_c = 0
         valley_teffs_c = np.ones_like(valley_fehs) * np.nan
-        rchi2_min_c = np.nan
+        resid_scale_fac_c = np.nan
 
         grid_resid_c = np.empty((grid_resid.shape[0], 0))
         grid_rchi2_c = np.nan
@@ -1673,9 +1656,9 @@ def make_chi2_map(
 
     # Initialise the scaling
     resid_norm_fac = {
-        'blue':rchi2_min_b,
-        'red':rchi2_min_r,
-        'colour':rchi2_min_c,}
+        'blue':resid_scale_fac_b,
+        'red':resid_scale_fac_r,
+        'colour':resid_scale_fac_c,}
 
     for feh in tqdm(fehs, desc="Finding final weighted valley"):
         # Prepare the parameter structures
@@ -1709,10 +1692,11 @@ def make_chi2_map(
         valley_teffs_all.append(float(opt_res["x"]))
         valley_resid_all.append(opt_res["fun"])
     
+    n_a = n_b + n_r + n_c
     valley_teffs_all = np.array(valley_teffs_all)
     valley_resid_all = np.stack(valley_resid_all)
 
-    valley_rchi2_all = np.sum(valley_resid_all**2, axis=1)# / (n_b - 2)
+    valley_rchi2_all = np.sum(valley_resid_all**2, axis=1)# / (n_a - 2)
 
     # Determine minimum chi^2. Note that this assumes we'll never let logg 
     # float, as we're saying there're always 2 fitted params (Tef, [Fe/H])
@@ -1740,17 +1724,17 @@ def make_chi2_map(
         "valley_teffs_b":valley_teffs_b,
         "valley_resid_b":valley_resid_b,
         "valley_rchi2_b":valley_rchi2_b,
-        "rchi2_min_b":rchi2_min_b,
+        "resid_scale_fac_b":resid_scale_fac_b,
         # Red valley
         "valley_teffs_r":valley_teffs_r,
         "valley_resid_r":valley_resid_r,
         "valley_rchi2_r":valley_rchi2_r,
-        "rchi2_min_r":rchi2_min_r,
+        "resid_scale_fac_r":resid_scale_fac_r,
         # Colour valley
         "valley_teffs_c":valley_teffs_c,
         "valley_resid_c":valley_resid_c,
         "valley_rchi2_c":valley_rchi2_c,
-        "rchi2_min_c":rchi2_min_c,
+        "resid_scale_fac_c":resid_scale_fac_c,
         # Combined valley
         "valley_teffs_all":valley_teffs_all,
         "valley_resid_all":valley_resid_all,

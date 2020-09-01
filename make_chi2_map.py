@@ -29,11 +29,9 @@ include_photometry = True
 colour_bands = np.array(['Bp-Rp', 'Rp-J', 'J-H', 'H-K'])
 e_colour_bands = np.array(['e_Bp-Rp', 'e_Rp-J', 'e_J-H', 'e_H-K'])
 
-use_bprp_colour = True
-
-if not use_bprp_colour:
-    colour_bands = colour_bands[1:]
-    e_colour_bands = e_colour_bands[1:]
+cmask = np.array([0, 1, 1, 0]).astype(bool)
+colour_bands = colour_bands[cmask]
+e_colour_bands = e_colour_bands[cmask]
 
 # Scale factor for synthetic colour residuals
 phot_scale_fac = 1
@@ -104,7 +102,7 @@ high_cutoff = 6850
 low_cutoff = None
 high_cutoff = None
 
-map_desc = "all_scaled"
+map_desc = "all_scaled_J-H_only"
 
 # -----------------------------------------------------------------------------
 # Run
@@ -130,6 +128,9 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
     # Only run on stars with Mann+15 parameters
     if skip and np.isnan(star_info["teff_m15"]):
         continue
+
+    #if source_id == "2603090003484152064":
+    #    continue
     
     # Otherwise print the star ID and proceed
     print("\n{}/{} - Generating chi^2 map for {}".format(
@@ -237,12 +238,10 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         chi2_map_dict,
         spectra_r[star_i, 0],
         synth_spectra_r,
-        n_levels=10,
+        n_levels=20,
         star_id=star_info[id_col],
         source_id=source_id,
         save_path="plots/chi2_maps_{}_{}_phot_x{:0.0f}".format(
             label, map_desc, phot_scale_fac),
         used_phot=include_photometry,
         phot_scale_fac=phot_scale_fac,)
-
-    #break
