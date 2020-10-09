@@ -22,16 +22,34 @@ bad_px_masks_b = utils.load_fits_image_hdu("bad_px", label, arm="b")
 bad_px_masks_r = utils.load_fits_image_hdu("bad_px", label, arm="r")
 
 # Whether to use blue spectra in fit
-use_blue_spectra = True
+use_blue_spectra = False
 
 # Whether to include photometry in fit
 include_photometry = True
-colour_bands = np.array(['Bp-Rp', 'Rp-J', 'J-H', 'H-K'])
-e_colour_bands = np.array(['e_Bp-Rp', 'e_Rp-J', 'e_J-H', 'e_H-K'])
 
-cmask = np.array([0, 1, 1, 0]).astype(bool)
-colour_bands = colour_bands[cmask]
-e_colour_bands = e_colour_bands[cmask]
+g2m_filts = np.array(['Bp', 'Rp', 'J', 'H', 'K'])
+g2m_phot_band_cols = np.array(["{}_mag".format(filt) for filt in g2m_filts])
+e_g2m_phot_band_cols = np.array(["e_{}_mag".format(filt) for filt in g2m_filts])
+
+sm_filts = np.array(['v', 'g', 'r', 'i', 'z',])
+sm_phot_band_cols = np.array(["{}_psf".format(filt) for filt in sm_filts])
+e_sm_phot_band_cols = np.array(["e_{}_psf".format(filt) for filt in sm_filts])
+
+filters = np.concatenate((g2m_filts, sm_filts))
+phot_band_cols = np.concatenate((g2m_phot_band_cols, sm_phot_band_cols))
+e_phot_band_cols = np.concatenate((e_g2m_phot_band_cols, e_sm_phot_band_cols))
+
+# Model uncertainties
+band_model_uncertainties = 2.5*np.log10(
+    [1.15, 1.05, 0, 0, 0, 2, 1.2, 1.05, 1.05, 1.05])
+band_model_uncertainties[~np.isfinite(band_model_uncertainties)] = 0
+
+# Bp, Rp, J, H, K, v, g, r, i, z
+phot_mask = np.array([0, 1, 1, 1, 1, 0, 0, 1, 1, 1]).astype(bool)
+filters = filters[phot_mask]
+phot_band_cols = phot_band_cols[phot_mask]
+e_phot_band_cols = e_phot_band_cols[phot_mask]
+band_model_uncertainties = band_model_uncertainties[phot_mask]
 
 # Scale factor for synthetic colour residuals
 phot_scale_fac = 1
@@ -39,6 +57,19 @@ phot_scale_fac = 1
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
 info_cat = utils.load_info_cat(info_cat_path, only_observed=True)
+
+skymapper_phot = pd.read_csv( 
+    "data/rains_all_gaia_ids_matchfinal.csv", 
+    sep=",", 
+    dtype={"source_id":str}, 
+    header=0)
+skymapper_phot.set_index("source_id", inplace=True)  
+
+info_cat = info_cat.join(skymapper_phot, "source_id", how="inner", rsuffix="_") 
+
+# Mask for testing
+#mask = np.isfinite(info_cat["i_psf"])
+#info_cat = info_cat[mask]
 
 # Initialise settings for each band
 band_settings_b = {
@@ -70,7 +101,7 @@ band_settings_r = {
 
 teff_span = 600
 feh_span = 1.2
-n_fits = 10
+n_fits = 3
 
 if label == "std":
     teff_col = "teff_m15"
@@ -99,16 +130,22 @@ low_cutoff = 6700
 high_cutoff = 6850
 
 # All
-low_cutoff = None
-high_cutoff = None
+low_cutoff = 6160
+high_cutoff = 8000
 
-map_desc = "all_bb"
+map_desc = "mbol_ars_6160_up_5_pc"
+
+scale_residuals = {"blue":True,"red":True,"phot":True}
+
+drive = "priv"
+
+cutoff_temp = 6000
 
 # -----------------------------------------------------------------------------
 # Run
 # -----------------------------------------------------------------------------
 # initialise IDL
-idl = synth.idl_init()
+idl = synth.idl_init(drive=drive)
 
 # Do table join
 try:
@@ -145,6 +182,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         star_info["rv"], 
         star_info["bcor"],
         star_info[teff_col],
+        cutoff_temp=cutoff_temp,
         mask_blue=mask_blue,
         mask_missing_opacities=mask_missing_opacities,
         mask_tio=mask_tio,
@@ -183,14 +221,18 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
     # Initialise colours
     if include_photometry:
         # Make a mask for the colours to use, since some might be nans
-        cmask = np.isfinite(star_info[colour_bands].values.astype(float))
-        colours = star_info[colour_bands].values.astype(float)[cmask]
-        e_colours = star_info[e_colour_bands].values.astype(float)[cmask]
+        phot_mask = np.isfinite(star_info[phot_band_cols].values.astype(float))
+        photometry = star_info[phot_band_cols].values.astype(float)[phot_mask]
+        e_photometry = star_info[e_phot_band_cols].values.astype(float)[phot_mask]
+        e_phot_model = band_model_uncertainties[phot_mask]
+
+        # Add model uncertainty in quadrature
+        e_photometry = np.sqrt(e_photometry**2 + e_phot_model**2)
 
     else:
-        cmask = np.array([False, False, False])
-        colours = None
-        e_colours = None
+        phot_mask = np.array([False, False, False])
+        photometry = None
+        e_photometry = None
 
     # Make map
     chi2_map_dict = synth.make_chi2_map(
@@ -210,13 +252,14 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         spec_b=spec_b, 
         e_spec_b=e_spec_b, 
         bad_px_mask_b=bad_px_mask_b,
-        stellar_colours=colours,
-        e_stellar_colours=e_colours,
-        colour_bands=colour_bands[cmask],  # Mask the colours to what we have
+        stellar_phot=photometry,
+        e_stellar_phot=e_photometry,
+        phot_bands=filters[phot_mask],  # Mask photometry to what we have
         teff_span=teff_span,
         feh_span=feh_span, 
         n_fits=n_fits,
-        phot_scale_fac=phot_scale_fac,)
+        phot_scale_fac=phot_scale_fac,
+        scale_residuals=scale_residuals,)
 
     # Save
     results_dict[source_id] = chi2_map_dict
@@ -236,6 +279,7 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         star_info[feh_col],
         e_feh,
         chi2_map_dict,
+        filters[phot_mask],
         n_levels=20,
         star_id=star_info[id_col],
         source_id=source_id,
@@ -243,3 +287,6 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
             label, map_desc, phot_scale_fac),
         used_phot=include_photometry,
         phot_scale_fac=phot_scale_fac,)
+
+    #import pdb
+    #pdb.set_trace()

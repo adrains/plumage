@@ -21,7 +21,7 @@ from scipy.interpolate import LinearNDInterpolator
 #------------------------------------------------------------------------------    
 # Setup IDL
 #------------------------------------------------------------------------------
-def idl_init():
+def idl_init(drive="home"):
     """Initialise IDL by setting paths and compiling relevant files.
     """
     # Do initial compilation
@@ -31,9 +31,19 @@ def idl_init():
     idl(".compile /home/thomasn/grids/get_spec.pro")
 
     # Intialise full, B3000, and R7000 grids
-    idl("grid='/home/thomasn/grids/grid_synthspec_main.sav'")
-    idl("grid_b='/home/thomasn/grids/grid_3000-10000_res1.0.sav'")
-    idl("grid_r='/home/thomasn/grids/grid_3000-10000_res0.45.sav'")
+    if drive == "home":
+        root = "/home/thomasn/grids/"
+    
+    elif drive == "priv":
+        root = "/priv/avatar/thomasn/Turbospectrum-15.1/COM-v15.1/grids/"
+
+    else:
+        raise ValueError(
+            "Unknown value for drive, must be either 'home' or 'priv'")
+
+    idl("grid='{}'".format(os.path.join(root, "grid_synthspec_main.sav")))
+    idl("grid_b='{}'".format(os.path.join(root, "grid_3000-10000_res1.0.sav")))
+    idl("grid_r='{}'".format(os.path.join(root, "grid_3000-10000_res0.45.sav")))
 
     return idl
     
@@ -735,19 +745,20 @@ def calc_synth_fit_resid_one_arm(
     return resid_vect, spec_synth
 
 
-def calc_colour_resid(
+def calc_bc_resid(
     teff,
     logg,
     feh,
-    stellar_colours,
-    e_stellar_colours,
-    colour_bands,
-    sc_interp,):
+    Mbol,
+    stellar_phot,
+    e_stellar_phot,
+    phot_bands,
+    bc_interp,):
     """Calculates the residuals between observed and synthetic colours.
 
     Parameters
     ----------
-    teff, logg, feh: float
+    teff, logg, feh, Mbol: float
         Stellar parameters for star.
     
     stellar_colours: float array, default: None
@@ -761,7 +772,7 @@ def calc_colour_resid(
     colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
         Colour bands to use in the fit.
 
-    sc_interp: SyntheticColourInterpolator
+    bc_interp: SyntheticColourInterpolator
         SyntheticColourInterpolator object able to interpolate synth colours.
 
     Returns
@@ -774,22 +785,25 @@ def calc_colour_resid(
         Array of synthetic stellar colour corresponding to colour_bands.
     """
     # Input checking
-    if (len(stellar_colours) != len(e_stellar_colours) 
-        or len(e_stellar_colours) != len(colour_bands)):
-        raise ValueError("stellar_colours, e_stellar_colours, and colour_bands"
+    if (len(stellar_phot) != len(e_stellar_phot) 
+        or len(e_stellar_phot) != len(phot_bands)):
+        raise ValueError("stellar_phot, e_stellar_phot, and phot_bands"
                          "  should all have the same length")
 
-    # Calculate a set of synthetic colours
-    synth_colours = np.array([sc_interp.compute_colour((teff,logg,feh),cb) 
-                              for cb in colour_bands])
+    # Calculate a set of synthetic bolometric corrections
+    synth_bc = np.array([bc_interp.compute_bc((teff,logg,feh),pb) 
+                              for pb in phot_bands])
+
+    # Now calculate the magnitudes
+    synth_phot = Mbol - synth_bc # + extinction
 
     # Calculate the residuals
-    resid = (stellar_colours - synth_colours) / (e_stellar_colours)
+    resid = (stellar_phot - synth_phot) / (e_stellar_phot)
 
-    return resid, synth_colours
+    return resid, synth_phot, synth_bc
 
 
-def calc_synth_fit_resid_both_arms(
+def calc_synth_fit_resid(
     params, 
     wave_r, 
     spec_r, 
@@ -806,10 +820,10 @@ def calc_synth_fit_resid_both_arms(
     spec_b, 
     e_spec_b, 
     bad_px_mask_b,
-    stellar_colours,
-    e_stellar_colours,
-    colour_bands,
-    sc_interp,
+    stellar_phot,
+    e_stellar_phot,
+    phot_bands,
+    bc_interp,
     feh_offset,
     resid_norm_fac, 
     phot_scale_fac,
@@ -870,19 +884,15 @@ def calc_synth_fit_resid_both_arms(
         Array of bad pixels (i.e. bad pixels are True) for red arm
         corresponding to wave_r.
 
-    stellar_colours: float array, default: None
+    stellar_phot, e_stellar_phot: float array, default: None
         Array of observed stellar colour corresponding to colour_bands. If None
         photometry is not used in the fit.
 
-    e_stellar_colours: float array, default: None
-        Array of observed stellar colour uncertainties. If None photometry is 
-        not used in the fit.
-
-    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
+    phot_bands: string array, default: TODO
         Colour bands to use in the fit.
 
-    sc_interp: SyntheticColourInterpolator
-        SyntheticColourInterpolator object able to interpolate synth colours.
+    bc_interp: SyntheticBCInterpolator
+        SyntheticBCInterpolator object able to interpolate synth bc.
 
     feh_offset: float
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
@@ -914,21 +924,26 @@ def calc_synth_fit_resid_both_arms(
     fi = np.argwhere(params_fit_keys=="feh")
     feh = params[int(fi)] - feh_offset if len(fi) > 0 else params_fixed["feh"]
 
+    # Mbol
+    mi = np.argwhere(params_fit_keys=="Mbol")
+    Mbol = params[int(mi)] if len(mi) > 0 else params_fixed["Mbol"]
+
     # Initialise boolean flags to indicate which residuals are included in the
     # fit - blue spectra, red spectra, and photometry
     used_blue = False
     used_red = False
-    used_colour = False
+    used_phot = False
 
     # Intitialise empty models
     spec_synth_b = None
     spec_synth_r = None
-    synth_colours = None
+    synth_phot = None
+    synth_bc = None
 
     # Initialise empty residual arrays
     resid_vect_r = []
     resid_vect_b = []
-    resid_vect_colour = []
+    resid_vect_bc = []
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Fit red
@@ -965,52 +980,53 @@ def calc_synth_fit_resid_both_arms(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Fit colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    if sc_interp is not None:
-        resid_vect_colour, synth_colours = calc_colour_resid(
-            teff, logg, feh, stellar_colours, e_stellar_colours, colour_bands,
-            sc_interp,)
+    if bc_interp is not None:
+        resid_vect_bc, synth_phot, synth_bc = calc_bc_resid(
+            teff, logg, feh, Mbol, stellar_phot, e_stellar_phot, phot_bands,
+            bc_interp,)
 
         # Normalise residuals by minimum rchi^2
-        resid_vect_colour /= resid_norm_fac["colour"]
+        resid_vect_bc /= resid_norm_fac["phot"]
 
         # Do additional scaling by multiplying by scale_fac. This increases the
         # weighting of the photometric colours, thus accounting for correlated
         # spectral pixels that add to the residuals, without adding extra
         # information to the fit.
-        resid_vect_colour *= phot_scale_fac
+        resid_vect_bc *= phot_scale_fac
     
         # Update flag
-        used_colour = True
+        used_phot = True
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Make final residual vector
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     resid_vect = np.concatenate(
-        (resid_vect_b, resid_vect_r, resid_vect_colour))
+        (resid_vect_b, resid_vect_r, resid_vect_bc))
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Print diagnostics
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if not suppress_fit_diagnostics:
         # Print stellar param update
-        print("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}\t".format(
-            teff, logg, feh), end="")
+        line = ("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}, "
+                "Mbol={:+0.05f}\t")
+        print(line.format(teff, logg, feh, Mbol), end="")
         
         # Print synthetic colour update
-        if sc_interp is not None:
-            for cband, csynth in zip(colour_bands, synth_colours):
-                print("{} = {:0.3f}, ".format(cband, csynth), end="")
+        if bc_interp is not None:
+            for pband, psynth in zip(phot_bands, synth_phot):
+                print("{} = {:0.3f}, ".format(pband, psynth), end="")
 
-        # Print whether we're using blue, red, and colour information
+        # Print whether we're using blue, red, and phot information
         print("\t[b={}, r={}, c={}]".format(
-            used_blue, used_red, used_colour), end="")
+            used_blue, used_red, used_phot), end="")
         
         # And finally the rchi^2
         rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
         print("\t--> rchi^2 = {:0.5f}".format(rchi2))
 
     if return_synth_models:
-        return resid_vect, spec_synth_b, spec_synth_r, synth_colours
+        return resid_vect, spec_synth_b, spec_synth_r, synth_phot, synth_bc
     else:
         return resid_vect
 
@@ -1025,17 +1041,17 @@ def do_synthetic_fit(
     bcor,
     idl,
     band_settings_r,
-    fit_for_params={"teff":True, "logg":True, "feh":True},
+    fit_for_params={"teff":True, "logg":True, "feh":True,},
     band_settings_b=None,
     wave_b=None, 
     spec_b=None, 
     e_spec_b=None, 
     bad_px_mask_b=None,
-    stellar_colours=None,
-    e_stellar_colours=None,
-    colour_bands=['Rp-J', 'J-H', 'H-K'],
+    stellar_phot=None,
+    e_stellar_phot=None,
+    phot_bands=None,
     feh_offset=10,
-    resid_norm_fac={'blue':1, 'red':1, 'colour':1,},
+    resid_norm_fac={'blue':1, 'red':1, 'phot':1,},
     phot_scale_fac=1,
     suppress_fit_diagnostics=False):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
@@ -1089,15 +1105,15 @@ def do_synthetic_fit(
         Array of bad pixels (i.e. bad pixels are True) for red arm
         corresponding to wave_r.
 
-    stellar_colours: float array, default: None
+    stellar_phot: float array, default: None
         Array of observed stellar colour corresponding to colour_bands. If None
         photometry is not used in the fit.
 
-    e_stellar_colours: float array, default: None
+    e_stellar_phot: float array, default: None
         Array of observed stellar colour uncertainties. If None photometry is 
         not used in the fit.
 
-    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
+    phot_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
         Colour bands to use in the fit.
 
     feh_offset: float, default: 10
@@ -1118,19 +1134,38 @@ def do_synthetic_fit(
         scipy.optimize.least_squares.
     """
     # Initalise boundary conditions on fit
-    bounds = np.array([(2800, 4, -2+feh_offset), (6000, 5.5, 0.5+feh_offset)])
-    scale = np.array([1, 1, 1])
-    step = np.array([0.1, 0.1, 0.1])
+    bounds = np.array(
+        [(2800, 4, -2+feh_offset, -10), 
+        (6000, 5.5, 0.5+feh_offset, 100)])
+    scale = np.array([1, 1, 1, 1])
+    step = np.array([0.1, 0.1, 0.1, 0.1])
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Initialise photometry
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Intialises sc_interp if provided colours, otherwise None
-    sc_interp = initialise_synth_colour_interp(
-        stellar_colours, 
-        e_stellar_colours, 
-        colour_bands,
-        do_print=not suppress_fit_diagnostics,)
+    # Intialises bc_interp if provided colours, otherwise None
+    if stellar_phot is None or e_stellar_phot is None:
+        bc_interp = None
+        fit_for_mbol = False
+
+    # If we've been given photometry, initialise synthetic colour interpolator
+    else:
+        bc_interp = SyntheticBCInterpolator()
+        fit_for_mbol = True
+        
+        """
+        if do_print:
+            # Print observed stellar colours
+            for cband, cobs, ecobs in zip(
+                colour_bands, stellar_phot, e_stellar_phot):
+                print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), 
+                    end="")
+            print("\n")
+        """
+
+    # Based on whether we have been provided photometry, determine whether 
+    # we're fitting for Mbol
+    fit_for_params["Mbol"] = fit_for_mbol
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Setup parameters and fit
@@ -1152,13 +1187,13 @@ def do_synthetic_fit(
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
             band_settings_r, params_init_keys, params_fixed, band_settings_b, 
-            wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_colours, 
-            e_stellar_colours, colour_bands, sc_interp, feh_offset, 
+            wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_phot, 
+            e_stellar_phot, phot_bands, bc_interp, feh_offset, 
             resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
 
     # Do fit
     opt_res = least_squares(
-        calc_synth_fit_resid_both_arms, 
+        calc_synth_fit_resid, 
         params_init, 
         jac="3-point",
         bounds=bounds[:,param_mask],
@@ -1191,6 +1226,11 @@ def do_synthetic_fit(
     fi = np.argwhere(params_init_keys=="feh")
     opt_res["feh"] = opt_res["x"][int(fi)] if len(fi) > 0 else params["feh"]
     opt_res["e_feh"] = opt_res["std"][int(fi)] if len(fi) > 0 else np.nan
+
+    # Mbol
+    fi = np.argwhere(params_init_keys=="Mbol")
+    opt_res["Mbol"] = opt_res["x"][int(fi)] if len(fi) > 0 else params["Mbol"]
+    opt_res["e_Mbol"] = opt_res["std"][int(fi)] if len(fi) > 0 else np.nan
 
     # Unscale [Fe/H] if fitted for
     if fit_for_params["feh"]:
@@ -1249,19 +1289,24 @@ def do_synthetic_fit(
     else:
         spec_synth_r_norm = None
 
-    # Generate synthetic colours at the final params
-    if sc_interp is not None:
-        synth_colours = np.array(
-            [sc_interp.compute_colour(
-                (opt_res["teff"],opt_res["logg"],opt_res["feh"]),cb) 
-            for cb in colour_bands])
+    # Generate bolometric corrections at the final params
+    if bc_interp is not None:
+        synth_bc = np.array(
+            [bc_interp.compute_bc(
+                (opt_res["teff"],opt_res["logg"],opt_res["feh"]),band) 
+            for band in phot_bands])
+
+        synth_phot = opt_res["Mbol"] - synth_bc
+
     else:
-        synth_colours = None
+        synth_bc = None
+        synth_phot = None
 
     # Add synthetic spectra and synthetic colours to return dict
     opt_res["spec_synth_b"] = spec_synth_b_norm
     opt_res["spec_synth_r"] = spec_synth_r_norm
-    opt_res["synth_colours"] = synth_colours
+    opt_res["synth_bc"] = synth_bc
+    opt_res["synth_phot"] = synth_phot
 
     # Calculate rchi^2
     opt_res["rchi2"] = (np.sum(opt_res["fun"]**2) 
@@ -1287,9 +1332,9 @@ def make_chi2_map(
     spec_b, 
     e_spec_b,  
     bad_px_mask_b, 
-    stellar_colours, 
-    e_stellar_colours, 
-    colour_bands,
+    stellar_phot, 
+    e_stellar_phot, 
+    phot_bands,
     teff_span=400,
     feh_span=1.0, 
     n_fits=100,
@@ -1297,7 +1342,9 @@ def make_chi2_map(
     phot_scale_fac=1,
     teff_lims=(2500,8000),
     feh_lims=(-2,0.5),
-    feh_min_step=0.05,):
+    n_feh_valley_pts=20,
+    scale_residuals={"blue":True,"red":True,"phot":False},
+    scale_threshold={"blue":0,"red":0,"phot":1}):
     """Samples the chi^2 space in Teff and [Fe/H] in a box around central 
     literature values of Teff and [Fe/H].
 
@@ -1418,34 +1465,59 @@ def make_chi2_map(
     grid_resid = []
 
     # Initialise our synthetic colour interpolator
-    sc_interp = initialise_synth_colour_interp(
-        stellar_colours, 
-        e_stellar_colours, 
-        colour_bands,
-        do_print=False,)
+    bc_interp = SyntheticBCInterpolator()
 
-    resid_norm_fac = {'blue':1, 'red':1, 'colour':1,}
+    resid_norm_fac = {'blue':1, 'red':1, 'phot':1,}
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Compute residuals for our *grid* of Teff and [Fe/H]
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     for teff, feh in zip(tqdm(grid_teffs, desc="fitting grid"), grid_fehs):
         # Prepare the parameter structures
-        params_init = np.array([teff, feh])
-        params_init_keys = np.array(["teff", "feh"])
-        params_fixed = {"logg":logg_actual}
+        """
+        params_init = np.array([teff, feh, 0])
+        params_init_keys = np.array(["teff", "feh", "Mbol"])
+        params_fixed = {"logg":logg_actual,}
 
-        # Comput residuals at given params
-        resid, _, synth_spec_r, _ = calc_synth_fit_resid_both_arms(
+        # Compute residuals at given params
+        
+        resid, _, synth_spec_r, _, _ = calc_synth_fit_resid(
             params_init, wave_r, spec_r,  e_spec_r, bad_px_mask_r, rv, bcor , 
             idl, band_settings_r, params_init_keys, params_fixed, 
             band_settings_b, wave_b, spec_b, e_spec_b, bad_px_mask_b, 
-            stellar_colours, e_stellar_colours, colour_bands, sc_interp, 
+            stellar_phot, e_stellar_phot, phot_bands, bc_interp, 
             feh_offset, resid_norm_fac=resid_norm_fac, phot_scale_fac=1, 
             suppress_fit_diagnostics=True, return_synth_models=True,)
+        """
+        params_init = {"teff":teff, "logg":logg_actual, "feh":feh, "Mbol":0}
+        fit_for_params = OrderedDict([
+            ("teff",False), ("logg",False), ("feh",False), ("Mbol",True)])
 
-        synth_spectra_r.append(synth_spec_r)
-        grid_resid.append(resid)
+        opt_res = do_synthetic_fit(
+            wave_r=wave_r,
+            spec_r=spec_r,
+            e_spec_r=e_spec_r,
+            bad_px_mask_r=bad_px_mask_r,
+            params=params_init, 
+            rv=rv, 
+            bcor=bcor,
+            idl=idl,
+            band_settings_r=band_settings_r,
+            fit_for_params=fit_for_params,
+            band_settings_b=band_settings_b,
+            wave_b=wave_b, 
+            spec_b=spec_b, 
+            e_spec_b=e_spec_b, 
+            bad_px_mask_b=bad_px_mask_b,
+            stellar_phot=stellar_phot,
+            e_stellar_phot=e_stellar_phot,
+            phot_bands=phot_bands,
+            resid_norm_fac=resid_norm_fac,
+            phot_scale_fac=phot_scale_fac,
+            suppress_fit_diagnostics=True,)
+
+        synth_spectra_r.append(opt_res["spec_synth_r"])
+        grid_resid.append(opt_res["fun"])
 
     grid_resid = np.stack(grid_resid)
     synth_spectra_r = np.stack(synth_spectra_r)
@@ -1453,7 +1525,7 @@ def make_chi2_map(
     # Now for each of our [Fe/H] grid points, find the optimal Teff, thus 
     # mapping out the valley floor
     # Setup for valley determination
-    valley_fehs = fehs
+    valley_fehs = np.linspace(feh_min, feh_max, n_feh_valley_pts)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Determine location of valley for blue spectra
@@ -1463,11 +1535,12 @@ def make_chi2_map(
         valley_teffs_b = []
         valley_resid_b = []
 
-        for feh in tqdm(fehs, desc="Finding blue valley"):
+        for feh in tqdm(valley_fehs, desc="Finding blue valley"):
             # Prepare the parameter structures
-            params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+            params_init = {
+                "teff":teff_actual, "logg":logg_actual, "feh":feh, "Mbol":0}
             fit_for_params = OrderedDict([
-                ("teff",True), ("logg",False), ("feh",False),])
+                ("teff",True), ("logg",False), ("feh",False), ("Mbol",False)])
 
             opt_res = do_synthetic_fit(
                 wave_r=None, # Red wl
@@ -1485,9 +1558,9 @@ def make_chi2_map(
                 spec_b=spec_b, 
                 e_spec_b=e_spec_b, 
                 bad_px_mask_b=bad_px_mask_b,
-                stellar_colours=None,
-                e_stellar_colours=None,
-                colour_bands=None,
+                stellar_phot=None,
+                e_stellar_phot=None,
+                phot_bands=None,
                 phot_scale_fac=1,
                 suppress_fit_diagnostics=True,)
 
@@ -1499,8 +1572,15 @@ def make_chi2_map(
 
         # Calculate
         n_b = len(spec_b)
-        resid_scale_fac_b = np.min(np.sum(valley_resid_b**2, axis=1))**0.5
-        
+
+        min_chi2_b = np.min(np.sum(valley_resid_b**2, axis=1))
+
+        if scale_residuals["blue"] and min_chi2_b > scale_threshold["blue"]:
+            resid_scale_fac_b = min_chi2_b**0.5
+
+        else:
+            resid_scale_fac_b = 1
+
         grid_resid_b = grid_resid[:, :n_b] / resid_scale_fac_b
         grid_rchi2_b = np.sum(grid_resid_b**2, axis=1)# / (n_b - 2)
         
@@ -1527,11 +1607,12 @@ def make_chi2_map(
         valley_teffs_r = []
         valley_resid_r = []
 
-        for feh in tqdm(fehs, desc="Finding red valley"):
+        for feh in tqdm(valley_fehs, desc="Finding red valley"):
             # Prepare the parameter structures
-            params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+            params_init = {
+                "teff":teff_actual, "logg":logg_actual, "feh":feh, "Mbol":0}
             fit_for_params = OrderedDict([
-                ("teff",True), ("logg",False), ("feh",False),])
+                ("teff",True), ("logg",False), ("feh",False), ("Mbol",False)])
 
             opt_res = do_synthetic_fit(
                 wave_r=wave_r,
@@ -1549,9 +1630,9 @@ def make_chi2_map(
                 spec_b=None, 
                 e_spec_b=None, 
                 bad_px_mask_b=None,
-                stellar_colours=None,
-                e_stellar_colours=None,
-                colour_bands=None,
+                stellar_phot=None,
+                e_stellar_phot=None,
+                phot_bands=None,
                 phot_scale_fac=1,
                 suppress_fit_diagnostics=True,)
 
@@ -1563,7 +1644,13 @@ def make_chi2_map(
 
         # Calculate
         n_r = len(spec_r)
-        resid_scale_fac_r = np.min(np.sum(valley_resid_r**2, axis=1))**0.5
+        
+        min_chi2_r = np.min(np.sum(valley_resid_r**2, axis=1))
+
+        if scale_residuals["red"] and min_chi2_r > scale_threshold["red"]:
+            resid_scale_fac_r = min_chi2_r**0.5
+        else:
+            resid_scale_fac_r = 1
         
         grid_resid_r = grid_resid[:, n_b:(n_b+n_r)] / resid_scale_fac_r
         grid_rchi2_r = np.sum(grid_resid_r**2, axis=1)# / (n_r - 2)
@@ -1584,18 +1671,19 @@ def make_chi2_map(
         valley_rchi2_r = np.ones_like(valley_fehs) * np.nan
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Determine location of valley for photometric colours
+    # Determine location of valley for photometry
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    if stellar_colours is not None:
+    if stellar_phot is not None:
         # Intitialise
-        valley_teffs_c = []
-        valley_resid_c = []
+        valley_teffs_p = []
+        valley_resid_p = []
 
-        for feh in tqdm(fehs, desc="Finding colour valley"):
+        for feh in tqdm(valley_fehs, desc="Finding colour valley"):
             # Prepare the parameter structures
-            params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+            params_init = {
+                "teff":teff_actual, "logg":logg_actual, "feh":feh, "Mbol":0}
             fit_for_params = OrderedDict([
-                ("teff",True), ("logg",False), ("feh",False),])
+                ("teff",True), ("logg",False), ("feh",False), ("Mbol",True)])
 
             opt_res = do_synthetic_fit(
                 wave_r=None,
@@ -1613,39 +1701,46 @@ def make_chi2_map(
                 spec_b=None, 
                 e_spec_b=None, 
                 bad_px_mask_b=None,
-                stellar_colours=stellar_colours,
-                e_stellar_colours=e_stellar_colours,
-                colour_bands=colour_bands,
+                stellar_phot=stellar_phot,
+                e_stellar_phot=e_stellar_phot,
+                phot_bands=phot_bands,
                 phot_scale_fac=1,
                 suppress_fit_diagnostics=True,)
 
-            valley_teffs_c.append(float(opt_res["x"]))
-            valley_resid_c.append(opt_res["fun"])
+            valley_teffs_p.append(float(opt_res["x"][0]))
+            valley_resid_p.append(opt_res["fun"])
         
-        valley_teffs_c = np.array(valley_teffs_c)
-        valley_resid_c = np.stack(valley_resid_c)
+        valley_teffs_p = np.array(valley_teffs_p)
+        valley_resid_p = np.stack(valley_resid_p)
 
         # Calculate
-        n_c = len(stellar_colours)
-        resid_scale_fac_c = np.min(np.sum(valley_resid_c**2, axis=1))**0.5
+        n_p = len(stellar_phot)
+
+        min_chi2_p = np.min(np.sum(valley_resid_p**2, axis=1))
+
+        if scale_residuals["phot"] and min_chi2_p > scale_threshold["phot"]:
+            resid_scale_fac_p = min_chi2_p**0.5
+
+        else:
+            resid_scale_fac_p = 1
         
-        grid_resid_c = grid_resid[:, -n_c:] / resid_scale_fac_c
-        grid_rchi2_c = np.sum(grid_resid_c**2, axis=1)# / (n_c - 2)
+        grid_resid_p = grid_resid[:, -n_p:] / resid_scale_fac_p
+        grid_rchi2_p = np.sum(grid_resid_p**2, axis=1)# / (n_p - 2)
         
-        valley_resid_c /=  resid_scale_fac_c
-        valley_rchi2_c = np.sum(valley_resid_c**2, axis=1)# / (n_c - 2)
+        valley_resid_p /=  resid_scale_fac_p
+        valley_rchi2_p = np.sum(valley_resid_p**2, axis=1)# / (n_p - 2)
 
     # No colours, so default
     else:
-        n_c = 0
-        valley_teffs_c = np.ones_like(valley_fehs) * np.nan
-        resid_scale_fac_c = np.nan
+        n_p = 0
+        valley_teffs_p = np.ones_like(valley_fehs) * np.nan
+        resid_scale_fac_p = np.nan
 
-        grid_resid_c = np.empty((grid_resid.shape[0], 0))
-        grid_rchi2_c = np.nan
+        grid_resid_p = np.empty((grid_resid.shape[0], 0))
+        grid_rchi2_p = np.nan
 
-        valley_resid_c = np.empty((len(valley_fehs), 0))
-        valley_rchi2_c = np.ones_like(valley_fehs) * np.nan
+        valley_resid_p = np.empty((len(valley_fehs), 0))
+        valley_rchi2_p = np.ones_like(valley_fehs) * np.nan
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Determine location of valley with everything
@@ -1658,13 +1753,14 @@ def make_chi2_map(
     resid_norm_fac = {
         'blue':resid_scale_fac_b,
         'red':resid_scale_fac_r,
-        'colour':resid_scale_fac_c,}
+        'phot':resid_scale_fac_p,}
 
-    for feh in tqdm(fehs, desc="Finding final weighted valley"):
+    for feh in tqdm(valley_fehs, desc="Finding final weighted valley"):
         # Prepare the parameter structures
-        params_init = {"teff":teff_actual, "logg":logg_actual, "feh":feh}
+        params_init = {
+                "teff":teff_actual, "logg":logg_actual, "feh":feh, "Mbol":0}
         fit_for_params = OrderedDict([
-            ("teff",True), ("logg",False), ("feh",False),])
+            ("teff",True), ("logg",False), ("feh",False), ("Mbol",True)])
 
         opt_res = do_synthetic_fit(
             wave_r=wave_r,
@@ -1682,17 +1778,17 @@ def make_chi2_map(
             spec_b=spec_b, 
             e_spec_b=e_spec_b, 
             bad_px_mask_b=bad_px_mask_b,
-            stellar_colours=stellar_colours,
-            e_stellar_colours=e_stellar_colours,
-            colour_bands=colour_bands,
+            stellar_phot=stellar_phot,
+            e_stellar_phot=e_stellar_phot,
+            phot_bands=phot_bands,
             resid_norm_fac=resid_norm_fac,
             phot_scale_fac=phot_scale_fac,
             suppress_fit_diagnostics=True,)
 
-        valley_teffs_all.append(float(opt_res["x"]))
+        valley_teffs_all.append(float(opt_res["x"][0]))
         valley_resid_all.append(opt_res["fun"])
     
-    n_a = n_b + n_r + n_c
+    n_a = n_b + n_r + n_p
     valley_teffs_all = np.array(valley_teffs_all)
     valley_resid_all = np.stack(valley_resid_all)
 
@@ -1734,7 +1830,7 @@ def make_chi2_map(
 
     # Combine (and scale photometry here)
     grid_resid_all = np.hstack((
-        grid_resid_b, grid_resid_r, grid_resid_c*phot_scale_fac))
+        grid_resid_b, grid_resid_r, grid_resid_p*phot_scale_fac))
     grid_rchi2_all = np.sum(grid_resid_all**2, axis=1)# / (len(grid_resid_all) - 2)
 
     chi2_map_dict = {
@@ -1745,8 +1841,8 @@ def make_chi2_map(
         "grid_rchi2_b":grid_rchi2_b,
         "grid_resid_r":grid_resid_r,
         "grid_rchi2_r":grid_rchi2_r,
-        "grid_resid_c":grid_resid_c,
-        "grid_rchi2_c":grid_rchi2_c,
+        "grid_resid_p":grid_resid_p,
+        "grid_rchi2_p":grid_rchi2_p,
         "grid_resid_all":grid_resid_all,
         "grid_rchi2_all":grid_rchi2_all,
         # Valley Teff, [Fe/H], residuals, rchi^2s, and scaling factors
@@ -1762,10 +1858,10 @@ def make_chi2_map(
         "valley_rchi2_r":valley_rchi2_r,
         "resid_scale_fac_r":resid_scale_fac_r,
         # Colour valley
-        "valley_teffs_c":valley_teffs_c,
-        "valley_resid_c":valley_resid_c,
-        "valley_rchi2_c":valley_rchi2_c,
-        "resid_scale_fac_c":resid_scale_fac_c,
+        "valley_teffs_p":valley_teffs_p,
+        "valley_resid_p":valley_resid_p,
+        "valley_rchi2_p":valley_rchi2_p,
+        "resid_scale_fac_p":resid_scale_fac_p,
         # Combined valley
         "valley_teffs_all":valley_teffs_all,
         "valley_resid_all":valley_resid_all,
@@ -1849,17 +1945,20 @@ def load_filter_profile(
     gaia_filt_path="data/GaiaDR2_Passbands.dat",
     tmass_filt_path="data/2mass_{}_profile.txt",
     wise_filt_path="data/wise_{}_profile.txt",
+    skymapper_filt_path="data/skymapper_profiles.txt",
     do_zero_pad=True,):
     """Load in the specified filter profile and zero pad both ends in 
     preparation for feeding into an interpolation function.
     """
-    filt = filt.upper()
+    #filt = filt.upper()
 
     filters_gaia = np.array(["G", "BP", "RP"])
+    filters_skymapper = np.array(["u", "v", "g", "r", "i", "z"])
     filters_2mass = np.array(["J", "H", "K"])
     filters_wise = np.array(["W1", "W2", "W3", "W4"])
 
-    all_filt = np.concatenate((filters_gaia, filters_2mass, filters_wise))
+    all_filt = np.concatenate(
+        (filters_gaia, filters_skymapper, filters_2mass, filters_wise))
 
     if filt not in all_filt:
         raise ValueError("Filter must be either {}".format(all_filt))
@@ -1883,6 +1982,15 @@ def load_filter_profile(
         wl = gpb["wl"].values * 10
         filt_profile = gpb["{}_pb".format(filt)].values
     
+    elif filt in filters_skymapper:
+        smf = pd.read_csv("data/skymapper_profiles.txt", delim_whitespace=True)
+
+        wl = smf["wave_{}".format(filt)].values
+        wl = wl[~np.isnan(wl)]
+
+        filt_profile = smf[filt].values
+        filt_profile = filt_profile[~np.isnan(filt_profile)]
+
     # WISE filter profiles
     elif filt in filters_wise:
         # Load the filter profile, and convert to Angstroms
@@ -2023,29 +2131,6 @@ def calc_synth_colour_array(wave, fluxes, colour_bands):
 
     return np.array(colours)
 
-def initialise_synth_colour_interp(
-    stellar_colours, 
-    e_stellar_colours, 
-    colour_bands,
-    do_print=False):
-    """
-    """
-    if stellar_colours is None or e_stellar_colours is None:
-        sc_interp = None
-
-    # If we've been given photometry, initialise synthetic colour interpolator
-    else:
-        sc_interp = SyntheticColourInterpolator()
-        
-        if do_print:
-            # Print observed stellar colours
-            for cband, cobs, ecobs in zip(
-                colour_bands, stellar_colours, e_stellar_colours):
-                print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), 
-                    end="")
-            print("\n")
-
-    return sc_interp
 
 # -----------------------------------------------------------------------------
 # Working with Casagrande BC code
@@ -2074,6 +2159,13 @@ def generate_casagrande_bc_grid(
         1 1  =  photometric system and filter (select from menu below)
         1 2  =  photometric system and filter (select from menu below)
         1 3  =  photometric system and filter (select from menu below)
+
+    Or this to compute SkyMapper vgriz:
+        20 71  =  photometric system and filter (select from menu below)
+        20 72  =  photometric system and filter (select from menu below)
+        20 73  =  photometric system and filter (select from menu below)
+        20 74  =  photometric system and filter (select from menu below)
+        20 75  =  photometric system and filter (select from menu below)
 
     For simplicity (but mostly to avoid errors), this function does not run 
     bcgo, but the file is in an acceptable format to do so from a terminal.
@@ -2188,6 +2280,20 @@ def initialise_casagrande_bc_grid(
     return bc_grid
 
 
+def merge_casagrande_colour_grid(grid_fn_1, grid_fn_2,):
+    """
+    """
+    grid_1 = load_casagrade_colour_grid(grid_fn_1)
+    grid_2 = load_casagrade_colour_grid(grid_fn_2)
+
+    # Drop duplicate columns
+    grid_2.drop(columns=["id","logg","feh","teff","ebv"], inplace=True)
+
+    grid_final = grid_1.join(grid_2, how="inner")
+
+    grid_final.to_csv("data/synth_colour_grid.csv")
+
+
 def load_casagrade_colour_grid(load_path="data/synth_colour_grid.csv"):
     """Import the constructed grid, with columns [id, logg, feh, teff, ebv,
      BC_Bp, BC_Rp, BC_J, BC_H, BC_K, Bp-Rp, Rp-J, J-H, H-K].
@@ -2202,7 +2308,7 @@ def load_casagrade_colour_grid(load_path="data/synth_colour_grid.csv"):
     return bc_grid
 
 
-class SyntheticColourInterpolator():
+class SyntheticBCInterpolator():
     """Class to interpolate synthetic colours, meaning that you don't need to
     reload and set up the interpolator every time as you would with a function.
     """
@@ -2212,27 +2318,53 @@ class SyntheticColourInterpolator():
         param_cols = ["teff", "logg", "feh"]
 
         self.bc_grid = load_casagrade_colour_grid()
-        self.VALID_COLOURS = ["Bp", "Rp", "J", "H", "K"]
+        self.VALID_COLOURS = ["Bp", "Rp", "J", "H", "K", "v", "g", "r", "i", "z"]
 
-        # Setup interpolators for each possible colour
-        self.calc_bprp =  LinearNDInterpolator(
+        # Gaia photometry
+        self.calc_bc_bp =  LinearNDInterpolator(
             self.bc_grid[param_cols].values, 
-            self.bc_grid["Bp-Rp"].values)
+            self.bc_grid["BC_Bp"].values)
 
-        self.calc_rpj =  LinearNDInterpolator(
+        self.calc_bc_rp =  LinearNDInterpolator(
             self.bc_grid[param_cols].values, 
-            self.bc_grid["Rp-J"].values)
+            self.bc_grid["BC_Rp"].values)
 
-        self.calc_jh =  LinearNDInterpolator(
+        # 2MASS photometry
+        self.calc_bc_j =  LinearNDInterpolator(
             self.bc_grid[param_cols].values, 
-            self.bc_grid["J-H"].values)
+            self.bc_grid["BC_J"].values)
 
-        self.calc_hk =  LinearNDInterpolator(
+        self.calc_bc_h =  LinearNDInterpolator(
             self.bc_grid[param_cols].values, 
-            self.bc_grid["H-K"].values)
+            self.bc_grid["BC_H"].values)
+        
+        self.calc_bc_k =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["BC_K"].values)
+
+        # SkyMapper photometry
+        self.calc_bc_v =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["BC_v"].values)
+
+        self.calc_bc_g =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["BC_g"].values)
+
+        self.calc_bc_r =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["BC_r"].values)
+
+        self.calc_bc_i =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["BC_i"].values)
+        
+        self.calc_bc_z =  LinearNDInterpolator(
+            self.bc_grid[param_cols].values, 
+            self.bc_grid["BC_z"].values)
 
 
-    def compute_colour(self, params, colour_bands):
+    def compute_bc(self, params, phot_band):
         """Computes a synthetic colour based on params and provided colour band
 
         Parameters
@@ -2240,28 +2372,32 @@ class SyntheticColourInterpolator():
         params: float array
             Stellar parameters of form (teff, logg, [Fe/H]).
 
-        colour_bands: string
-            The stellar colour, either 'Bp-Rp', 'Rp-J', 'J-H', or 'H-K'.
+        phot_band: string
+            The photometric filter, either 'Bp', 'Rp', 'J', 'H', or 'K'.
 
         Returns
         -------
         colour: float array
             Resulting synthetic stellar colour.
         """
-        if colour_bands == "Bp-Rp":
-            colour = self.calc_bprp(params[0], params[1], params[2])
+        bc_func_dict = {
+            "Bp":self.calc_bc_bp,
+            "Rp":self.calc_bc_rp,
+            "J":self.calc_bc_j,
+            "H":self.calc_bc_h,
+            "K":self.calc_bc_k,
+            "v":self.calc_bc_v,
+            "g":self.calc_bc_g,
+            "r":self.calc_bc_r,
+            "i":self.calc_bc_i,
+            "z":self.calc_bc_z,
+        }
 
-        elif colour_bands == "Rp-J":
-            colour = self.calc_rpj(params[0], params[1], params[2])
-
-        elif colour_bands == "J-H":
-            colour = self.calc_jh(params[0], params[1], params[2])
-
-        elif colour_bands == "H-K":
-            colour = self.calc_hk(params[0], params[1], params[2])
+        if phot_band in bc_func_dict.keys():
+            bc_synth = bc_func_dict[phot_band](params[0], params[1], params[2])
 
         else:
-            raise ValueError("Invalid colour, must be in {}".format(
+            raise ValueError("Invalid filter, must be in {}".format(
                 self.VALID_COLOURS))
 
-        return colour
+        return bc_synth

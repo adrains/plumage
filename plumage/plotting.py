@@ -1079,6 +1079,7 @@ def plot_chi2_map(
     feh_actual,
     e_feh_actual,
     chi2_map_dict,
+    phot_bands,
     n_levels=10,
     point_size=100,
     star_id="",
@@ -1101,23 +1102,22 @@ def plot_chi2_map(
     # Initialise
     plt.close("all")
     fig = plt.figure()
-    gs = fig.add_gridspec(nrows=4, ncols=5)
+    gs = fig.add_gridspec(nrows=5, ncols=9)
+    gs.update(wspace=0.3, hspace=0.7)
+
+    plt.subplots_adjust(top=0.95, bottom=0.1, right=0.95, left=0.05,)
 
     axes = {}
 
-    #axes["sc_ax_b"] = fig.add_subplot(gs[0, 0])
     axes["cont_ax_b"] = fig.add_subplot(gs[0, 0])
     axes["val_ax_b"] = fig.add_subplot(gs[0, 1])
 
-    #axes["sc_ax_r"] = fig.add_subplot(gs[1, 0])
     axes["cont_ax_r"] = fig.add_subplot(gs[1, 0])
     axes["val_ax_r"] = fig.add_subplot(gs[1, 1])
 
-    #axes["sc_ax_c"] = fig.add_subplot(gs[2, 0])
-    axes["cont_ax_c"] = fig.add_subplot(gs[2, 0])
-    axes["val_ax_c"] = fig.add_subplot(gs[2, 1])
+    axes["cont_ax_p"] = fig.add_subplot(gs[2, 0])
+    axes["val_ax_p"] = fig.add_subplot(gs[2, 1])
 
-    #axes["sc_ax_all"] = fig.add_subplot(gs[3, 0])
     axes["cont_ax_all"] = fig.add_subplot(gs[3, 0])
     axes["val_ax_all"] = fig.add_subplot(gs[3, 1])
 
@@ -1127,11 +1127,13 @@ def plot_chi2_map(
     nir_ax = fig.add_subplot(gs[2,2:])
     ir_ax = fig.add_subplot(gs[3,2:])
 
-    kinds = ["b","r","c","all"]
-    titles = ["Blue", "Red", "Colour", "Combined"]
+    kinds = ["b", "r", "p", "all"]
+    titles = ["Blue", "Red", "Photometry", "Combined"]
 
     for kind, title in zip(kinds, titles):
         if chi2_map_dict["grid_resid_{}".format(kind)].shape[1] == 0:
+            axes["cont_ax_{}".format(kind)].set_visible(False)
+            axes["val_ax_{}".format(kind)].set_visible(False)
             continue
 
         # Extract axes
@@ -1145,39 +1147,17 @@ def plot_chi2_map(
             np.log10(chi2_map_dict["grid_rchi2_{}".format(kind)].max()), 
             n_levels)
 
-        # 1) Scatter plot
-        """
-        sc = sc_ax.scatter(
-            chi2_map_dict["grid_teffs"], 
-            chi2_map_dict["grid_fehs"], 
-            c=chi2_map_dict["grid_rchi2_{}".format(kind)], 
-            s=point_size)
-
-        sc_ax.errorbar(
-            teff_actual, 
-            feh_actual, 
-            xerr=e_teff_actual, 
-            yerr=e_feh_actual, 
-            fmt="ro",
-            ecolor="red",)
-        
-        # Plot a line along the chi^2 valley
-        sc_ax.plot(
-            chi2_map_dict["valley_teffs_{}".format(kind)], 
-            chi2_map_dict["valley_fehs"], 
-            "x--", 
-            color="orange")
-
-        sc_ax.set_xlabel(r"$T_{\rm eff}$")
-        sc_ax.set_ylabel("[Fe/H]")
-        sc_ax.set_aspect(1./sc_ax.get_data_ratio())
-        """
         # 2) Plot a contour plot with the same data
-        cont_ax.tricontourf(
+        cont_col = cont_ax.tricontourf(
             chi2_map_dict["grid_teffs"], 
             chi2_map_dict["grid_fehs"], 
             chi2_map_dict["grid_rchi2_{}".format(kind)], 
             levels)
+
+        # Colour bar
+        cb = fig.colorbar(cont_col, ax=cont_ax)
+        cb.ax.tick_params(labelsize="xx-small")
+        #cb.set_label(cb_label)
 
         cont_ax.errorbar(
             teff_actual, 
@@ -1190,9 +1170,10 @@ def plot_chi2_map(
         if title == "Colour":
             cont_ax.set_title("{} (x{})".format(title, phot_scale_fac))
         else:
-            cont_ax.set_title(title)
+            cont_ax.set_title(title, fontsize="small")
 
-        cont_ax.set_xlabel(r"$T_{\rm eff}$")
+        #cont_ax.set_xlabel(r"$T_{\rm eff}$", fontsize="small")
+        cont_ax.set_ylabel("[Fe/H]]", fontsize="small")
         cont_ax.set_aspect(1./cont_ax.get_data_ratio())
         cont_ax.plot(
             chi2_map_dict["valley_teffs_{}".format(kind)], 
@@ -1202,6 +1183,8 @@ def plot_chi2_map(
 
         cont_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
         cont_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
+        cont_ax.tick_params(axis='x', which='major', labelsize="xx-small", rotation=45)
+        cont_ax.tick_params(axis='y', which='major', labelsize="xx-small")
 
         # 3) Plot the valley as its own plot
         val_ax.plot(
@@ -1210,8 +1193,45 @@ def plot_chi2_map(
             "x--", 
             color="orange")
 
-        val_ax.set_xlabel("rchi^2")
+        val_ax.set_xlabel("rchi^2", fontsize="small")
         val_ax.set_aspect(1./val_ax.get_data_ratio())
+        val_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
+        val_ax.tick_params(axis='both', which='major', labelsize="xx-small")
+
+    # For each colour band, show map
+    for filt_i, filt in enumerate(phot_bands):
+        phot_ax = fig.add_subplot(gs[4, filt_i])
+
+        filt_chi2 = chi2_map_dict["grid_resid_p"][:,filt_i]**2
+
+        levels = np.logspace(
+            np.log10(filt_chi2.min()), 
+            np.log10(filt_chi2.max()), 
+            n_levels)
+
+        cont_col = phot_ax.tricontourf(
+            chi2_map_dict["grid_teffs"], 
+            chi2_map_dict["grid_fehs"], 
+            filt_chi2, 
+            levels)
+
+        # Colour bar
+        cb = fig.colorbar(cont_col, ax=phot_ax)
+        cb.ax.tick_params(labelsize="xx-small")
+
+        phot_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
+        phot_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
+        phot_ax.tick_params(axis='y', which='major', labelsize="xx-small")
+        phot_ax.set_aspect(1./phot_ax.get_data_ratio())
+
+        phot_ax.set_title(filt)
+
+        # Only title leftmost y axis
+        if filt_i == 0:
+            phot_ax.set_ylabel("[Fe/H]]")
+
+        phot_ax.set_xlabel(r"$T_{\rm eff}$")
+        plt.setp(phot_ax.get_xticklabels(), fontsize="xx-small", rotation=45)
 
     # Black body spectra
     wave_bb = chi2_map_dict["wave_black_body"]
@@ -1222,6 +1242,12 @@ def plot_chi2_map(
     plot_passband(optical_ax, "G", wave_bb, 3E3, 1.1E4)
     plot_passband(optical_ax, "BP", wave_bb, 3E3, 1.1E4)
     plot_passband(optical_ax, "RP", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "u", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "v", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "g", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "r", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "i", wave_bb, 3E3, 1.1E4)
+    plot_passband(optical_ax, "z", wave_bb, 3E3, 1.1E4)
 
     # Plot NIR spectra
     plot_black_body_axis(nir_ax, chi2_map_dict, wl_min=1E4, wl_max=2.4E4,)
@@ -1240,8 +1266,8 @@ def plot_chi2_map(
     title = (r"{} ({}), $T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}")
     plt.suptitle(title.format(
         star_id, source_id, teff_actual, feh_actual,), y=1.0, fontsize="x-small")
-    plt.gcf().set_size_inches(12, 8)
-    plt.tight_layout()
+    plt.gcf().set_size_inches(16, 8)
+    #plt.tight_layout()
     plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
         teff_actual, source_id))
 
@@ -1282,6 +1308,12 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
         "G":"green", 
         "BP":"blue", 
         "RP":"red",
+        "u":"mediumpurple",
+        "v":"darkviolet",
+        "g":"seagreen",
+        "r":"tomato",
+        "i":"firebrick",
+        "z":"maroon",
         "J":"purple",
         "H":"crimson",
         "K":"darkorange",
@@ -1304,7 +1336,7 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 
     # Plot
     axis.plot(wave[wl_mask], profile_filt_interp[wl_mask], label=filt, 
-        color=PROFILE_COLOURS[filt], linewidth=0.2,)
+        color=PROFILE_COLOURS[filt], linewidth=0.6,)
 
 
 # -----------------------------------------------------------------------------

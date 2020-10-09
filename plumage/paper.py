@@ -130,7 +130,9 @@ def make_table_targets(break_row=45):
         Which row to break table 1 at and start table 2.
     """
     # Load in the TESS target info (TODO: function for this)
-    tess_info = utils.load_info_cat(remove_fp=True, only_observed=True)
+    tess_info = utils.load_info_cat(remove_fp=True, only_observed=True, 
+        in_paper=True)
+    tess_info.sort_values("G_mag", inplace=True)
     
     cols = OrderedDict([
         ("TIC$^a$", ""),
