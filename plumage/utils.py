@@ -25,7 +25,7 @@ def do_id_crossmatch(observations, catalogue):
     ob_ids = observations["id"].values
     
     # Initialise array of unique IDs
-    u_ids = []
+    source_ids = []
     program = []
     subset = []
 
@@ -45,7 +45,7 @@ def do_id_crossmatch(observations, catalogue):
                 idx = np.argwhere(catalogue[id_col].values==ob_id)
 
             if len(idx) == 1:
-                u_ids.append(catalogue.iloc[int(idx)]["source_id"])
+                source_ids.append(catalogue.iloc[int(idx)]["source_id"])
                 program.append(catalogue.iloc[int(idx)]["program"])
                 subset.append(catalogue.iloc[int(idx)]["subset"])
                 id_found = True
@@ -55,13 +55,15 @@ def do_id_crossmatch(observations, catalogue):
         # If get to this point and no ID/program, put placeholder and print
         if not id_found:
             print("No ID match for #%i: %s" % (ob_id_i, ob_id))
-            u_ids.append("")
+            source_ids.append("")
             program.append("")
             subset.append("")
 
-    observations["uid"] = u_ids
+    observations["source_id"] = source_ids
     observations["program"] = program
     observations["subset"] = subset
+
+    observations.set_index("source_id", inplace=True) 
 
 
 def do_activity_crossmatch(observations, activity):
@@ -138,10 +140,10 @@ def load_crossmatch_catalogue(cat_type="csv",
     if cat_type == "csv":
         catalogue_file = cat_file
         catalogue = pd.read_csv(catalogue_file, sep=",", header=0, 
-                                dtype={"Gaia ID":str, "TOI":str, 
+                                dtype={"source_id":str, "TOI":str, 
                                 "2MASS_Source_ID":str, "subset":str},
                                 na_values=[], keep_default_na=False)
-        catalogue.rename(columns={"Gaia ID":"source_id"}, inplace=True)
+        catalogue.rename(columns={"source_id":"source_id"}, inplace=True)
 
         #catalogue["source_id"] = catalogue["source_id"].astype(str)
         #catalogue["subset"] = catalogue["subset"].astype(str)
@@ -477,7 +479,7 @@ def load_fits(label, path="spectra"):
 
         # Extract the table of observations
         obs_tab = Table(fits_file[6].data)
-        obs_pd = obs_tab.to_pandas()
+        obs_pd = obs_tab.to_pandas().set_index("source_id")
 
         return spec_b, spec_r, obs_pd
 
@@ -557,7 +559,7 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
     hdu.append(e_spec_img)
 
     # HDU 7: table of observational information
-    obs_tab = fits.BinTableHDU(Table.from_pandas(observations))
+    obs_tab = fits.BinTableHDU(Table.from_pandas(observations.reset_index()))
     obs_tab.header["EXTNAME"] = ("OBS_TAB", "Observation info table")
     hdu.append(obs_tab)
     
@@ -592,6 +594,12 @@ def load_fits_table(extension, label, path="spectra"):
     # List of valid extensions
     valid_ext = ["OBS_TAB", "TRANSIT_FITS"]
 
+    # Needed to reapply the DataFrame index, which astropy does not respect
+    ext_index = {
+        "OBS_TAB":"source_id",
+        "TRANSIT_FITS":"TOI"
+    }
+
     if extension not in valid_ext:
         raise ValueError("Invalid extension type. Must be in {}".format(
             valid_ext))
@@ -606,7 +614,7 @@ def load_fits_table(extension, label, path="spectra"):
         else:
             raise Exception("No table of that extension or wrong fits format")
 
-    return obs_pd
+    return obs_pd.set_index(ext_index[extension])
 
 
 def convert_1e20_to_nans(fits_table):
@@ -655,7 +663,7 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
     with fits.open(fits_path, mode="update") as fits_file:
         if extension in fits_file:
             # Update table
-            astropy_tab = Table.from_pandas(dataframe)
+            astropy_tab = Table.from_pandas(dataframe.reset_index())
             convert_1e20_to_nans(astropy_tab)
 
             fits_tab = fits.BinTableHDU(astropy_tab)
@@ -663,7 +671,7 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
             fits_file.flush()
         else:
             # Save table for first time
-            astropy_tab = Table.from_pandas(dataframe)
+            astropy_tab = Table.from_pandas(dataframe.reset_index())
             convert_1e20_to_nans(astropy_tab)
 
             fits_tab = fits.BinTableHDU(astropy_tab)
