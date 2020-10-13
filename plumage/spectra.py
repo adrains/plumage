@@ -495,22 +495,24 @@ def normalise_spectra(spectra, normalise_uncertainties=False):
 def norm_spec_by_wl_region(wave, spectrum, arm, e_spec=None):
     """Normalise spectra by a specific wavelength region for synthetic fitting.
     """
-    # Normalise by the region just to the blue of H alpha
+    # Normalise by median of wl > 6000
     if arm == "r":
-        norm_mask = np.logical_and(wave > 6535, wave < 6545)
+        norm_mask = wave > 6200
 
-    # Normalise by bandhead near 5000 A
+    # Normalise median of wl > 4500
     elif arm == "b":
-        norm_mask = np.logical_and(wave > 4925, wave < 4950)
+        norm_mask = wave > 4500
 
     else:
         raise ValueError("Arm must be either r or b")
 
     # Normalise the specta (and errors if provided)
-    spec_norm = spectrum / np.nanmean(spectrum[norm_mask])
+    norm_fac = np.nanmedian(spectrum[norm_mask])
+
+    spec_norm = spectrum / norm_fac
 
     if e_spec is not None:
-        e_spec_norm = e_spec / np.nanmean(spectrum[norm_mask])
+        e_spec_norm = e_spec / norm_fac
         return spec_norm, e_spec_norm
 
     else:
