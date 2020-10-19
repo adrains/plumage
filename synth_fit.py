@@ -154,6 +154,8 @@ logg_synth = np.full(len(observations), np.nan)
 e_logg_synth = np.full(len(observations), np.nan)
 feh_synth = np.full(len(observations), np.nan)
 e_feh_synth = np.full(len(observations), np.nan)
+mbol_synth = np.full(len(observations), np.nan)
+e_mbol_synth = np.full(len(observations), np.nan)
 fit_results = []
 synth_fits_b = np.full(spectra_b[:,0,:].shape, np.nan)  
 synth_fits_r = np.full(spectra_r[:,0,:].shape, np.nan)  
@@ -317,6 +319,9 @@ for ob_i in range(0, len(observations)):
     feh_synth[ob_i] = opt_res["feh"]
     e_feh_synth[ob_i] = opt_res["e_feh"] # TODO
 
+    mbol_synth[ob_i] = opt_res["Mbol"]
+    e_mbol_synth[ob_i] = opt_res["e_Mbol"] # TODO
+
     fit_results.append(opt_res)
     synth_fits_r[ob_i] = opt_res["spec_synth_r"]
     rchi2[ob_i] = opt_res["rchi2"]
@@ -331,7 +336,9 @@ for ob_i in range(0, len(observations)):
           "logg = {:0.2f} +/- {:0.2f},".format(opt_res["logg"], 
                                                opt_res["e_logg"]), 
           "[Fe/H] = {:+0.2f} +/- {:0.2f}\n".format(opt_res["feh"], 
-                                                   opt_res["e_feh"]),)
+                                                   opt_res["e_feh"]),
+          "m_bol = {:0.2f} +/- {:0.2f}\n".format(opt_res["Mbol"], 
+                                                   opt_res["e_Mbol"]),)
 
     # Print observed stellar colours
     synth_phot = opt_res["synth_phot"]
@@ -352,6 +359,8 @@ observations["logg_synth"] = logg_synth
 observations["e_logg_synth"] = e_logg_synth
 observations["feh_synth"] = feh_synth
 observations["e_feh_synth"] = e_feh_synth
+observations["mbol_synth"] = mbol_synth
+observations["e_mbol_synth"] = e_mbol_synth
 
 observations["rchi2_synth"] = rchi2
 observations["both_arm_synth_fit"] = both_arm_synth_fit
