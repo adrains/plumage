@@ -887,6 +887,72 @@ def calc_f_bol(bc, mag):
     return f_bol
 
 
+def calc_f_bol_from_mbol(mbol, e_mbol):
+    """Calculate the bolometric flux from a bolometric magnitude.
+    Parameters
+    ----------
+    mbol: float or float array
+        Bolometric magnitude of the star.
+
+    Returns
+    -------
+    f_bol: float or float array
+        Resulting bolometric flux.
+    """
+    L_sun = const.L_sun.cgs.value # erg s^-1
+    au = const.au.cgs.value       # cm
+    M_bol_sun = 4.75
+    
+    # Constant
+    A = (np.pi * L_sun / (1.296 * 10**9 * au)**2)
+
+    f_bol = A * 10**(-0.4 * (mbol - M_bol_sun - 10))
+    
+
+    B = -0.4* np.log(10)
+    f_bol_dot = A * 10**(0.4*(M_bol_sun+10)) * B * np.e**(B*mbol)
+
+    e_fbol = np.abs(f_bol_dot) * e_mbol
+
+    return f_bol, e_fbol
+
+
+def calc_radii(teff, e_teff, fbol, e_fbol, dist, e_dist,):
+    """
+    """
+    # Constants
+    pc = const.pc.cgs
+    r_sun = const.R_sun.cgs.value
+    sigma = const.sigma_sb.cgs.value
+
+    # Calculate radii
+    radii = dist_cm * np.sqrt(fbol / (sigma*teff**4)) / r_sun
+
+    # Calculate uncertainty on radius (assuming no covariance)
+    e_radii = radii * ((e_dist/dist)**2 + (e_fbol/(4*fbol))**2 
+                        + (2*e_teff/teff)**2)**0.5
+    #e_radii = np.sqrt(np.sum([
+    #    (sigma**(-0.5) * fbol**0.5 * teff**-2)**2 * e_dist_cm**2,
+    #    (0.5*sigma**(-0.5) * dist_cm * fbol**-0.5 * teff**-2)**2 * e_dist_cm**2,
+    #    (-2*sigma**(-0.5) * dist_cm * fbol**0.5 * teff**-3)**2 * e_teff**2,
+    #], axis=0)) / r_sun
+
+    return radii, e_radii
+
+
+def calc_L_star(fbol, e_fbol, dist, e_dist):
+    """Calculate the stellar luminosity using the bolometric flux 
+    """
+    L_sun = const.L_sun.cgs.value # erg s^-1
+    pc = const.pc.cgs.value       # cm
+    
+    L_star = 4 * np.pi * fbol * (dist*pc)**2 / L_sun
+
+    e_L_star = L_star * ((e_fbol/fbol)**2 + 4*(e_dist/dist)**2)**0.5
+
+    return L_star, e_L_star
+
+
 def compute_final_params(
     observations, 
     all_sampled_params, 
