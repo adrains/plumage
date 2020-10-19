@@ -57,6 +57,7 @@ star_dict = {
 use_btsettl = False
 
 teffs = []
+bp_rps = []
 flux_pcs_all = []
 mag_diffs_all = []
 
@@ -124,13 +125,14 @@ for star_i in range(len(obs_std)):
     # -------------------------------------------------------------------------
     # Normalise red by median
     wl_r = spec_std_r[star_i,0]
-    spec_r = spec_std_r[star_i,1] / np.nanmedian(spec_std_r[star_i,1])
-    ref_r = synth_std_lit_r[star_i] / np.nanmedian(synth_std_lit_r[star_i])
+    med_mask = wl_r > 6000
+    spec_r = spec_std_r[star_i,1] / np.nanmedian(spec_std_r[star_i,1][med_mask])
+    ref_r = synth_std_lit_r[star_i] / np.nanmedian(synth_std_lit_r[star_i][med_mask])
 
     # Normalise blue by overlap region
 
-    norm_obs = np.nanmean(spec_r[wl_r < 5445])
-    norm_synth = np.nanmean(ref_r[wl_r < 5445])
+    norm_obs = np.nanmedian(spec_r[wl_r < 5445])
+    norm_synth = np.nanmedian(ref_r[wl_r < 5445])
 
     wl_b = spec_std_b[star_i,0]
     norm_mask = np.logical_and(wl_b > 5400, wl_b < 5445)
@@ -193,12 +195,29 @@ for star_i in range(len(obs_std)):
     # Get temperature
     teff_m15 = obs_std.iloc[star_i]["teff_m15"]
     teff_ra12 = obs_std.iloc[star_i]["teff_ra12"]
+    teff_int = obs_std.iloc[star_i]["teff_int"]
+    teff_other = obs_std.iloc[star_i]["teff_other"]
     feh_m15 = obs_std.iloc[star_i]["feh_m15"]
     feh_ra12 = obs_std.iloc[star_i]["feh_ra12"]
+    feh_int = 0
+    feh_other = obs_std.iloc[star_i]["feh_other"]
 
-    teff = teff_m15 if ~np.isnan(teff_m15) else teff_ra12
-    feh = feh_m15 if ~np.isnan(feh_m15) else feh_ra12
+    teff_all = np.array([
+        obs_std.iloc[star_i]["teff_m15"],
+        obs_std.iloc[star_i]["teff_ra12"],
+        obs_std.iloc[star_i]["teff_int"],
+        obs_std.iloc[star_i]["teff_other"]])
 
+    feh_all = np.array([
+        obs_std.iloc[star_i]["feh_m15"],
+        obs_std.iloc[star_i]["feh_ra12"],
+        0,
+        obs_std.iloc[star_i]["feh_other"]])
+
+    teff = teff_all[~np.isnan(teff_all)][0]
+    feh = feh_all[~np.isnan(feh_all)][0]
+
+    bp_rps.append(obs_std.iloc[star_i]["Bp-Rp"])
     teffs.append(teff)
 
     source_id = obs_std.iloc[star_i]["id"]
@@ -217,4 +236,5 @@ for star_i in range(len(obs_std)):
     plt.tight_layout()
     plt.savefig("plots/mag_check/{}_{}.pdf".format(teff, obs_std.iloc[star_i]["id"]))
 
+flux_pcs_all = np.stack(flux_pcs_all)
 pplt.merge_spectra_pdfs("plots/mag_check/*.pdf", "plots/integration.pdf")

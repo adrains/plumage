@@ -11,7 +11,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline as ius
 label = "std"
 spec_path = "spectra"
 
-std_info = utils.load_info_cat("data/std_info.tsv")
+std_info = utils.load_info_cat("data/std_info.tsv", in_paper=True)
 spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
 
 # Initlise empty arrays to hold synthetic spectra at lit params
@@ -41,37 +41,40 @@ band_settings_r = {
 }
 
 # Intialise columns to use for two sets of reference stars
-mann15_cols = ["teff_m15", "logg_m15", "feh_m15"]
+mann15_cols = ["teff_m15", "logg_m19", "feh_m15"]
 ra12_cols = ["teff_ra12", "logg_m19", "feh_ra12"]
+int_cols = ["teff_int", "logg_m19"]
+other_cols = ["teff_other", "logg_other", "feh_other"]
 
 # Initialise IDL
 idl = synth.idl_init()
 
 # For every spectrum in observations, we want to get a spectrum at the 
 # lit values *if* the star has each of Teff, logg, and [Fe/H] in std_info
-for star_i, obs_info in observations.iterrows():
-    # Get the gaia id
-    sid = obs_info["source_id"]
-
+for star_i, (sid, obs_info) in enumerate(observations.iterrows()):
     # Find this ID in std_info
-    star_info = std_info[std_info.index==sid]
-
-    # Can't continue if the star isn't in star_info, or it has an incomplete
-    # set of parameters.
-    if len(star_info) == 0:
+    if sid not in std_info.index:
         all_synth_lit_b.append(np.full(band_settings_b["n_px"], np.nan))
         all_synth_lit_r.append(np.full(band_settings_r["n_px"], np.nan))
         continue
+    else:
+        star_info = std_info.loc[sid]
 
     # Check Mann+15
-    elif np.isfinite(np.sum(star_info.iloc[0][mann15_cols].values)):
-        star_info = star_info.iloc[0]
+    if np.isfinite(np.sum(star_info[mann15_cols].values)):
         params = star_info[mann15_cols]
     
     # Rojas-Ayala+12
-    elif np.isfinite(np.sum(star_info.iloc[0][ra12_cols].values)):
-        star_info = star_info.iloc[0]
+    elif np.isfinite(np.sum(star_info[ra12_cols].values)):
         params = star_info[ra12_cols]
+    
+    # Interferometry
+    elif np.isfinite(np.sum(star_info[int_cols].values)):
+        params = np.concatenate((star_info[int_cols], [0]))   # Assume [Fe/H]=0
+
+    # Other
+    elif np.isfinite(np.sum(star_info[other_cols].values)):
+        params = star_info[other_cols]
 
     # Any other condition, we don't have a complete set of params so continue
     else:

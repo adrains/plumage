@@ -670,7 +670,7 @@ def plot_synth_fit_diagnostic(
         mask = info_cat["observed"]
 
     # Get target info
-    sid = obs_info["source_id"]
+    sid = obs_info.name#["source_id"]
     is_obs = info_cat["observed"].values
     star_info = info_cat[is_obs][info_cat[is_obs].index==sid].iloc[0]
 
@@ -978,7 +978,7 @@ def plot_all_synthetic_fits(
             spec_synth_lit_r_i = spec_synth_lit_r[i]
 
         # Only bother plotting stars in the paper
-        if observations.iloc[i]["source_id"] not in info_cat.index:
+        if observations.iloc[i].name not in info_cat.index:
             continue
 
         # Do plotting
@@ -1343,7 +1343,7 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 # Comparisons & other paper plots
 # ----------------------------------------------------------------------------- 
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label, 
-    y_label, cb_label, lims, cmap, show_median_offset,):
+    y_label, cb_label, lims, cmap, show_offset,):
     """
     Parameters
     ----------
@@ -1368,7 +1368,7 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label,
     cmap: string
         Matplotlib colourmap to use for the colour bar.
 
-    show_median_offset: bool, default: False
+    show_offset: bool, default: False
         Whether to plot the median uncertainty as text.
     """
     # Plot error bars with overplotted scatter points + colour bar
@@ -1391,12 +1391,13 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label,
 
     axis.set_aspect("equal")
 
-    if show_median_offset:
-        med_offset = np.nanmedian(np.abs(fit - lit))
+    if show_offset:
+        mean_offset = np.nanmean(fit - lit)
+        std = np.nanstd(fit - lit)
         axis.text(
             x=np.mean(lims), 
             y=0.9*lims[1], 
-            s=r"$\pm {:0.2f}$".format(med_offset),
+            s=r"${:0.2f}\pm {:0.2f}$".format(mean_offset, std),
             horizontalalignment="center")
 
 
@@ -1405,7 +1406,7 @@ def plot_std_comp(
     std_info,
     teff_lims=[3000,4600],
     feh_lims=[-1.4,0.75],
-    show_median_offset=False,
+    show_offset=False,
     fn_suffix="",
     title_text="",):
     """Plot 2x3 grid of Teff and [Fe/H] literature comparisons.
@@ -1435,7 +1436,7 @@ def plot_std_comp(
     teff_lims, feh_lims: float array, default:[3000,4600],[-1.4,0.75]
         Axis limits for Teff and [Fe/H] respectively.
 
-    show_median_offset: bool, default: False
+    show_offset: bool, default: False
         Whether to plot the median offset as text.
 
     fn_suffix: string, default: ''
@@ -1449,13 +1450,13 @@ def plot_std_comp(
     obs_join = observations.join(std_info, "source_id", rsuffix="_info")
 
     plt.close("all")
-    fig, axes = plt.subplots(2,3)
+    fig, axes = plt.subplots(2,4)
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, 
                             wspace=0.5)
 
     # Unpack to improve readability
-    ((ax_teff_m15, ax_teff_ra12, ax_teff_int),
-     (ax_feh_m15, ax_feh_ra12, ax_feh_cpm)) = axes
+    ((ax_teff_m15, ax_teff_ra12, ax_teff_int, ax_teff_other),
+     (ax_feh_m15, ax_feh_ra12, ax_feh_cpm, ax_feh_other)) = axes
 
     # Mann+15 temperatures
     plot_std_comp_generic(
@@ -1471,7 +1472,7 @@ def plot_std_comp(
         "[Fe/H] (fit)",
         lims=teff_lims,
         cmap="viridis",
-        show_median_offset=show_median_offset,)
+        show_offset=show_offset,)
     
     # Rojas-Ayala+12 temperatures
     plot_std_comp_generic(
@@ -1487,7 +1488,7 @@ def plot_std_comp(
         "[Fe/H] (fit)",
         lims=teff_lims,
         cmap="viridis",
-        show_median_offset=show_median_offset,)
+        show_offset=show_offset,)
     
     # Interferometric temperatures
     plot_std_comp_generic(
@@ -1503,7 +1504,23 @@ def plot_std_comp(
         "[Fe/H] (fit)",
         lims=teff_lims,
         cmap="viridis",
-        show_median_offset=show_median_offset,)
+        show_offset=show_offset,)
+
+    # Other temperatures
+    plot_std_comp_generic(
+        fig,
+        ax_teff_other, 
+        obs_join["teff_synth"],
+        obs_join["e_teff_synth"],
+        obs_join["teff_other"],
+        obs_join["e_teff_other"],
+        obs_join["feh_synth"],
+        r"$T_{\rm eff}\,$K (fit)",
+        r"$T_{\rm eff}\,$K (other)",
+        "[Fe/H] (fit)",
+        lims=teff_lims,
+        cmap="viridis",
+        show_offset=show_offset,)
 
     # Mann+15 [Fe/H]
     plot_std_comp_generic(
@@ -1519,7 +1536,7 @@ def plot_std_comp(
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_median_offset=show_median_offset,)
+        show_offset=show_offset,)
     
     # Rojas-Ayala+12 [Fe/H]
     plot_std_comp_generic(
@@ -1535,7 +1552,7 @@ def plot_std_comp(
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_median_offset=show_median_offset,)
+        show_offset=show_offset,)
 
     # CPM [Fe/H]
     plot_std_comp_generic(
@@ -1543,18 +1560,34 @@ def plot_std_comp(
         ax_feh_cpm, 
         obs_join["feh_synth"],
         obs_join["e_feh_synth"],
-        obs_join["feh_cpm"],
-        obs_join["e_feh_cpm"],
+        obs_join["feh_n14"],
+        obs_join["e_feh_n14"],
         obs_join["teff_synth"],
         r"[Fe/H] (fit)",
         r"[Fe/H] (CPM)",
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_median_offset=show_median_offset,)
+        show_offset=show_offset,)
+
+    # Other [Fe/H]
+    plot_std_comp_generic(
+        fig,
+        ax_feh_other, 
+        obs_join["feh_synth"],
+        obs_join["e_feh_synth"],
+        obs_join["feh_other"],
+        obs_join["e_feh_other"],
+        obs_join["teff_synth"],
+        r"[Fe/H] (fit)",
+        r"[Fe/H] (other)",
+        r"$T_{\rm eff}\,$K (fit)",
+        lims=feh_lims,
+        cmap="magma",
+        show_offset=show_offset,)
 
     fig.suptitle(title_text)
-    plt.gcf().set_size_inches(12, 8)
+    plt.gcf().set_size_inches(16, 8)
     plt.tight_layout()
     plt.savefig("paper/std_comp{}.pdf".format(fn_suffix))
     plt.savefig("paper/std_comp{}.png".format(fn_suffix))

@@ -130,10 +130,10 @@ low_cutoff = 6700
 high_cutoff = 6850
 
 # All
-low_cutoff = 6160
-high_cutoff = 8000
+low_cutoff = None
+high_cutoff = None
 
-map_desc = "mbol_ars_6160_up_5_pc"
+map_desc = "mbol_ars_median_norm_5_pc"
 
 scale_residuals = {"blue":True,"red":True,"phot":True}
 
@@ -164,6 +164,7 @@ results_dict = {}
 for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
     # Only run on stars with Mann+15 parameters
     if skip and np.isnan(star_info["teff_m15"]):
+        print("Skipping, no literature info available")
         continue
 
     #if source_id == "2603090003484152064":

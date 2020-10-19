@@ -39,7 +39,7 @@ def make_table_final_results(
     cols = OrderedDict([
         ("TIC", ""),
         (r"$T_{\rm eff}$", "(K)"),
-        (r"$\log g", ""),
+        (r"$\log g$", ""),
         (r"[Fe/H]", ""),
         (r"$M$", "($M_\odot$)"),
         (r"$R$", "($R_\odot$)"),
@@ -368,7 +368,7 @@ def make_table_planet_params(break_row=60,):
     header.append("\hline")
 
     mc = (r"\multicolumn{3}{c}{TESS} & Prior & \multicolumn{3}{c}{Fit}"
-          r"\multicolumn{2}{c}{Physical} \\")
+          r" & \multicolumn{2}{c}{Physical} \\")
 
     header.append(mc)
     header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))

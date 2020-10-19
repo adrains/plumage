@@ -15,13 +15,13 @@ import plumage.synthetic as synth
 import plumage.utils as utils
 import plumage.plotting as pplt
 import matplotlib.pyplot as plt
-from collections import OrderedDict                         
+from collections import OrderedDict
 
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std"
+label = "tess"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -39,16 +39,47 @@ snr_b_cutoff = 10
 use_blue_spectra = False
 
 # Whether to include photometry in fit
-include_photometry = False
-colour_bands = np.array(['Rp-J', 'J-H', 'H-K'])
-e_colour_bands = np.array(['e_Rp-J', 'e_J-H', 'e_H-K'])
+include_photometry = True
+
+filter_defs = np.array([
+    # [filt, use, error, mag_col, e_mag_col],
+    ["Bp", True, 1.04, "Bp_mag_offset", "e_Bp_mag"],
+    ["Rp", True, 1.02, "Rp_mag", "e_Rp_mag"],
+    ["J", True, 1.0, "J_mag", "e_J_mag"],
+    ["H", True, 1.0, "H_mag", "e_H_mag"],
+    ["K", True, 1.0, "K_mag", "e_K_mag"],
+    ["v", False, 2.0, "v_psf", "e_v_psf"],
+    ["g", False, 1.2, "g_psf", "e_g_psf"],
+    ["r", True, 1.02 , "r_psf", "e_r_psf"],
+    ["i", True, 1.02, "i_psf", "e_i_psf"],
+    ["z", True, 1.02, "z_psf", "e_z_psf"],
+], dtype=object)
+
+# Mask out unused filters
+filter_defs = filter_defs[filter_defs[:,1].astype(bool)]
+
+# Construct arrays from columns of filters we are using
+filters = filter_defs[:,0].astype(str)
+band_model_uncertainties = 2.5*np.log10(filter_defs[:,2].astype(float))
+phot_band_cols = filter_defs[:,3].astype(str)
+e_phot_band_cols = filter_defs[:,4].astype(str)
 
 # Scale factor for synthetic colour residuals
-scale_fac = 1
+phot_scale_fac = 1
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(label)
-info_cat = utils.load_info_cat(info_cat_path, only_observed=True) 
+info_cat = utils.load_info_cat(info_cat_path, in_paper=True, only_observed=True)
+
+skymapper_phot = pd.read_csv( 
+    "data/rains_all_gaia_ids_matchfinal.csv", 
+    sep=",", 
+    dtype={"source_id":str}, 
+    header=0)
+skymapper_phot.set_index("source_id", inplace=True)  
+
+info_cat = info_cat.join(skymapper_phot, "source_id", how="left", rsuffix="_") 
+
 only_fit_info_cat_stars = True
 
 # Initialise settings for each band
@@ -75,9 +106,10 @@ band_settings_r = {
 
 # Whether to fix logg or teff during fitting
 fit_for_params = OrderedDict([
-    ("teff",False),
+    ("teff",True),
     ("logg",False),
-    ("feh",True),])
+    ("feh",False),
+    ("Mbol",True),])
 
 #fit_for_params = [False, False, True]   #[teff, logg, feh]
 
@@ -86,6 +118,31 @@ n_params = np.sum(list(fit_for_params.values()))
 teff_init_col = "teff_fit_rv"
 logg_init_col = "logg_m19"
 feh_init_col = "feh_fit_rv"
+
+# Masking of bad model wavelength regions
+cutoff_temp = 8000
+mask_blue = True
+mask_missing_opacities = True
+mask_tio = False
+mask_sodium_wings = False
+low_cutoff = None
+high_cutoff = None
+
+def calc_bp_offset(bp_rp,):
+    """
+    """
+    bp_offset = np.zeros_like(bp_rp)
+
+    bp_offset[bp_rp > 3] = 2.5*np.log10(3**-1 * bp_rp[bp_rp > 3] + 0.05)
+
+    mask = np.logical_and(bp_rp > 2, bp_rp <= 3)
+
+    bp_offset[mask] = 2.5*np.log10(0.05 * bp_rp[mask] + 0.9)
+
+    return bp_offset
+
+# Offset Bp to synthetic equivalent
+info_cat["Bp_mag_offset"] = info_cat["Bp_mag"] - calc_bp_offset(info_cat["Bp-Rp"])
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -120,15 +177,12 @@ for ob_i in range(0, len(observations)):
     ln = "-"*40
     print("{}\n{} - {}\n{}".format(ln, ob_i, observations.iloc[ob_i]["id"],ln))
 
-    # Match the star with its literature info
-    star_info = info_cat[info_cat.index==observations.iloc[ob_i]["source_id"]]
-    if len(star_info) == 0:
-        star_info = None
-    elif len(star_info) > 0:
-        star_info = star_info.iloc[0]
+    # Match the star with its literature info, continue if we don't have any
+    source_id = observations.iloc[ob_i].name
 
-    # Check if we're only fitting for a subset of the standards
-    if (only_fit_info_cat_stars and star_info is None) or np.isnan(star_info["teff_m15"]):
+    if source_id in info_cat.index:
+        star_info = info_cat.loc[source_id]
+    else:
         fit_results.append(None)
         continue
     
@@ -138,20 +192,24 @@ for ob_i in range(0, len(observations)):
     # Now get the colours to be included in the fit if:
     #  A) We're including photometry in the fit and
     #  B) We actually have photometry
-    if include_photometry and star_info is not None:
+    if include_photometry:
         # Make a mask for the colours to use, since some might be nans
-        cmask = np.isfinite(star_info[colour_bands].values.astype(float))
-        colours = star_info[colour_bands].values.astype(float)[cmask]
-        e_colours = star_info[e_colour_bands].values.astype(float)[cmask]
+        phot_mask = np.isfinite(star_info[phot_band_cols].values.astype(float))
+        photometry = star_info[phot_band_cols].values.astype(float)[phot_mask]
+        e_photometry = star_info[e_phot_band_cols].values.astype(float)[phot_mask]
+        e_phot_model = band_model_uncertainties[phot_mask]
         fit_used_colours[ob_i] = True
 
+        # Add model uncertainty in quadrature
+        e_photometry = np.sqrt(e_photometry**2 + e_phot_model**2)
+
         # Now write flags indicating which colours were used
-        flags = str(cmask.astype(int))[1:-1].replace(" ", "")
+        flags = str(phot_mask.astype(int))[1:-1].replace(" ", "")
         colours_used[ob_i] = flags
     else:
-        cmask = np.array([False, False, False])
-        colours = None
-        e_colours = None
+        phot_mask = np.zeros(len(filters)).astype(bool)
+        photometry = None
+        e_photometry = None
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Initialise params
@@ -160,6 +218,7 @@ for ob_i in range(0, len(observations)):
         "teff":observations.iloc[ob_i][teff_init_col],
         "logg":star_info[logg_init_col],
         "feh":observations.iloc[ob_i][feh_init_col],
+        "Mbol":0,
     }
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -171,7 +230,14 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 0], 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"], 
-        observations.iloc[ob_i][teff_init_col])
+        observations.iloc[ob_i][teff_init_col],
+        cutoff_temp=cutoff_temp,
+        mask_blue=mask_blue,
+        mask_missing_opacities=mask_missing_opacities,
+        mask_tio=mask_tio,
+        mask_sodium_wings=mask_sodium_wings,
+        low_cutoff=low_cutoff,
+        high_cutoff=high_cutoff,)
 
     bad_px_mask_r = np.logical_or(bad_px_masks_r[ob_i], bad_synth_px_mask_r)
 
@@ -193,7 +259,14 @@ for ob_i in range(0, len(observations)):
             spectra_b[ob_i, 0], 
             observations.iloc[ob_i]["rv"], 
             observations.iloc[ob_i]["bcor"], 
-            observations.iloc[ob_i][teff_init_col])
+            observations.iloc[ob_i][teff_init_col],
+            cutoff_temp=cutoff_temp,
+            mask_blue=mask_blue,
+            mask_missing_opacities=mask_missing_opacities,
+            mask_tio=mask_tio,
+            mask_sodium_wings=mask_sodium_wings,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,)
 
         bad_px_mask_b = np.logical_or(bad_px_masks_b[ob_i], bad_synth_px_mask_b)
 
@@ -226,10 +299,11 @@ for ob_i in range(0, len(observations)):
         spec_b=spec_b, 
         e_spec_b=e_spec_b, 
         bad_px_mask_b=bad_px_mask_b,
-        stellar_colours=colours,
-        e_stellar_colours=e_colours,
-        colour_bands=colour_bands[cmask],   # Mask the colours to what we have
-        scale_fac=scale_fac,)
+        stellar_phot=photometry,
+        e_stellar_phot=e_photometry,
+        phot_bands=filters[phot_mask],   # Mask the colours to what we have
+        phot_scale_fac=phot_scale_fac,
+        fit_for_resid_norm_fac=True,)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Sort out results
@@ -260,11 +334,12 @@ for ob_i in range(0, len(observations)):
                                                    opt_res["e_feh"]),)
 
     # Print observed stellar colours
-    synth_colours = opt_res["synth_colours"]
+    synth_phot = opt_res["synth_phot"]
+    synth_bc = opt_res["synth_bc"]
 
-    if synth_colours is not None:
-        for cband, csynth in zip(colour_bands[cmask], synth_colours):
-            print("{} = {:0.3f}, ".format(cband, csynth), end="")
+    if synth_phot is not None:
+        for filt, psynth in zip(filters[phot_mask], synth_phot):
+            print("{} = {:0.3f}, ".format(filt, psynth), end="")
         print("\n")
 
 # -----------------------------------------------------------------------------
@@ -282,7 +357,7 @@ observations["rchi2_synth"] = rchi2
 observations["both_arm_synth_fit"] = both_arm_synth_fit
 observations["fit_used_colours"] = fit_used_colours
 observations["colours_used"] = colours_used
-observations["colour_resid_scale_factor"] = scale_fac
+#observations["colour_resid_scale_factor"] = scale_fac
 
 utils.save_fits_table("OBS_TAB", observations, label, path=spec_path)
 

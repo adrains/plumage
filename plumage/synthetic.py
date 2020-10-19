@@ -353,6 +353,9 @@ def make_synth_mask_for_bad_wl_regions(
         bad_regions.append([0, 4500])
     
     if mask_missing_opacities:
+        # From Mann+2013 10 A, 10% dev test
+        bad_regions.append([5411, 5424])
+
         # Unknown feature
         bad_regions.append([5498, 5585])
         
@@ -1052,8 +1055,10 @@ def do_synthetic_fit(
     phot_bands=None,
     feh_offset=10,
     resid_norm_fac={'blue':1, 'red':1, 'phot':1,},
+    scale_threshold={"blue":1,"red":1,"phot":1},
+    fit_for_resid_norm_fac=False,
     phot_scale_fac=1,
-    suppress_fit_diagnostics=False):
+    suppress_fit_diagnostics=False,):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
@@ -1120,7 +1125,7 @@ def do_synthetic_fit(
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
         improve compatability with diff_step.
 
-    resid_norm_fac: dict, default: {'blue':1, 'red':1, 'colour':1,}
+    resid_norm_fac: dict, default: {'blue':1, 'red':1, 'colour':1,} or None
         Multiplicative scaling factor for the photometric colour residuals to
         scale them relative to their spectroscopic counterparts.
 
@@ -1140,6 +1145,10 @@ def do_synthetic_fit(
     scale = np.array([1, 1, 1, 1])
     step = np.array([0.1, 0.1, 0.1, 0.1])
 
+    # Scale [Fe/H] if fitting for
+    if fit_for_params["feh"]:
+        params["feh"] += feh_offset
+
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Initialise photometry
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1152,30 +1161,107 @@ def do_synthetic_fit(
     else:
         bc_interp = SyntheticBCInterpolator()
         fit_for_mbol = True
-        
-        """
-        if do_print:
-            # Print observed stellar colours
-            for cband, cobs, ecobs in zip(
-                colour_bands, stellar_phot, e_stellar_phot):
-                print("{} = {:0.3f} +/- {:0.3f}, ".format(cband, cobs, ecobs), 
-                    end="")
-            print("\n")
-        """
 
     # Based on whether we have been provided photometry, determine whether 
     # we're fitting for Mbol
     fit_for_params["Mbol"] = fit_for_mbol
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Setup parameters and fit
+    # Fit with red spectra alone, find min chi^2
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Only proceed if we don't already know how we're doing the rescaling
+    if fit_for_resid_norm_fac:
+        print("\nFinding global red chi^2 minima\n" + "-"*31)
+
+        # Don't fit for Mbol
+        fit_for_params["Mbol"] = False
+        param_mask = list(fit_for_params.values())
+
+        # Initialise resid_norm_fac to be ones
+        resid_norm_fac = {'blue':1, 'red':1, 'phot':1,}
+
+        # Initialise param initial guess *to be fit for* as a list, save keys
+        params_init = [params[pp] for pp in params if fit_for_params[pp]]
+        params_init_keys = np.array([pp for pp in params if fit_for_params[pp]])
+
+        # Keep the rest in dictionary form
+        params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
+        
+        # Setup fit settings
+        args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
+                band_settings_r, params_init_keys, params_fixed, band_settings_b, 
+                None, None, None,  None, None, 
+                None, None, None, feh_offset, 
+                resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
+
+        # Do fit
+        opt_res = least_squares(
+            calc_synth_fit_resid, 
+            params_init, 
+            jac="3-point",
+            bounds=bounds[:,param_mask],
+            x_scale=scale[param_mask],
+            diff_step=step[param_mask],
+            args=args, 
+        )
+
+        # Calculate residual scaling for red spectra
+        min_chi2_red = np.sum(opt_res["fun"]**2)
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Fit with photometry alone, find min chi^2
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        print("\nFinding global photometry chi^2 minima\n" + "-"*38)
+
+        # Don't fit for Mbol
+        fit_for_params["Mbol"] = True
+        param_mask = list(fit_for_params.values())
+
+        # Initialise param initial guess *to be fit for* as a list, save keys
+        params_init = [params[pp] for pp in params if fit_for_params[pp]]
+        params_init_keys = np.array([pp for pp in params if fit_for_params[pp]])
+
+        # Keep the rest in dictionary form
+        params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
+        
+        # Setup fit settings
+        args = (None, None, None, None, rv, bcor , idl, 
+                band_settings_r, params_init_keys, params_fixed, band_settings_b, 
+                None, None, None,  None, stellar_phot, 
+                e_stellar_phot, phot_bands, bc_interp, feh_offset, 
+                resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
+
+        # Do fit
+        opt_res = least_squares(
+            calc_synth_fit_resid, 
+            params_init, 
+            jac="3-point",
+            bounds=bounds[:,param_mask],
+            x_scale=scale[param_mask],
+            diff_step=step[param_mask],
+            args=args, 
+        )
+
+        # Calculate residual scaling for red spectra
+        min_chi2_phot = np.sum(opt_res["fun"]**2)
+
+        # Now setup residual scaling
+        if min_chi2_red > scale_threshold["red"]:
+            resid_norm_fac["red"] = min_chi2_red**0.5
+        else:
+            resid_norm_fac["red"] = 1
+        
+        if min_chi2_phot > scale_threshold["phot"]:
+            resid_norm_fac["phot"] = min_chi2_phot**0.5
+        else:
+            resid_norm_fac["phot"] = 1
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Do combined fit and scale residuals
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    print("\nDoing final global\n" + "-"*18)
     # Setup a mask for slicing fit bounds/scaling/step
     param_mask = list(fit_for_params.values())
-
-    # Scale [Fe/H] if fitting for
-    if fit_for_params["feh"]:
-        params["feh"] += feh_offset
 
     # Initialise param initial guess *to be fit for* as a list, save keys
     params_init = [params[pp] for pp in params if fit_for_params[pp]]
@@ -1235,6 +1321,10 @@ def do_synthetic_fit(
     # Unscale [Fe/H] if fitted for
     if fit_for_params["feh"]:
         opt_res["feh"] -= feh_offset
+
+    # Store the scaling params
+    opt_res["resid_norm_fac_red"] = resid_norm_fac["red"]
+    opt_res["resid_norm_fac_phot"] = resid_norm_fac["phot"]
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Get synthetic spectra and colours at optimal params
