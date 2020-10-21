@@ -963,22 +963,44 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     return info_cat
 
 
-def load_exofop_toi_cat():
+def load_exofop_toi_cat(
+    toi_cat_path="data/exofop_tess_tois.csv",
+    do_ctoi_merge=False,
+    ctoi_cat_path="data/exofop_tess_ctois.csv",):
     """Imports the catalogue of TOIs from NASA ExoFOP, pre-selected on the 
     website to only have TOIs for the TIC IDs we are interested in.
+
+    Note that the files have been modified by commenting out the initial lines,
+    and by changing 'TIC ID' to 'TIC'.
 
     Returns
     -------
     efi: pandas.core.frame.DataFrame
         ExoFOP info dataframe
+    
+    ...
     """
     # Load in tess info cat and use to clean efi
     tic_info = load_info_cat(remove_fp=True, only_observed=True)
     toi_info = pd.read_csv(
-        "data/exofop_tess_tois.csv", 
+        toi_cat_path, 
         quoting=1, 
         comment="#",
         index_col="TOI",)
+
+    # Merge with community TOIs
+    if do_ctoi_merge:
+        ctoi_info = pd.read_csv(
+            ctoi_cat_path, 
+            quoting=1, 
+            comment="#",
+            index_col="CTOI",)
+
+        toi_info = pd.concat(
+            [toi_info,ctoi_info],
+            axis=0,
+            ignore_index=False, 
+            sort=False)
 
     return toi_info[np.isin(toi_info["TIC"], tic_info["TIC"])]
 
