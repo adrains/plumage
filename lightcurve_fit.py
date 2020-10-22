@@ -20,36 +20,26 @@ tic_info = utils.load_info_cat(remove_fp=True, only_observed=True).reset_index()
 tic_info.set_index("TIC", inplace=True)
 
 # Load NASA ExoFOP info on TOIs
-toi_info = utils.load_exofop_toi_cat()
+toi_info = utils.load_exofop_toi_cat(do_ctoi_merge=True)
 
 # Load in info on observations and fitting results
-# TODO propagate this change through the code
-observations = utils.load_fits_obs_table(label, path=spec_path)
-observations.rename(columns={"uid":"source_id"}, inplace=True)
-observations.set_index("source_id", inplace=True)
+observations = utils.load_fits_table("OBS_TAB", label, path=spec_path)
 
 # Load in lightcurves
 light_curves = transit.load_all_light_curves(tic_info.index.values)
 
 logg_col = "logg_synth"
-logg_col = "logg_m19"
+#logg_col = "logg_m19"
 
 # Temporary join to get combined info in single datastructure
 info = toi_info.join(tic_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
 #info.reset_index(inplace=True)
 comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
 
-# Determine limb darkening coefficients for all stars and save
-# TODO: current implementation does not take into account [Fe/H]
-ldc_ak = params.get_claret17_limb_darkening_coeff(
-    comb_info["teff_synth"], 
-    comb_info[logg_col], 
-    comb_info["feh_synth"])
+# Intitialise limb darkening coefficient columns
+ldc_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
 
-ldd_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
-
-for ldc_i, ldd_col in enumerate(ldd_cols):
-    comb_info[ldd_col] = ldc_ak[:,ldc_i]
+mean_e_period = 10 / 60 / 24
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -61,7 +51,8 @@ all_fits = {}
 # toi_info and saved once we're done
 result_cols = ["sma", "e_sma", "rp_rstar_fit", "e_rp_rstar_fit", 
                "sma_rstar_fit", "e_sma_rstar_fit", "inclination_fit", 
-               "e_inclination_fit", "rp_fit", "e_rp_fit", ]
+               "e_inclination_fit", "rp_fit", "e_rp_fit", "window_length", 
+               "niters_flat"]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
@@ -78,34 +69,45 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         "-"*40, toi_i+1, len(toi_info), toi, tic, "-"*40))
     
     if light_curves[tic] is None:
-        print("No light curve")
+        print("Skipping: No light curve\n")
         all_fits[toi] = None
         continue
+    elif np.isnan(toi_row["Duration (hours)"]):
+        print("Skipping: No transit duration\n")
+        all_fits[toi] = None
+        continue
+    else:
+        lightcurve = light_curves[tic].remove_nans()
 
     # Calculate semi-major axis and scaled semimajor axis
+    if np.isnan(toi_row["Period error"]):
+        e_period = mean_e_period
+    else:
+        e_period = toi_row["Period error"]
+
     sma, e_sma, sma_rstar, e_sma_rstar = params.compute_semi_major_axis(
         toi_row["mass_m19"], 
         toi_row["e_mass_m19"],
         toi_row["Period (days)"],
-        toi_row["Period error"],
+        e_period,
         toi_row["radius"],
         toi_row["e_radius"],
         )
 
     # Get mask for all transits with this system
     mask = transit.make_transit_mask_all_periods(
-        light_curves[tic].remove_nans(), 
+        lightcurve, 
         toi_info, 
         tic)
 
     # Fit light light curve, but catch and handle any errors with batman
     try:
         opt_res = transit.fit_light_curve(
-            light_curves[tic].remove_nans(), 
+            lightcurve, 
             toi_row["Epoch (BJD)"], 
             toi_row["Period (days)"], 
             toi_row["Duration (hours)"] / 24,  # convert to days 
-            toi_row[ldd_cols].values,
+            toi_row[ldc_cols].values,
             sma_rstar, 
             e_sma_rstar,
             mask,
@@ -133,7 +135,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     # Save calculated params + uncertainties
     result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
-    result_df.loc[toi][["sma_rstar", "e_sma_rstar"]] = [sma_rstar, e_sma_rstar]
+    result_df.loc[toi][["sma_rstar_fit", "e_sma_rstar_fit"]] = [sma_rstar, e_sma_rstar]
     result_df.loc[toi][["rp_fit", "e_rp_fit"]] = [radius, e_radius]
 
     # Save fitted parameters
@@ -142,6 +144,10 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     e_param_cols = ["e_rp_rstar_fit", "e_sma_rstar_fit", "e_inclination_fit"]
     result_df.loc[toi][e_param_cols] = opt_res["std"]
+
+    # Save details of flattening
+    result_df.loc[toi]["window_length"] = opt_res["window_length"]
+    result_df.loc[toi]["niters_flat"] = opt_res["niters_flat"]
 
     print("\n---Result---")
     print("Rp/R* = {:0.5f} +/- {:0.5f},".format(
@@ -156,6 +162,15 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
 # Concatenate our two dataframes
 toi_info = pd.concat((toi_info, result_df), axis=1)
+
+nan_mask = np.isnan(toi_info["rp_fit"])
+small_mask = toi_info["rp_fit"] < 0.1
+
+print("{} TOI fits were nan".format(len(toi_info[nan_mask])))
+print("TOIs: {}\n".format(str(list(toi_info.index[nan_mask]))))
+
+print("{} TOI fits unfeasibly small".format(len(toi_info[small_mask])))
+print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
 
 # Save results
 utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")

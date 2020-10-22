@@ -14,6 +14,7 @@ import pandas as pd
 import plumage.synthetic as synth
 import plumage.utils as utils
 import plumage.plotting as pplt
+import plumage.parameters as params
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 
@@ -367,6 +368,42 @@ observations["both_arm_synth_fit"] = both_arm_synth_fit
 observations["fit_used_colours"] = fit_used_colours
 observations["colours_used"] = colours_used
 #observations["colour_resid_scale_factor"] = scale_fac
+
+# Now calculate final params
+fbol, e_fbol = params.calc_f_bol_from_mbol(
+    mbol_synth, 
+    e_mbol_synth)
+
+rad, e_rad = params.calc_radii(
+    teff_synth,
+    e_teff_synth,
+    fbol,
+    e_fbol, 
+    obs_join["dist"],
+    obs_join["e_dist"],)
+
+L_star, e_L_star = params.calc_L_star(
+    fbol,
+    e_fbol,obs_join["dist"],
+    obs_join["e_dist"])
+
+observations["fbol"] = fbol
+observations["e_fbol"] = e_fbol
+observations["radius"] = rad
+observations["e_radius"] = e_rad
+observations["L_star"] = L_star
+observations["e_L_star"] = e_L_star
+
+# Determine limb darkening coefficients
+ldc_ak = params.get_claret17_limb_darkening_coeff(
+    observations["teff_synth"], 
+    observations["logg_synth"], 
+    observations["feh_synth"])
+
+ldd_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
+
+for ldc_i, ldd_col in enumerate(ldd_cols):
+    observations[ldd_col] = ldc_ak[:,ldc_i]
 
 utils.save_fits_table("OBS_TAB", observations, label, path=spec_path)
 

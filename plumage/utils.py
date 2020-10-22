@@ -995,6 +995,9 @@ def load_exofop_toi_cat(
             quoting=1, 
             comment="#",
             index_col="CTOI",)
+        
+        # CTOI catalogue uses "Midpoint (BJD)" rather than "Epoch (BJD)"
+        ctoi_info.rename(columns={"Midpoint (BJD)":"Epoch (BJD)"}, inplace=True)
 
         toi_info = pd.concat(
             [toi_info,ctoi_info],

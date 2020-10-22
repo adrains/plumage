@@ -926,7 +926,7 @@ def calc_radii(teff, e_teff, fbol, e_fbol, dist, e_dist,):
     sigma = const.sigma_sb.cgs.value
 
     # Calculate radii
-    radii = dist_cm * np.sqrt(fbol / (sigma*teff**4)) / r_sun
+    radii = dist * pc * np.sqrt(fbol / (sigma*teff**4)) / r_sun
 
     # Calculate uncertainty on radius (assuming no covariance)
     e_radii = radii * ((e_dist/dist)**2 + (e_fbol/(4*fbol))**2 

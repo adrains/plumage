@@ -326,7 +326,7 @@ def compute_lc_resid(
 
     # Print updates
     if verbose:
-        print("Rp/R* = {:0.5f}, a = {:0.05f} [{:0.5f}+/{:0.5f}], i = {:0.05f}".format(
+        print("Rp/R* = {:0.5f}, a = {:0.05f} [{:0.5f}+/-{:0.5f}], i = {:0.05f}".format(
             params[0], params[1], sma_rstar, e_sma_rstar, params[2]), end="")
         
         rchi2 = np.sum(resid**2) / (np.sum(mask)-len(params))
@@ -417,7 +417,7 @@ def fit_light_curve(
             e_sma_rstar)
 
     #scale = (1, 1, 1)
-    step = (0.01, 0.01, 0.01)
+    #step = (0.01, 0.01, 0.01)
 
     # Do fit
     opt_res = least_squares(
@@ -426,7 +426,7 @@ def fit_light_curve(
         jac="3-point",
         bounds=bounds,
         #x_scale=scale,
-        diff_step=step,
+        #diff_step=step,
         args=args, 
     )
 
@@ -466,6 +466,8 @@ def fit_light_curve(
         time=folded_lc.time,)
 
     # Add extra info to fit dictionary
+    opt_res["window_length"] = window_length
+    opt_res["niters_flat"] = niters_flat
     opt_res["flat_lc_trend"] = flat_lc_trend
     opt_res["std"] = std
     opt_res["bm_params"] = bm_params
@@ -532,7 +534,12 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
     mask = np.full(len(light_curve.time), True)
 
     for star_i, toi_row in selected_tois.iterrows():
-        mask = np.logical_and(
+        # Only contribute to mask if we have non-nan parameters
+        if np.isnan(toi_row["Duration (hours)"]):
+            print("Skipped TOI {} when making mask".format(toi_row.name))
+            continue
+
+        mask = ~np.logical_and(
             mask,
             ~make_transit_mask_single_period(
                 light_curve,

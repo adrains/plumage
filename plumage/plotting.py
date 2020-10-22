@@ -796,11 +796,11 @@ def plot_synth_fit_diagnostic(
         spec_synth_lit=spec_synth_lit_b)
 
     # Intialise columns to use for two sets of reference stars
-    mann15_cols = ["teff_m15", "e_teff_m15", "logg_m15", 
+    mann15_cols = ["teff_m15", "e_teff_m15", "logg_m19", 
                    "feh_m15", "e_feh_m15"]
     ra12_cols = ["teff_ra12", "e_teff_ra12", "logg_m19", 
                  "feh_ra12", "e_feh_ra12"]
-    int_cols = ["teff_int", "e_teff_int", "logg_m15", 
+    int_cols = ["teff_int", "e_teff_int", "logg_m19", 
                 "feh_m15", "e_feh_m15"] # last three will be blank
 
     lit_params = np.full(6, np.nan)
@@ -2133,7 +2133,7 @@ def plot_planet_period_vs_radius(lc_results):
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # ----------------------------------------------------------------------------- 
-def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model, 
+def plot_lightcurve_fit(lightcurve, folded_lc, flat_lc_trend, bm_params, bm_model, 
     bm_lightcurve, period, t0, trans_dur):
     """Plot PDF of TESS light curve fit.
 
@@ -2146,6 +2146,8 @@ def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model,
         TESS light curve folded about the planet transit epoch and period. Note
         that this means the new 'period' is 1, and the 'epoch' (i.e. time of
         transit is 0).
+
+    flat_lc_trend: TODO
 
     bm_params: batman.transitmodel.TransitParams
         Batman transit parameter + time object.
@@ -2166,8 +2168,6 @@ def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model,
     trans_dur: float
         Transit duration in days.
     """
-    BTJD_OFFSET = 2457000
-
     plt.close("all")
     fig = plt.figure()
     gs = fig.add_gridspec(nrows=3, ncols=1)
@@ -2175,26 +2175,29 @@ def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model,
     ax_lc_folded_all = fig.add_subplot(gs[1, :])
     ax_lc_folded_transit = fig.add_subplot(gs[2, :])
 
-    # First plot unfolded light curve
-    lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1)
+    # First plot unfolded/unflattened light curve
+    lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, zorder=1)
+
+    # Plot the trend flattening trend
+    flat_lc_trend.scatter(ax=ax_lc_unfolded, linewidth=0.2, color="green", zorder=2)
 
     # Plot lines where the transits occur
-    transits = np.arange(t0-BTJD_OFFSET, lightcurve.time[-1], period)
+    transits = np.arange(t0, lightcurve.time[-1], period)
 
     for transit in transits:
-        ax_lc_unfolded.vlines(transit, 0.95, 1.05, colors="red", 
-            linestyles="dashed", linewidth=0.2, alpha=1.0)
+        ax_lc_unfolded.vlines(transit, 0.90, 1.10, colors="red", 
+            linestyles="dashed", linewidth=0.5, alpha=1.0, zorder=3)
 
     ax_lc_unfolded.set_xlim((lightcurve.time[0], lightcurve.time[-1]))
 
     # Plot entire folded lightcurve
-    folded_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1)
-    ax_lc_folded_all.plot(folded_lc.time, bm_lightcurve)
+    folded_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, zorder=1)
+    ax_lc_folded_all.plot(folded_lc.time, bm_lightcurve, zorder=2)
     ax_lc_folded_all.set_xlim((-0.5, 0.5))
 
     # Now plot just the transit
-    folded_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2)
-    ax_lc_folded_transit.plot(folded_lc.time, bm_lightcurve)
+    folded_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2, zorder=1)
+    ax_lc_folded_transit.plot(folded_lc.time, bm_lightcurve, zorder=2)
 
     ax_lc_folded_transit.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
 
@@ -2206,13 +2209,13 @@ def plot_lightcurve_fit(lightcurve, folded_lc, bm_params, bm_model,
     ax_lc_folded_transit.set_ylim((1-lim, 1+lim))
 
 
-def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
+def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
         binsize=4):
     """Plot PDFs of all TESS light curve fits.
 
     Parameters
     ----------
-    lightcurves: dict of lightkurve.lightcurve.TessLightCurve
+    light_curves: dict of lightkurve.lightcurve.TessLightCurve
         Dictionary matching lightcurves to TIC IDs.
     
     toi_info: pandas.core.frame.DataFrame
@@ -2240,42 +2243,60 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
         for pdf in pdfs:
             os.remove(pdf)
 
-    BTJD_OFFSET = 2457000
-
+    # Get temporary single jumbo dataframe
     info = toi_info.join(tess_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
     #info.reset_index(inplace=True)
     comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
-
+    
     for toi_i, (toi, toi_row) in zip(
         tqdm(range(len(comb_info)),desc="Plotting"), comb_info.iterrows()):
         # Look up TIC ID in tess_info
         tic = toi_row["TIC"]
 
-        # Get the literature info
-        #tic_info = tess_info[tess_info.index==tic].iloc[0]
-
         source_id = toi_row["source_id"]
-
-        #obs_info = observations[observations.index==source_id]
-
-        #if len(obs_info) > 0:
-        #    obs_info = observations[observations.index==source_id].iloc[0]
-        #else:
-        #    continue
 
         param_cols = ["rp_rstar_fit", "sma_rstar_fit", "inclination_fit"]
 
         # Skip if period is nan, lightcurve is None, or all params are nan
-        if (np.isnan(toi_row["Period (days)"]) or lightcurves[tic] is None
+        if (np.isnan(toi_row["Period (days)"]) or light_curves[tic] is None
             or np.all(np.isnan(toi_row[param_cols].astype(float)))):
             continue
 
-        # Load in, clean, bin, and fold lightcurve
-        lightcurve = lightcurves[tic].remove_outliers(sigma=6).remove_nans()
-        lightcurve = lightcurve.bin(binsize=binsize)
-        folded_lc = lightcurve.fold(
-            period=toi_row["Period (days)"], 
-            t0=toi_row["Epoch (BJD)"]-BTJD_OFFSET)
+        if toi_row["rp_rstar_fit"] < 0.1:
+            continue
+
+        # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        # Setup lightcurve
+        # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        # Convert between BJD and TESS BJD
+        t0 = toi_row["Epoch (BJD)"]
+        
+        if t0 > transit.BTJD_OFFSET:
+            t0 -= transit.BTJD_OFFSET
+
+        light_curve = light_curves[tic].remove_nans()
+
+        # Get mask for all transits with this system
+        mask = transit.make_transit_mask_all_periods(
+            light_curve, 
+            toi_info, 
+            tic)
+
+        # Flatten
+        clean_lc, flat_lc_trend = light_curve.flatten(
+            window_length=int(toi_row["window_length"]),
+            return_trend=True,
+            niters=int(toi_row["niters_flat"]),
+            break_tolerance=None,
+            mask=mask)
+
+        # Phase fold the light curve
+        folded_lc = clean_lc.fold(period=toi_row["Period (days)"], t0=t0)
+
+        #lightcurve = lightcurve.bin(binsize=binsize)
+        #folded_lc = lightcurve.fold(
+        #    period=toi_row["Period (days)"], 
+        #    t0=toi_row["Epoch (BJD)"]-BTJD_OFFSET)
 
         # Generate batman model
         bm_params, bm_model, bm_lightcurve = transit.initialise_bm_model(
@@ -2287,18 +2308,19 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
             ecc=0, 
             omega=0, 
             ld_model="nonlinear", 
-            ld_coeff=obs_info[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
+            ld_coeff=toi_row[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
             time=folded_lc.time,)
 
         # Make plots
         plot_lightcurve_fit(
-            lightcurve,
+            light_curve,
             folded_lc, 
+            flat_lc_trend,
             bm_params,
             bm_model, 
             bm_lightcurve, 
             toi_row["Period (days)"], 
-            toi_row["Epoch (BJD)"], 
+            t0, 
             toi_row["Duration (hours)"]/24,)
 
         # Set title
@@ -2309,8 +2331,8 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
         #import pdb
         #pdb.set_trace()
         title = title.format(toi, 
-                     obs_info["teff_synth"], 
-                     tic_info["radii_m19"],
+                     toi_row["teff_synth"], 
+                     toi_row["radius"],
                      toi_row["rp_rstar_fit"],
                      toi_row["sma_rstar_fit"],
                      toi_row["inclination_fit"],)
@@ -2323,6 +2345,9 @@ def plot_all_lightcurve_fits(lightcurves, toi_info, tess_info, observations,
             plot_path, 
             "lc_fit_{}_{}.pdf".format(toi, tic))
         plt.savefig(plt_save_loc)
+
+        #import pdb
+        #pdb.set_trace()
 
 # -----------------------------------------------------------------------------
 # Radial Velocities
