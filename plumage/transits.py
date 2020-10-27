@@ -347,7 +347,8 @@ def fit_light_curve(
     ld_model="nonlinear", 
     flatten_frac=0.1, 
     outlier_sig=6,
-    niters_flat=5):
+    niters_flat=5,
+    t_min=1/24,):
     """Perform least squares fitting on the provided light curve to determine
     Rp/R*, a/R*, and inclination.
 
@@ -395,7 +396,8 @@ def fit_light_curve(
     #clean_lc = light_curve.remove_outliers(sigma=outlier_sig)
 
     # Get window size for smoothing
-    window_length = determine_window_size(light_curve, t0, period, trans_dur, mask)
+    window_length = determine_window_size(light_curve, t0, period, trans_dur, 
+        mask, t_min)
 
     clean_lc, flat_lc_trend = light_curve.flatten(
         window_length=window_length,
@@ -417,7 +419,7 @@ def fit_light_curve(
             e_sma_rstar)
 
     #scale = (1, 1, 1)
-    #step = (0.01, 0.01, 0.01)
+    step = (0.1, 0.1, 0.1)
 
     # Do fit
     opt_res = least_squares(
@@ -426,7 +428,7 @@ def fit_light_curve(
         jac="3-point",
         bounds=bounds,
         #x_scale=scale,
-        #diff_step=step,
+        diff_step=step,
         args=args, 
     )
 

@@ -443,7 +443,7 @@ def plot_synthetic_fit(
                   linewidth=0.2)
     res_ax.plot(wave, spec_sci-spec_synth, linewidth=0.2, color="red")
     axis.set_xlim(wave[0]-10, wave[-1]+10)
-    axis.set_ylim(0.0, 1.7)
+    axis.set_ylim(0.0, 2.0)
     res_ax.set_xlim(wave[0]-10, wave[-1]+10)
     res_ax.set_ylim(-0.3, 0.3)
 
@@ -1711,7 +1711,9 @@ def plot_cmd(
     abs_mag="G_mag_abs",
     x_label=r"$B_P-R_P$",
     y_label=r"$M_{\rm G}$",
-    label="tess",):
+    label="tess",
+    feh_col="feh_m15",
+    plot_feh_cb=False,):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
     stars for e.g. comparison with standards.
@@ -1743,12 +1745,22 @@ def plot_cmd(
     plt.close("all")
     fig, axis = plt.subplots()
 
+    if plot_feh_cb:
+        colours = info_cat[feh_col]
+    else:
+        colours = None
+
     # Plot our first set of stars
     scatter = axis.scatter(
         info_cat[colour], 
         info_cat[abs_mag], 
         zorder=1,
+        c=colours,
     )
+
+    if plot_feh_cb:
+        cb = fig.colorbar(scatter, ax=axis)
+        cb.set_label("[Fe/H]")
 
     # Plot a second set of stars behind (e.g. standards)
     if info_cat_2 is not None:
@@ -1769,9 +1781,6 @@ def plot_cmd(
                 horizontalalignment="center",
                 fontsize="xx-small"
             )
-
-    #cb = fig.colorbar(scatter, ax=axis)
-    #cb.set_label("RUWE > 1.4")
 
     # Flip magnitude axis
     ymin, ymax = axis.get_ylim()
@@ -2210,7 +2219,7 @@ def plot_lightcurve_fit(lightcurve, folded_lc, flat_lc_trend, bm_params, bm_mode
 
 
 def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
-        binsize=4):
+        binsize=4, bin_lightcurve=False,):
     """Plot PDFs of all TESS light curve fits.
 
     Parameters
@@ -2262,8 +2271,8 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
             or np.all(np.isnan(toi_row[param_cols].astype(float)))):
             continue
 
-        if toi_row["rp_rstar_fit"] < 0.1:
-            continue
+        #if toi_row["rp_rstar_fit"] < 0.1:
+        #    continue 
 
         # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         # Setup lightcurve
@@ -2275,6 +2284,9 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
             t0 -= transit.BTJD_OFFSET
 
         light_curve = light_curves[tic].remove_nans()
+
+        if bin_lightcurve:
+            light_curve = light_curve.bin(binsize=binsize)
 
         # Get mask for all transits with this system
         mask = transit.make_transit_mask_all_periods(
@@ -2325,7 +2337,8 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
 
         # Set title
         title = (r"TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,"
-                 r"R_\odot$, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
+                 r"R_\odot$, T = {:0.2f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
+                 r"$R_P$ = {:0.2f} $R_E$, "
                  r"$\frac{{a}}{{R_*}} = {:0.2f}$, $i = {:0.2f}]$")
 
         #import pdb
@@ -2333,7 +2346,9 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
         title = title.format(toi, 
                      toi_row["teff_synth"], 
                      toi_row["radius"],
+                     toi_row["Period (days)"],
                      toi_row["rp_rstar_fit"],
+                     toi_row["rp_fit"],
                      toi_row["sma_rstar_fit"],
                      toi_row["inclination_fit"],)
         plt.suptitle(title)

@@ -7,12 +7,13 @@ import pandas as pd
 import plumage.utils as utils
 import plumage.transits as transit
 import plumage.parameters as params
+import plumage.plotting as pplt
 import astropy.constants as const
 
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
-label = "TESS"
+label = "tess"
 spec_path =  "spectra"
 
 # Load in literature info for our stars
@@ -40,6 +41,13 @@ comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", ho
 ldc_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
 
 mean_e_period = 10 / 60 / 24
+
+# Min window size
+t_min = 8/24
+
+# Plotting settings
+binsize = 10
+bin_lightcurve = True
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -111,7 +119,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             sma_rstar, 
             e_sma_rstar,
             mask,
-            ld_model="nonlinear")
+            ld_model="nonlinear",
+            t_min=t_min,)
 
     except transit.BatmanError:
         print("\nBatman failure, skipping\n")
@@ -171,6 +180,15 @@ print("TOIs: {}\n".format(str(list(toi_info.index[nan_mask]))))
 
 print("{} TOI fits unfeasibly small".format(len(toi_info[small_mask])))
 print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
+
+# Plotting
+pplt.plot_all_lightcurve_fits(
+    light_curves,
+    toi_info,
+    tic_info,
+    observations,
+    binsize=binsize,
+    bin_lightcurve=bin_lightcurve,)
 
 # Save results
 utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")

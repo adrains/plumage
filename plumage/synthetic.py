@@ -658,7 +658,8 @@ def calc_synth_fit_resid_one_arm(
     rv, 
     bcor, 
     idl,
-    band_settings,):
+    band_settings,
+    do_polynomial_spectra_norm,):
     """Calculates residuals between observed science spectrum, and MARCS model
     synthetic spectrum for a single arm of the spectrograph.
 
@@ -715,35 +716,54 @@ def calc_synth_fit_resid_one_arm(
         rv_bcor=(rv-bcor),
         )
 
-    # Normalise spectra by wavelength region before fit
-    spec_sci, e_spec_sci = spec.norm_spec_by_wl_region(
-        wave_sci, 
-        spec_sci, 
-        band_settings["arm"], 
-        e_spec_sci)
+    # If we don't trust our flux calibration, normalise spectra by low order
+    # polynomial, taking into account bad px mask
+    if do_polynomial_spectra_norm:
+        # Normalise the science spectra
+        spec_sci_norm, e_spec_sci_norm = spec.normalise_spectrum(
+            wave_sci,
+            spec_sci,
+            e_spec_sci,
+            mask=~bad_px_mask,) # Note mask inversion
 
-    # Normalise the synthetic spectrum only if it is non-zero. An array of 
-    # zeros means that we generated a synthetic spectrum at non-physical values
-    # and returned with zero flux, but our parameters were still inside the 
-    # grid bounds. If it is composed of zeros, the residuals should be bad 
-    # anyway.
-    if np.sum(spec_synth) > 0:
-        spec_synth = spec.norm_spec_by_wl_region(
+        # Normalise the synthetic spectrum only if it is non-zero. An array of 
+        # zeros means that we generated a synthetic spectrum at non-physical 
+        # values and returned with zero flux, but our parameters were still 
+        # inside the  grid bounds. If it is composed of zeros, the residuals 
+        # should be bad anyway.
+        if np.sum(spec_synth) > 0:
+            spec_synth_norm = spec.normalise_spectrum(
+                wave_sci, 
+                spec_synth, 
+                mask=~bad_px_mask,)  # Note mask inversion
+
+    # Otherwise assume spectra have been adequately fluxed, and normalise
+    # spectra by wavelength region before fit
+    else:
+        spec_sci_norm, e_spec_sci_norm = spec.norm_spec_by_wl_region(
             wave_sci, 
-            spec_synth, 
-            band_settings["arm"])
+            spec_sci, 
+            band_settings["arm"], 
+            e_spec_sci)
+
+        # Normalise the synthetic spectrum only if it is non-zero (as above)
+        if np.sum(spec_synth) > 0:
+            spec_synth_norm = spec.norm_spec_by_wl_region(
+                wave_sci, 
+                spec_synth, 
+                band_settings["arm"])
 
     # Mask the spectra by setting uncertainties on bad pixels to infinity 
     # (thereby setting the inverse variances to zero), as well as putting the
     # bad pixels themselves to one so there are no nans involved in calculation
     # of the residuals (as this breaks the least squares fitting)
-    spec_sci_m = spec_sci.copy()
+    spec_sci_m = spec_sci_norm.copy()
     spec_sci_m[bad_px_mask] = 1
-    e_spec_sci_m = e_spec_sci.copy()
+    e_spec_sci_m = e_spec_sci_norm.copy()
     e_spec_sci_m[bad_px_mask] = np.inf
 
     # Calculate the residual
-    resid_vect = (spec_sci_m - spec_synth) / e_spec_sci_m
+    resid_vect = (spec_sci_m - spec_synth_norm) / e_spec_sci_m
 
     return resid_vect, spec_synth
 
@@ -831,7 +851,8 @@ def calc_synth_fit_resid(
     resid_norm_fac, 
     phot_scale_fac,
     suppress_fit_diagnostics=False,
-    return_synth_models=False,):
+    return_synth_models=False,
+    do_polynomial_spectra_norm=False,):
     """Calculates the uncertainty weighted residuals between a science spectrum
     and a generated template spectrum with parameters per 'params'. If blue
     band spectrum related arrays are None, will just fit for red spectra. This
@@ -956,7 +977,7 @@ def calc_synth_fit_resid(
         # Determine red residuals
         resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
             teff, logg, feh, wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor, 
-            idl, band_settings_r,)
+            idl, band_settings_r, do_polynomial_spectra_norm)
 
         # Normalise residuals by minimum rchi^2
         resid_vect_r /= resid_norm_fac["red"]
@@ -972,7 +993,7 @@ def calc_synth_fit_resid(
         # Determine blue residuals
         resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
             teff, logg, feh, wave_b, spec_b, e_spec_b, bad_px_mask_b, rv, bcor, 
-            idl, band_settings_b,)
+            idl, band_settings_b, do_polynomial_spectra_norm)
         
         # Normalise residuals by minimum rchi^2
         resid_vect_b /= resid_norm_fac["blue"]
@@ -1058,7 +1079,8 @@ def do_synthetic_fit(
     scale_threshold={"blue":1,"red":1,"phot":1},
     fit_for_resid_norm_fac=False,
     phot_scale_fac=1,
-    suppress_fit_diagnostics=False,):
+    suppress_fit_diagnostics=False,
+    do_polynomial_spectra_norm=False,):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
@@ -1192,7 +1214,8 @@ def do_synthetic_fit(
                 band_settings_r, params_init_keys, params_fixed, band_settings_b, 
                 None, None, None,  None, None, 
                 None, None, None, feh_offset, 
-                resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
+                resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
+                False, do_polynomial_spectra_norm,)
 
         # Do fit
         opt_res = least_squares(
@@ -1229,7 +1252,8 @@ def do_synthetic_fit(
                 band_settings_r, params_init_keys, params_fixed, band_settings_b, 
                 None, None, None,  None, stellar_phot, 
                 e_stellar_phot, phot_bands, bc_interp, feh_offset, 
-                resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
+                resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
+                False, do_polynomial_spectra_norm,)
 
         # Do fit
         opt_res = least_squares(
@@ -1275,7 +1299,8 @@ def do_synthetic_fit(
             band_settings_r, params_init_keys, params_fixed, band_settings_b, 
             wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_phot, 
             e_stellar_phot, phot_bands, bc_interp, feh_offset, 
-            resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,)
+            resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
+            False, do_polynomial_spectra_norm,)
 
     # Do fit
     opt_res = least_squares(

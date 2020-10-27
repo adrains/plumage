@@ -22,7 +22,7 @@ from collections import OrderedDict
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "tess"
+label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -109,7 +109,7 @@ band_settings_r = {
 fit_for_params = OrderedDict([
     ("teff",True),
     ("logg",False),
-    ("feh",False),
+    ("feh",True),
     ("Mbol",True),])
 
 #fit_for_params = [False, False, True]   #[teff, logg, feh]
@@ -128,6 +128,8 @@ mask_tio = False
 mask_sodium_wings = False
 low_cutoff = None
 high_cutoff = None
+
+do_polynomial_spectra_norm = True
 
 def calc_bp_offset(bp_rp,):
     """
@@ -290,7 +292,7 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
         spectra_r[ob_i, 2], # Red uncertainties
-        bad_px_masks_r[ob_i],
+        bad_px_mask_r,
         params_init, 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
@@ -306,7 +308,8 @@ for ob_i in range(0, len(observations)):
         e_stellar_phot=e_photometry,
         phot_bands=filters[phot_mask],   # Mask the colours to what we have
         phot_scale_fac=phot_scale_fac,
-        fit_for_resid_norm_fac=True,)
+        fit_for_resid_norm_fac=True,
+        do_polynomial_spectra_norm=do_polynomial_spectra_norm,)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Sort out results

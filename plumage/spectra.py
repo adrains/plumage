@@ -345,6 +345,56 @@ def load_pkl_spectra(label, rv_corr=False):
 # -----------------------------------------------------------------------------
 # Processing spectra
 # -----------------------------------------------------------------------------
+def flux_calibrate_spectra(
+    spectra,
+    airmasses,
+    arm,
+    flux_cal_B3000_file="data/flux_cal_B3000.csv",
+    flux_cal_R7000_file="data/flux_cal_R7000.csv",
+    sso_extinction_file="data/sso_extinction.dat"):
+    """
+    """
+    # Import flux calibration curve
+    if arm == "b":
+        flux_cal_data = np.loadtxt(flux_cal_B3000_file)
+    elif arm == "r":
+        flux_cal_data = np.loadtxt(flux_cal_R7000_file)
+    else:
+        raise ValueError("Invalid arm, must be either 'b' or 'r'")
+
+    # Assume all wavelength vectors are the same from PyWiFeS
+    wave = spectra[0,0]
+
+    # Create flux curve interpolation function
+    compute_flux_corr = interp1d(
+        flux_cal_data[:,0],
+        flux_cal_data[:,1],
+        bounds_error=False,
+        fill_value=-100.0,
+        kind='linear')
+
+    flux_corr = compute_flux_corr(wave)
+    inst_fcal_array = 10.0**(-0.4*flux_corr) 
+
+    # Import SSO extinction curve
+    ext_data = numpy.loadtxt(sso_extinction_file)
+    extinct_interp = interp1d(
+        ext_data[:,0],
+        ext_data[:,1],
+        bounds_error=False,
+        fill_value=np.nan)
+
+    # Calculate extinction for each object
+    obj_ext = 10.0**(-0.4*((airmasses-1.0)*extinct_interp(wave)))
+
+    # Calculate combined correction factor
+    fcal_array = inst_fcal_array*obj_ext
+
+    # Do flux correction
+    out_flux = curr_flux / (fcal_array*exptime*dwave)
+    out_var  = curr_var / ((fcal_array*exptime*dwave)**2)
+
+
 def clean_spectra(spectra):
     """Clean non-realistic spectral pixels
 
@@ -367,7 +417,7 @@ def clean_spectra(spectra):
 
 
 def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False, 
-                       plot_norm=False):
+                       plot_norm=False, mask=None,):
     """Normalise a single spectrum by a 2nd order polynomial in log space. 
     Automatically detects which WiFeS arm and grating is being used and masks 
     out regions accordingly. Currently only implemented for B3000 and R7000.
@@ -422,8 +472,9 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
                         " either B3000 or R7000.")
 
     # Make the mask
-    #mask = np.ones_like(spectrum).astype(bool)
-    mask = make_wavelength_mask(wl, mask_emission=True)
+    if mask is None:
+        mask = make_wavelength_mask(wl, mask_emission=True)
+
     mask[ignore] = False
 
     # Normalise wavelength scale (pivot about 0)
@@ -436,14 +487,17 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
     norm = poly(wl_norm)
 
     spectrum_norm = spectrum / np.exp(norm)
-
+    
     # Plot
     if plot_fit:
-        plt.figure()
-        plt.plot(wl[:-1], spectrum_fit[:-1], label="flux")
-        plt.plot(wl, norm, label="fit")
-        plt.xlabel("Wavelength (A)")
-        plt.ylabel("Flux (Normalised)")
+        fig, ax = plt.subplots()
+        ax.plot(wl[:-1], spectrum_fit[:-1], label="flux")
+        ax.plot(wl, norm, label="fit")
+        ax.set_xlabel("Wavelength (A)")
+        ax.set_ylabel("Flux (Normalised)")
+
+        import plumage.plotting as pplt
+        pplt.shade_excluded_regions(wl, mask, ax, ax, "red", 0.25,)
 
     elif plot_norm:
         plt.figure()
@@ -455,10 +509,13 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
     if e_spectrum is not None:
         e_spectrum_norm = e_spectrum / np.exp(norm)
 
-        return spectrum_norm, e_spectrum_norm
+        assert (len(spectrum_norm) == len(e_spectrum_norm) 
+            and len(spectrum_norm) == len(spectrum))
+
+        return spectrum_norm.astype(float), e_spectrum_norm.astype(float)
     
     else:
-        return spectrum_norm
+        return spectrum_norm.astype(float)
 
 
 def normalise_spectra(spectra, normalise_uncertainties=False):
