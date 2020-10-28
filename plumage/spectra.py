@@ -35,7 +35,8 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
 
 
 def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
-                     ext_telluric_corr=3, include_subfolders=False):
+                     ext_telluric_corr=3, include_subfolders=False, 
+                     use_counts_ext_and_flux=False,):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations.
 
@@ -120,35 +121,48 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
         zip(tqdm(spectra_b_files), spectra_r_files)):
         # Load in and extract required information from fits files
         with fits.open(file_b) as fits_b, fits.open(file_r) as fits_r:
-            # Determine how many extensions the fits file has.
-            #  2 extensions --> non-fluxed, no telluric corr [PyWiFeS p08]
-            #  3 extensions --> fluxed, no telluric corr [PyWiFeS p09]
-            #  4 extensions --> fluxed and telluric corr [PyWiFeS p10]
-            if len(fits_b) != len(fits_r):
-                raise ValueError("Blue and red have different # fits ext")
-            
-            if len(fits_b) == ext_snr+1:
-                is_fluxed = False
+            # If we're relying on our own flux calibration, no need to bother
+            # with other extensions
+            if use_counts_ext_and_flux:
+                is_fluxed = True
                 is_telluric_corr = False
                 ext_sci = 1
 
-            elif len(fits_b) == ext_fluxed+1:
-                is_fluxed = True
-                is_telluric_corr = False
-                ext_sci = 2
+            # Otherwise work as usual with what PyWiFeS outputs
+            else:
+                # Determine how many extensions the fits file has.
+                #  2 extensions --> non-fluxed, no telluric corr [PyWiFeS p08]
+                #  3 extensions --> fluxed, no telluric corr [PyWiFeS p09]
+                #  4 extensions --> fluxed and telluric corr [PyWiFeS p10]
+                if len(fits_b) != len(fits_r):
+                    raise ValueError("Blue and red have different # fits ext")
+                
+                if len(fits_b) == ext_snr+1:
+                    is_fluxed = False
+                    is_telluric_corr = False
+                    ext_sci = 1
 
-            elif len(fits_b) == ext_telluric_corr+1:
-                is_fluxed = True
-                is_telluric_corr = True
-                ext_sci = 3
+                elif len(fits_b) == ext_fluxed+1:
+                    is_fluxed = True
+                    is_telluric_corr = False
+                    ext_sci = 2
 
-            else: 
-                raise ValueError("Unexpected # of HDUs. Should have 2-4.")
+                elif len(fits_b) == ext_telluric_corr+1:
+                    is_fluxed = True
+                    is_telluric_corr = True
+                    ext_sci = 3
+
+                else: 
+                    raise ValueError("Unexpected # of HDUs. Should have 2-4.")
 
             # Take the "most-complete" (in terms of data reduction) extension
             # for use as the "science" spectrum
             spec_b = np.stack(fits_b[ext_sci].data)
             spec_r = np.stack(fits_r[ext_sci].data)
+
+            # Get headers
+            header_b = fits_b[0].header
+            header_r = fits_r[0].header
 
             # Ensure that there is actually signal here. If not, flag the files
             # as bad and skip processing them
@@ -168,21 +182,53 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
 
             sig_r = np.median(fits_r[ext_snr].data["spectrum"])
             snrs_r.append(sig_r / sig_r**0.5)
-
-            # HACK. FIX THIS.
-            # Uncertainties on flux calibratated spectra don't currently 
-            # make sense, so get the uncertainties from the unfluxxed spectra
-            # in terms of fractions, then apply to the fluxed spectra 
-            sigma_b_pc = (fits_b[ext_snr].data["sigma"] 
-                          / fits_b[ext_snr].data["spectrum"])
-            sigma_r_pc = (fits_r[ext_snr].data["sigma"]
-                          / fits_r[ext_snr].data["spectrum"])
             
-            # Sort out the uncertainties
-            spec_b[:,2] = spec_b[:,1] * sigma_b_pc
-            spectra_b.append(spec_b.T)
+            # Doing our own flux correction
+            if use_counts_ext_and_flux:
+                # Import blue
+                spec_b_fluxed, e_spec_b_fluxed = flux_calibrate_spectra(
+                    wave=spec_b[:,0],
+                    spectra=spec_b[:,1],
+                    e_spectra=spec_b[:,2],
+                    airmass=float(header_b["AIRMASS"]),
+                    arm="b",
+                    exptime=float(header_b['EXPTIME']),
+                )
 
-            spec_r[:,2] = spec_r[:,1] * sigma_r_pc
+                # Import red
+                spec_r_fluxed, e_spec_r_fluxed = flux_calibrate_spectra(
+                    wave=spec_r[:,0],
+                    spectra=spec_r[:,1],
+                    e_spectra=spec_r[:,2],
+                    airmass=float(header_r["AIRMASS"]),
+                    arm="r",
+                    exptime=float(header_r['EXPTIME']),
+                )
+
+                # Save
+                spec_b[:,1] = spec_b_fluxed
+                spec_b[:,2] = e_spec_b_fluxed
+
+                spec_r[:,1] = spec_r_fluxed
+                spec_r[:,2] = e_spec_r_fluxed
+
+            else:
+                # HACK. FIX THIS.
+                # Uncertainties on flux calibratated spectra don't currently 
+                # make sense, get the uncertainties from the unfluxxed spectra
+                # in terms of fractions, then apply to the fluxed spectra 
+                sigma_b_pc = (fits_b[ext_snr].data["sigma"] 
+                            / fits_b[ext_snr].data["spectrum"])
+                sigma_r_pc = (fits_r[ext_snr].data["sigma"]
+                            / fits_r[ext_snr].data["spectrum"])
+                
+                # Sort out the uncertainties
+                spec_b[:,2] = spec_b[:,1] * sigma_b_pc
+
+                spec_r[:,2] = spec_r[:,1] * sigma_r_pc
+
+            # Append
+            spectra_b.append(spec_b.T)
             spectra_r.append(spec_r.T)
 
             # Get object name and details of observation
@@ -346,9 +392,12 @@ def load_pkl_spectra(label, rv_corr=False):
 # Processing spectra
 # -----------------------------------------------------------------------------
 def flux_calibrate_spectra(
+    wave,
     spectra,
-    airmasses,
+    e_spectra,
+    airmass,
     arm,
+    exptime,
     flux_cal_B3000_file="data/flux_cal_B3000.csv",
     flux_cal_R7000_file="data/flux_cal_R7000.csv",
     sso_extinction_file="data/sso_extinction.dat"):
@@ -357,13 +406,17 @@ def flux_calibrate_spectra(
     # Import flux calibration curve
     if arm == "b":
         flux_cal_data = np.loadtxt(flux_cal_B3000_file)
+        wl_step = 0.77
+
     elif arm == "r":
         flux_cal_data = np.loadtxt(flux_cal_R7000_file)
+        wl_step = 0.44
+
     else:
         raise ValueError("Invalid arm, must be either 'b' or 'r'")
 
     # Assume all wavelength vectors are the same from PyWiFeS
-    wave = spectra[0,0]
+    #wave = spectra[0,0]
 
     # Create flux curve interpolation function
     compute_flux_corr = interp1d(
@@ -377,7 +430,7 @@ def flux_calibrate_spectra(
     inst_fcal_array = 10.0**(-0.4*flux_corr) 
 
     # Import SSO extinction curve
-    ext_data = numpy.loadtxt(sso_extinction_file)
+    ext_data = np.loadtxt(sso_extinction_file)
     extinct_interp = interp1d(
         ext_data[:,0],
         ext_data[:,1],
@@ -385,14 +438,16 @@ def flux_calibrate_spectra(
         fill_value=np.nan)
 
     # Calculate extinction for each object
-    obj_ext = 10.0**(-0.4*((airmasses-1.0)*extinct_interp(wave)))
+    obj_ext = 10.0**(-0.4*((airmass-1.0)*extinct_interp(wave)))
 
     # Calculate combined correction factor
     fcal_array = inst_fcal_array*obj_ext
 
     # Do flux correction
-    out_flux = curr_flux / (fcal_array*exptime*dwave)
-    out_var  = curr_var / ((fcal_array*exptime*dwave)**2)
+    spec_fluxed = spectra / (fcal_array*exptime*wl_step)
+    e_spec_fluxed  = e_spectra / (fcal_array*exptime*wl_step)
+    
+    return spec_fluxed, e_spec_fluxed
 
 
 def clean_spectra(spectra):

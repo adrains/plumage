@@ -36,7 +36,7 @@ import plumage.utils as utils
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of fits file of all spec
-label =  "standard"
+label =  "std_fluxed"
 
 # Base folder of 1D fits spectra
 spectra_folder = "spectra/standard"
@@ -51,6 +51,8 @@ fits_save_path = "spectra"
 cat_type = "csv"
 cat_file = "data/all_2m3_star_ids.csv"
 
+use_counts_ext_and_flux = True
+
 # -----------------------------------------------------------------------------
 # Import spectra, clean, find bcor, and save
 # -----------------------------------------------------------------------------
@@ -58,7 +60,8 @@ cat_file = "data/all_2m3_star_ids.csv"
 print("Importing Spectra...")
 observations, spectra_b, spectra_r = spec.load_all_spectra(
     spectra_folder=spectra_folder,
-    include_subfolders=include_subfolders
+    include_subfolders=include_subfolders,
+    use_counts_ext_and_flux=use_counts_ext_and_flux,
 )
 
 # Clean spectra by setting negative or zero flux values + errors to np.nan
