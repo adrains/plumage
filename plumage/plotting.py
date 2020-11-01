@@ -5,6 +5,7 @@ import os
 import numpy as np
 import glob
 import batman as bm
+import pandas as pd
 import matplotlib.pylab as plt
 import matplotlib.colors as mplc
 import plumage.spectra as spec
@@ -2138,6 +2139,128 @@ def plot_planet_period_vs_radius(lc_results):
     plt.tight_layout()
     plt.savefig("paper/planet_period_vs_radius.pdf")
     plt.savefig("paper/planet_period_vs_radius.png")
+
+
+def plot_confirmed_planet_comparison(
+    toi_results,
+    confirmed_planet_tab="data/known_planets.tsv",
+    rp_rstar_lims=(0.01,0.25),
+    a_rstar_lims=(1,100),
+    i_lims=(80,100),
+    rp_lims=(0.2,16),):
+    """
+    """
+    # Import literature data of confirmed planets
+    cp_cat = pd.read_csv(confirmed_planet_tab, delimiter="\t", index_col="TOI")
+
+    # Merge
+    merged_cat = toi_results.join(cp_cat, on="TOI", how="inner", rsuffix="_lit")
+
+    plt.close("all")
+    fig, (rp_rstar_ax, a_rstar_ax, i_ax, rp_ax) = plt.subplots(1,4)
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Plot Rp/R_*
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    rp_rstar_ax.errorbar(
+        x=merged_cat["rp_rstar_fit"],
+        y=merged_cat["rp_rstar"],
+        xerr=merged_cat["e_rp_rstar_fit"],
+        yerr=[merged_cat["e_rp_rstar_neg"], merged_cat["e_rp_rstar_pos"]],
+        fmt=".",)
+
+    # Plot 1:1 line
+    xx = np.arange(
+        rp_rstar_lims[0], 
+        rp_rstar_lims[1], 
+        (rp_rstar_lims[1]-rp_rstar_lims[0])/100,)
+    rp_rstar_ax.plot(xx, xx, "--")
+
+    # Axis labels and setup
+    rp_rstar_ax.set_xlim(rp_rstar_lims)
+    rp_rstar_ax.set_ylim(rp_rstar_lims)
+    rp_rstar_ax.set_aspect(1./rp_rstar_ax.get_data_ratio())
+    rp_rstar_ax.set_xlabel(r"$R_P/R_*$ (fit)")
+    rp_rstar_ax.set_ylabel(r"$R_P/R_*$ (literature)")
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Plot a/R_*
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    a_rstar_ax.errorbar(
+        x=merged_cat["sma_rstar_fit"],
+        y=merged_cat["a_rstar"],
+        xerr=merged_cat["e_sma_rstar_fit"],
+        yerr=[merged_cat["e_a_rstar_neg"], merged_cat["e_a_rstar_pos"]],
+        fmt=".",)
+
+    # Plot 1:1 line
+    xx = np.arange(
+        a_rstar_lims[0], 
+        a_rstar_lims[1], 
+        (a_rstar_lims[1]-a_rstar_lims[0])/100,)
+    a_rstar_ax.plot(xx, xx, "--")
+
+    # Axis labels and setup
+    a_rstar_ax.set_xlim(a_rstar_lims)
+    a_rstar_ax.set_ylim(a_rstar_lims)
+    a_rstar_ax.set_aspect(1./a_rstar_ax.get_data_ratio())
+    a_rstar_ax.set_xlabel(r"$a/R_*$ (fit)")
+    a_rstar_ax.set_ylabel(r"$a/R_*$ (literature)")
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Plot i
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    i_ax.errorbar(
+        x=merged_cat["inclination_fit"],
+        y=merged_cat["i"],
+        xerr=merged_cat["e_inclination_fit"],
+        yerr=[merged_cat["e_i_neg"], merged_cat["e_i_pos"]],
+        fmt=".",)
+
+    # Plot 1:1 line
+    xx = np.arange(
+        i_lims[0], 
+        i_lims[1], 
+        (i_lims[1]-i_lims[0])/100,)
+    i_ax.plot(xx, xx, "--")
+
+    # Axis labels and setup
+    i_ax.set_xlim(i_lims)
+    i_ax.set_ylim(i_lims)
+    i_ax.set_aspect(1./i_ax.get_data_ratio())
+    i_ax.set_xlabel(r"$i$ (fit)")
+    i_ax.set_ylabel(r"$i$ (literature)")
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Plot R_p
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    rp_ax.errorbar(
+        x=merged_cat["rp_fit"],
+        y=merged_cat["rp"],
+        xerr=merged_cat["e_rp_fit"],
+        yerr=[merged_cat["e_rp_neg"], merged_cat["e_rp_pos"]],
+        fmt=".",)
+
+    # Plot 1:1 line
+    xx = np.arange(
+        rp_lims[0], 
+        rp_lims[1], 
+        (rp_lims[1]-rp_lims[0])/100,)
+    rp_ax.plot(xx, xx, "--")
+
+    # Axis labels and setup
+    rp_ax.set_xlim(rp_lims)
+    rp_ax.set_ylim(rp_lims)
+    rp_ax.set_aspect(1./rp_ax.get_data_ratio())
+    rp_ax.set_xlabel(r"$R_P$ (fit)")
+    rp_ax.set_ylabel(r"$R_P$ (literature)")
+    
+
+    # Wrap up
+    plt.gcf().set_size_inches(16, 4)
+    plt.tight_layout()
+    plt.savefig("paper/lit_planet_comp.pdf")
+    plt.savefig("paper/lit_planet_comp.png")
 
 
 # -----------------------------------------------------------------------------
