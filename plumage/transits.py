@@ -348,7 +348,12 @@ def fit_light_curve(
     flatten_frac=0.1, 
     outlier_sig=6,
     niters_flat=5,
-    t_min=1/24,):
+    t_min=1/24,
+    verbose=True, 
+    n_trans_dur=2,
+    binsize=2,
+    bin_lightcurve=False,
+    break_tolerance=100,):
     """Perform least squares fitting on the provided light curve to determine
     Rp/R*, a/R*, and inclination.
 
@@ -395,15 +400,15 @@ def fit_light_curve(
     # Before cleaning however, we should mask out the transit signal itself
     #clean_lc = light_curve.remove_outliers(sigma=outlier_sig)
 
-    # Get window size for smoothing
+    # Get window size for smoothing (note mask inversion)
     window_length = determine_window_size(light_curve, t0, period, trans_dur, 
-        mask, t_min)
+        ~mask, t_min,)
 
     clean_lc, flat_lc_trend = light_curve.flatten(
         window_length=window_length,
         return_trend=True,
         niters=niters_flat,
-        break_tolerance=None,
+        break_tolerance=100,
         mask=mask)
 
     # Phase fold the light curve
@@ -412,11 +417,11 @@ def fit_light_curve(
     # Initialise transit params. Ftting for: [rp, semi-major axis, inclination]
     # and assuming a circular orbit, so eccentricity=1, & longitude periastron
     # isn't relevant
-    init_params = np.array([0.1, 10, 90,])
+    init_params = np.array([0.05, sma_rstar, 90,])
     bounds = ((0, 0, 60,), (1, 10000, 120,))
 
     args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur, sma_rstar,
-            e_sma_rstar)
+            e_sma_rstar, verbose, n_trans_dur,)
 
     #scale = (1, 1, 1)
     step = (0.1, 0.1, 0.1)
@@ -468,6 +473,7 @@ def fit_light_curve(
         time=folded_lc.time,)
 
     # Add extra info to fit dictionary
+    opt_res["folded_lc"] = folded_lc
     opt_res["window_length"] = window_length
     opt_res["niters_flat"] = niters_flat
     opt_res["flat_lc_trend"] = flat_lc_trend
@@ -507,7 +513,7 @@ def make_transit_mask_single_period(
     Returns
     -------
     mask: bool array
-    
+        True where transits occur
     """
     # Work in modulo time of the period
     mod_time = (light_curve.time - t0) % period
@@ -533,7 +539,7 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
     """
     selected_tois = toi_info[toi_info["TIC"]==tic_id]
 
-    mask = np.full(len(light_curve.time), True)
+    mask = np.full(len(light_curve.time), False)
 
     for star_i, toi_row in selected_tois.iterrows():
         # Only contribute to mask if we have non-nan parameters
@@ -541,9 +547,9 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
             print("Skipped TOI {} when making mask".format(toi_row.name))
             continue
 
-        mask = ~np.logical_and(
+        mask = np.logical_or(
             mask,
-            ~make_transit_mask_single_period(
+            make_transit_mask_single_period(
                 light_curve,
                 toi_row["Epoch (BJD)"]-BTJD_OFFSET,
                 toi_row["Period (days)"],
@@ -553,8 +559,11 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
     return mask
 
 
-def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24):
+def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24,
+    show_diagnostic_plot=False,):
     """
+    mask: bool arrays
+        True where we should use.
     """
     # Get mask of transits
     #mask = ~make_transit_mask(light_curve, t0, period, trans_dur,)
@@ -570,8 +579,11 @@ def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24):
     cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
 
     # Calculate window length
-    window_length = int(stellar_period / cadence)
+    window_length = int(stellar_period / cadence / 4)
 
+    if show_diagnostic_plot:
+        plt.plot(1/freq, power)
+    
     if window_length % 2 == 0:
         window_length += 1
 

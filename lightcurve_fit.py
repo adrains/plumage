@@ -40,14 +40,22 @@ comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", ho
 # Intitialise limb darkening coefficient columns
 ldc_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
 
+# Set a default period uncertainty if we don't have one
 mean_e_period = 10 / 60 / 24
 
-# Min window size
+# Amount of lightcurve to fit to inn units of transit duration
+n_trans_dur = 1.2
+
+# Inflate the error on our fitted stellar radii
+e_radius_mult = 10
+
+# Min window size for flattening in days
 t_min = 8/24
 
 # Plotting settings
 binsize = 10
 bin_lightcurve = True
+break_tolerance = 10
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -84,8 +92,14 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         print("Skipping: No transit duration\n")
         all_fits[toi] = None
         continue
+    #elif toi != 177.01:#270.02: #406.01:#
+        #continue
     else:
-        lightcurve = light_curves[tic].remove_nans()
+        # Bin lightcurve
+        if bin_lightcurve:
+            lightcurve = light_curves[tic].remove_nans().bin(binsize=binsize)
+        else:
+            lightcurve = light_curves[tic].remove_nans()
 
     # Calculate semi-major axis and scaled semimajor axis
     if np.isnan(toi_row["Period error"]):
@@ -99,9 +113,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         toi_row["Period (days)"],
         e_period,
         toi_row["radius"],
-        toi_row["e_radius"],
+        toi_row["e_radius"]*e_radius_mult,
         )
-
+    
     # Get mask for all transits with this system
     mask = transit.make_transit_mask_all_periods(
         lightcurve, 
@@ -120,7 +134,11 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             e_sma_rstar,
             mask,
             ld_model="nonlinear",
-            t_min=t_min,)
+            t_min=t_min,
+            verbose=True,
+            n_trans_dur=n_trans_dur,
+            binsize=binsize,
+            bin_lightcurve=bin_lightcurve,)
 
     except transit.BatmanError:
         print("\nBatman failure, skipping\n")
@@ -134,10 +152,14 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         continue
 
     # Calclate the planet radii
-    radius = (opt_res["x"][0] * toi_row["radius"]
-              * const.R_sun.si.value / const.R_earth.si.value)
-    e_radius = (opt_res["std"][0] * toi_row["radius"]
-              * const.R_sun.si.value / const.R_earth.si.value)
+    rp_rstar_fit = opt_res["x"][0]
+    e_rp_rstar_fit = opt_res["std"][0]
+
+    r_e = const.R_sun.si.value / const.R_earth.si.value
+    
+    r_p = rp_rstar_fit * toi_row["radius"] * r_e
+    e_r_p = r_p * np.sqrt((e_radius_mult*toi_row["e_radius"]/toi_row["radius"])**2
+                           + (e_rp_rstar_fit/rp_rstar_fit)**2) * r_e
 
     # Record fit dictionaries
     all_fits[toi] = opt_res
@@ -145,7 +167,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     # Save calculated params + uncertainties
     result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
     result_df.loc[toi][["sma_rstar_fit", "e_sma_rstar_fit"]] = [sma_rstar, e_sma_rstar]
-    result_df.loc[toi][["rp_fit", "e_rp_fit"]] = [radius, e_radius]
+    result_df.loc[toi][["rp_fit", "e_rp_fit"]] = [r_p, e_r_p]
 
     # Save fitted parameters
     param_cols = ["rp_rstar_fit", "sma_rstar_fit", "inclination_fit"]
@@ -188,7 +210,13 @@ pplt.plot_all_lightcurve_fits(
     tic_info,
     observations,
     binsize=binsize,
-    bin_lightcurve=bin_lightcurve,)
+    bin_lightcurve=bin_lightcurve,
+    break_tolerance=break_tolerance,)
+
+pplt.merge_spectra_pdfs(
+    "plots/lc_diagnostics/*.pdf", 
+    "plots/lc_diagnostics.pdf",) 
 
 # Save results
+toi_info.index.set_names(["TOI"], inplace=True)
 utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")

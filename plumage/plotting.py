@@ -2081,7 +2081,7 @@ def plot_label_comparison(
 # -----------------------------------------------------------------------------
 # Planet plots
 # ----------------------------------------------------------------------------- 
-def plot_planet_radii_hist(lc_results, bin_width=0.4):
+def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,):
     """Plots a histogram of stellar radii.
 
     Parameters
@@ -2095,8 +2095,9 @@ def plot_planet_radii_hist(lc_results, bin_width=0.4):
     plt.close("all")
     fig, axis = plt.subplots()
 
+    min_rp = np.min(lc_results["rp_fit"][lc_results["rp_fit"] > min_rp])
     max_rp = np.max(lc_results["rp_fit"])
-    bin_edges = np.arange(0, max_rp+bin_width, bin_width)
+    bin_edges = np.arange(min_rp, max_rp+bin_width, bin_width)
 
     axis.hist(lc_results["rp_fit"], bins=bin_edges)
 
@@ -2211,15 +2212,24 @@ def plot_lightcurve_fit(lightcurve, folded_lc, flat_lc_trend, bm_params, bm_mode
     ax_lc_folded_transit.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
 
     # Figure out our y limits
-    lim = np.nanstd(folded_lc.flux)*5.5 + np.nanmean(folded_lc.flux_err)
+    transit_mask = np.logical_and(
+        folded_lc.time < trans_dur/period/2,
+        folded_lc.time > -trans_dur/period/2)
+        
+    y_min = 2*(1-np.mean(folded_lc.flux[transit_mask]))
 
-    ax_lc_unfolded.set_ylim((1-lim, 1+lim))
-    ax_lc_folded_all.set_ylim((1-lim, 1+lim))
-    ax_lc_folded_transit.set_ylim((1-lim, 1+lim))
+    std_lim = np.nanstd(folded_lc.flux)*5.5 + np.nanmean(folded_lc.flux_err)
+
+    # Use whichever is lower
+    y_lim = y_min if y_min > std_lim else std_lim
+
+    ax_lc_unfolded.set_ylim((1-std_lim, 1+std_lim))
+    ax_lc_folded_all.set_ylim((1-y_lim, 1+std_lim))
+    ax_lc_folded_transit.set_ylim((1-y_lim, 1+std_lim))
 
 
 def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
-        binsize=4, bin_lightcurve=False,):
+        binsize=4, bin_lightcurve=False, break_tolerance=None):
     """Plot PDFs of all TESS light curve fits.
 
     Parameters
@@ -2299,7 +2309,7 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
             window_length=int(toi_row["window_length"]),
             return_trend=True,
             niters=int(toi_row["niters_flat"]),
-            break_tolerance=None,
+            break_tolerance=break_tolerance,
             mask=mask)
 
         # Phase fold the light curve
