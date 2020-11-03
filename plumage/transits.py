@@ -506,11 +506,15 @@ def fit_light_curve(
         ld_coeff=ld_coeff, 
         time=folded_lc.time,)
 
+    # Calculate rchi^2
+    rchi2 = np.sum(opt_res["fun"]**2) / (np.sum(~(opt_res["fun"] == 0))-3)
+
     # Add extra info to fit dictionary
     opt_res["folded_lc"] = folded_lc
     opt_res["window_length"] = window_length
     opt_res["niters_flat"] = niters_flat
     opt_res["flat_lc_trend"] = flat_lc_trend
+    opt_res["rchi2"] = rchi2
     opt_res["std"] = std
     opt_res["bm_params"] = bm_params
     opt_res["bm_model"] = bm_model

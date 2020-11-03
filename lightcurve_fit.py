@@ -66,10 +66,10 @@ all_fits = {}
 
 # Initialise new dataframe to hold results, which will be appended to 
 # toi_info and saved once we're done
-result_cols = ["sma", "e_sma", "rp_rstar_fit", "e_rp_rstar_fit", 
-               "sma_rstar_fit", "e_sma_rstar_fit", "inclination_fit", 
-               "e_inclination_fit", "rp_fit", "e_rp_fit", "window_length", 
-               "niters_flat"]
+result_cols = ["sma", "e_sma", "sma_rstar", "e_sma_rstar", "rp_rstar_fit", 
+               "e_rp_rstar_fit",  "sma_rstar_fit", "e_sma_rstar_fit", 
+               "inclination_fit", "e_inclination_fit", "rp_fit", "e_rp_fit", 
+               "window_length", "niters_flat", "rchi2"]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
@@ -167,7 +167,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     # Save calculated params + uncertainties
     result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
-    result_df.loc[toi][["sma_rstar_fit", "e_sma_rstar_fit"]] = [sma_rstar, e_sma_rstar]
+    result_df.loc[toi][["sma_rstar", "e_sma_rstar"]] = [sma_rstar, e_sma_rstar]
     result_df.loc[toi][["rp_fit", "e_rp_fit"]] = [r_p, e_r_p]
 
     # Save fitted parameters
@@ -177,7 +177,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     e_param_cols = ["e_rp_rstar_fit", "e_sma_rstar_fit", "e_inclination_fit"]
     result_df.loc[toi][e_param_cols] = opt_res["std"]
 
-    # Save details of flattening
+    # Save details of flattening + fit
+    result_df.loc[toi]["rchi2"] = opt_res["rchi2"]
     result_df.loc[toi]["window_length"] = opt_res["window_length"]
     result_df.loc[toi]["niters_flat"] = opt_res["niters_flat"]
 
@@ -191,9 +192,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
           "\ni = {:0.2f} +/- {:0.5f}\n".format(
             result_df.loc[toi]["inclination_fit"], 
             result_df.loc[toi]["e_inclination_fit"]),)
-    
-    rchi2 = np.sum(opt_res["fun"]**2) / (np.sum(~(opt_res["fun"] == 0))-3)
-    print("Final rchi^2 = {:0.5f}".format(rchi2))
+
+    print("Final rchi^2 = {:0.5f}".format(opt_res["rchi2"]))
 
 # Concatenate our two dataframes
 toi_info = pd.concat((toi_info, result_df), axis=1)
