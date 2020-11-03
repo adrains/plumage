@@ -334,12 +334,10 @@ def make_table_planet_params(break_row=60,):
     break_row: int
         Which row to break table 1 at and start table 2.
     """
-    # Load in observations, TIC, and TOI info
-    observations = utils.load_fits_table("OBS_TAB", "TESS", path="spectra")
-    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)
+    # Load in TOI results
+    toi_results = utils.load_fits_table("TRANSIT_FITS", label="tess", path="spectra")
+    toi_results.sort_values("TOI", inplace=True)
 
-    lc_results = utils.load_fits_table("TRANSIT_FITS", label="tess", path="spectra")
-    
     cols = OrderedDict([
         ("TOI", ""),
         ("TIC", ""),
@@ -383,31 +381,31 @@ def make_table_planet_params(break_row=60,):
     header_2.insert(3, "\\contcaption{Planet params}")
 
     # Populate the table for every science target
-    for star_i, star in lc_results.iterrows():
+    for toi, star in toi_results.iterrows():
         table_row = ""
         
         # Step through column by column
-        table_row += "%s & " % ""#star["TOI"] TODO
-        table_row += "%s & " % star["TIC"]
+        table_row += "{:0.2f} & ".format(toi)
+        table_row += "{:0.0f} & ".format(star["TIC"])
 
         # Period
         table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
                 star["Period (days)"], star["Period error"])
 
         # a/R* (prior)
-        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(0,0)
+        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(0,0)
                 #star["sma_rstar"], star["e_sma_rstar"]) TODO
 
         # Rp/R*
-        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
                 star["rp_rstar_fit"], star["e_rp_rstar_fit"])
 
         # a/R*
-        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
                 star["sma_rstar_fit"], star["e_sma_rstar_fit"])
 
         # Inclination
-        table_row += r"{:0.1f} $\pm$ {:0.1f} &".format(
+        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
             star["inclination_fit"], star["e_inclination_fit"])
 
         # Rp (physical)
@@ -432,6 +430,84 @@ def make_table_planet_params(break_row=60,):
     
     np.savetxt("paper/table_planet_params_1.tex", table_1, fmt="%s")
     np.savetxt("paper/table_planet_params_2.tex", table_2, fmt="%s")
+
+
+def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
+    """
+    """
+    # Import literature data of confirmed planets
+    cp_cat = pd.read_csv(confirmed_planet_tab, delimiter="\t", index_col="TOI")
+    cp_cat.sort_values("TOI", inplace=True)
+
+    # Column names and associated units
+    columns = OrderedDict([("TOI", ""), 
+                           ("TIC", ""),
+                           ("Name", ""),
+                           ("$R_P/R_*$", ""),
+                           ("$a/R_*$", ""),
+                           ("i", "\degree"), 
+                           ("$R_P$", "$R_E$"), 
+                           ("Reference", ""),])
+    
+    table_rows = []
+    
+    # Construct the header of the table
+    #table_rows.append("\\begin{landscape}")
+    table_rows.append("\\begin{table*}")
+    table_rows.append("\\centering")
+    table_rows.append("\\caption{Literature planet params}")
+    table_rows.append("\\label{tab:planet_lit_params}")
+    
+    table_rows.append("\\begin{tabular}{%s}" % ("c"*len(columns)))
+    table_rows.append("\hline")
+    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.keys()))
+    table_rows.append((("%s & "*len(columns))[:-2] + r"\\") % tuple(columns.values()))
+    table_rows.append("\hline")
+    
+    ref_i = 0
+    references = []
+    
+    # Populate the table for every science target
+    for toi, planet_info in cp_cat.iterrows():
+        table_row = ""
+        
+        # Only continue if we have transit data on the planet
+        if np.isnan(planet_info["rp_rstar"]):
+            continue
+        
+        # Step through column by column
+        table_row += "{:0.2f} & ".format(toi)
+
+        table_row += "{:0.0f} & ".format(planet_info["TIC"])
+
+        table_row += "{} & ".format(planet_info["name"])
+
+        table_row += r"${:0.5f}^{{+{:0.5f}}}_{{-{:0.5f}}}$ & ".format(
+            planet_info["rp_rstar"], planet_info["e_rp_rstar_pos"], 
+            planet_info["e_rp_rstar_neg"],)
+        
+        table_row += r"${:0.2f}^{{+{:0.2f}}}_{{-{:0.2f}}}$ & ".format(
+            planet_info["a_rstar"], planet_info["e_a_rstar_pos"], 
+            planet_info["e_a_rstar_neg"],)
+
+        table_row += r"${:0.2f}^{{+{:0.2f}}}_{{-{:0.2f}}}$ & ".format(
+            planet_info["i"], planet_info["e_i_pos"], planet_info["e_i_neg"],)
+
+        table_row += r"${:0.3f}^{{+{:0.3f}}}_{{-{:0.3f}}}$ & ".format(
+            planet_info["rp"], planet_info["e_rp_pos"], 
+            planet_info["e_rp_neg"],)
+
+        table_row += "\\citet{{{}}}".format(planet_info["bib_ref"])
+        
+        table_rows.append(table_row  + r"\\")
+
+    # Finish the table
+    table_rows.append("\\hline")
+    table_rows.append("\\end{tabular}")
+    table_rows.append("\\end{table*}")
+    
+    # Write the table
+    np.savetxt("paper/table_planet_lit_params.tex", table_rows, fmt="%s")
 
 
 def make_table_ld_coeff():
