@@ -2339,14 +2339,14 @@ def plot_lightcurve_fit(lightcurve, folded_lc, flat_lc_trend, bm_params, bm_mode
         folded_lc.time < trans_dur/period/2,
         folded_lc.time > -trans_dur/period/2)
         
-    y_min = 2*(1-np.mean(folded_lc.flux[transit_mask]))
+    y_min = 2*(1-np.nanmean(folded_lc.flux[transit_mask]))
 
     std_lim = np.nanstd(folded_lc.flux)*5.5 + np.nanmean(folded_lc.flux_err)
 
     # Use whichever is lower
     y_lim = y_min if y_min > std_lim else std_lim
 
-    ax_lc_unfolded.set_ylim((1-std_lim, 1+std_lim))
+    ax_lc_unfolded.set_ylim((1-y_lim, 1+std_lim))
     ax_lc_folded_all.set_ylim((1-y_lim, 1+std_lim))
     ax_lc_folded_transit.set_ylim((1-y_lim, 1+std_lim))
 
@@ -2411,7 +2411,7 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
         # Setup lightcurve
         # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         # Convert between BJD and TESS BJD
-        t0 = toi_row["Epoch (BJD)"]
+        t0 = toi_row["Transit Epoch (BJD)"]
         
         if t0 > transit.BTJD_OFFSET:
             t0 -= transit.BTJD_OFFSET

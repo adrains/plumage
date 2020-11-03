@@ -53,9 +53,10 @@ e_radius_mult = 10
 t_min = 8/24
 
 # Plotting settings
+dt = 2
 binsize = 10
 bin_lightcurve = True
-break_tolerance = 10
+break_tolerance = dt * binsize * 18
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -92,8 +93,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         print("Skipping: No transit duration\n")
         all_fits[toi] = None
         continue
-    #elif toi != 177.01:#270.02: #406.01:#
-        #continue
+    #elif toi != 1073.01:#elif toi != 468.01:#270.02: #406.01:#
+    #    continue
     else:
         # Bin lightcurve
         if bin_lightcurve:
@@ -126,7 +127,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     try:
         opt_res = transit.fit_light_curve(
             lightcurve, 
-            toi_row["Epoch (BJD)"], 
+            toi_row["Transit Epoch (BJD)"], 
             toi_row["Period (days)"], 
             toi_row["Duration (hours)"] / 24,  # convert to days 
             toi_row[ldc_cols].values,
@@ -184,12 +185,15 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     print("Rp/R* = {:0.5f} +/- {:0.5f},".format(
             result_df.loc[toi]["rp_rstar_fit"], 
             result_df.loc[toi]["e_rp_rstar_fit"]), 
-          "\na = {:0.2f} +/- {:0.2f},".format(
+          "\na = {:0.2f} +/- {:0.5f},".format(
             result_df.loc[toi]["sma_rstar_fit"], 
             result_df.loc[toi]["e_sma_rstar_fit"]), 
-          "\ni = {:0.2f} +/- {:0.2f}\n".format(
+          "\ni = {:0.2f} +/- {:0.5f}\n".format(
             result_df.loc[toi]["inclination_fit"], 
             result_df.loc[toi]["e_inclination_fit"]),)
+    
+    rchi2 = np.sum(opt_res["fun"]**2) / (np.sum(~(opt_res["fun"] == 0))-3)
+    print("Final rchi^2 = {:0.5f}".format(rchi2))
 
 # Concatenate our two dataframes
 toi_info = pd.concat((toi_info, result_df), axis=1)

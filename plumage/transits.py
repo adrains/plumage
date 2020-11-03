@@ -284,17 +284,22 @@ def compute_lc_resid(
         Vector of uncertainty weighted residuals, set to zero outside the 
         region set by trans_dur and n_trans_dur.
     """
+    # Extract params
+    rp_rstar_guess = params[0]
+    sma_rstar_guess = params[1]
+    inclination_guess = np.arcsin(params[2])*180/np.pi
+
     # Initialise transit model. Note that since we've already phase folded the
     # light curve, t0 is at 0, and the period is 1. We're also assuming a 
     # circular orbit, so e=0, and omega=0 (but is irrelevant)
     bm_params, bm_model, bm_lightcurve = initialise_bm_model(
         t0=0, 
         period=1, 
-        rp_rstar=params[0], 
-        sma_rstar=params[1], 
-        inclination=params[2], 
+        rp_rstar=rp_rstar_guess, 
+        sma_rstar=sma_rstar_guess, 
+        inclination=inclination_guess, 
         ecc=0, 
-        omega=0, 
+        omega=90, 
         ld_model=ld_model, 
         ld_coeff=ld_coeff, 
         time=folded_lc.time,)
@@ -309,7 +314,7 @@ def compute_lc_resid(
     flux[bad_flux_mask] = 1
 
     # Calculate scaled residuals
-    resid = (folded_lc.flux - bm_lightcurve) / folded_lc.flux_err
+    resid = (flux - bm_lightcurve) / e_flux
 
     # Only consider the transit duration itself. Need to convert the transit 
     # duration to units of phase
@@ -322,12 +327,14 @@ def compute_lc_resid(
     resid[~mask] = 0
 
     # Add our prior on the SMA to the residual vector
-    resid += [(sma_rstar - params[1]) / e_sma_rstar]
+    sma_resid = [(sma_rstar - sma_rstar_guess) / e_sma_rstar]
+    resid = np.concatenate((resid, sma_resid))
 
     # Print updates
     if verbose:
         print("Rp/R* = {:0.5f}, a = {:0.05f} [{:0.5f}+/-{:0.5f}], i = {:0.05f}".format(
-            params[0], params[1], sma_rstar, e_sma_rstar, params[2]), end="")
+            rp_rstar_guess, sma_rstar_guess, sma_rstar, e_sma_rstar, 
+            inclination_guess), end="")
         
         rchi2 = np.sum(resid**2) / (np.sum(mask)-len(params))
         print("\t--> rchi^2 = {:0.5f}".format(rchi2))
@@ -414,17 +421,29 @@ def fit_light_curve(
     # Phase fold the light curve
     folded_lc = clean_lc.fold(period=period, t0=t0)
 
+    # Have an initial guess at Rp/R_*
+    transit_mask = np.logical_and(
+        folded_lc.time < trans_dur/period/8,
+        folded_lc.time > -trans_dur/period/8)
+        
+    depth = 1-np.nanmean(folded_lc.flux[transit_mask])
+
+    if depth < 0:
+        rp_r_star_init = 0.01
+    else:
+        rp_r_star_init = np.sqrt(depth)
+
     # Initialise transit params. Ftting for: [rp, semi-major axis, inclination]
     # and assuming a circular orbit, so eccentricity=1, & longitude periastron
     # isn't relevant
-    init_params = np.array([0.05, sma_rstar, 90,])
-    bounds = ((0, 0, 60,), (1, 10000, 120,))
+    init_params = np.array([rp_r_star_init, sma_rstar, 1E0,])
+    bounds = ((0.001, 0.001, 0,), (1, 10000, 1,))
 
     args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur, sma_rstar,
             e_sma_rstar, verbose, n_trans_dur,)
 
     #scale = (1, 1, 1)
-    step = (0.1, 0.1, 0.1)
+    step = (0.05, 0.1, 0.000001)
 
     # Do fit
     opt_res = least_squares(
@@ -441,12 +460,13 @@ def fit_light_curve(
     jac = opt_res["jac"]
     res = opt_res["fun"]
     
-    # If jacobian is entire 0, something went wrong entire with the fit. Set 
-    # statistical uncertainties to nan
-    if np.sum(jac) == 0:
+    # If jacobian is entirely 0, or if anything other than the inclination 
+    # column is zero, assume singular, something went wrong entire with the 
+    # fit. Set statistical uncertainties to nan
+    if np.sum(jac) == 0 or np.sum(jac[:,0]) == 0 or np.sum(jac[:,1]) == 0:
         print("\nWarning, singular matrix!")
         std = np.full(3, np.nan)
-    
+
     # If just the inclination axis of the jacobian is 0, then ignore this when
     # computing uncertainties and set nan
     elif np.sum(jac[:,2]) == 0:
@@ -458,6 +478,20 @@ def fit_light_curve(
     else:
         cov = np.linalg.inv(jac.T.dot(jac))
         std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+
+    #import pdb
+    #pdb.set_trace()
+
+    # Convert back to angle
+    sin_inc = opt_res["x"][2]
+    inc_deg = np.arcsin(sin_inc)*180/np.pi
+
+    # Uncertainty is d(sin(i))/d(i) * sigma sin(i)
+    # where d(sin(i))/d(i) = 1 / sqrt(1-x**2)
+    e_inc_deg = std[2] / np.sqrt(1-sin_inc**2)
+
+    opt_res["x"][2] = inc_deg
+    std[2] = e_inc_deg
 
     # Generate and save batman model at optimal params
     bm_params, bm_model, bm_lightcurve = initialise_bm_model(
@@ -551,10 +585,13 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
             mask,
             make_transit_mask_single_period(
                 light_curve,
-                toi_row["Epoch (BJD)"]-BTJD_OFFSET,
+                toi_row["Transit Epoch (BJD)"]-BTJD_OFFSET,
                 toi_row["Period (days)"],
                 toi_row["Duration (hours)"]/24,)
         )
+
+        if np.sum(mask) == 0:
+            raise Exception("Mask is entirely zero")
     
     return mask
 
