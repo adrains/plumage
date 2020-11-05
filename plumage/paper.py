@@ -393,8 +393,8 @@ def make_table_planet_params(break_row=60,):
                 star["Period (days)"], star["Period error"])
 
         # a/R* (prior)
-        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(0,0)
-                #star["sma_rstar"], star["e_sma_rstar"]) TODO
+        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
+                star["sma_rstar"], star["e_sma_rstar"])
 
         # Rp/R*
         table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(

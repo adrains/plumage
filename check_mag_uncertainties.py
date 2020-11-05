@@ -13,11 +13,11 @@ import astropy.convolution as conv
 spec_path = "spectra"
 
 # Import
-spec_std_b, spec_std_r, obs_std = utils.load_fits("std", path=spec_path)
+spec_std_b, spec_std_r, obs_std = utils.load_fits("std_fluxed", path=spec_path)
 #synth_std_b = utils.load_fits_image_hdu("synth", "std", arm="b")
 #synth_std_r = utils.load_fits_image_hdu("synth", "std", arm="r")
-synth_std_lit_b = utils.load_fits_image_hdu("synth_lit", "std", arm="b")
-synth_std_lit_r = utils.load_fits_image_hdu("synth_lit", "std", arm="r")
+synth_std_lit_b = utils.load_fits_image_hdu("synth_lit", "std_fluxed", arm="b")
+synth_std_lit_r = utils.load_fits_image_hdu("synth_lit", "std_fluxed", arm="r")
 
 # Mask to only those with literature synthetic spectra
 mask = ~np.isnan(np.sum(synth_std_lit_b, axis=1))
@@ -125,7 +125,7 @@ for star_i in range(len(obs_std)):
     # -------------------------------------------------------------------------
     # Normalise red by median
     wl_r = spec_std_r[star_i,0]
-    med_mask = wl_r > 6000
+    med_mask = wl_r > 6200
     spec_r = spec_std_r[star_i,1] / np.nanmedian(spec_std_r[star_i,1][med_mask])
     ref_r = synth_std_lit_r[star_i] / np.nanmedian(synth_std_lit_r[star_i][med_mask])
 
@@ -236,5 +236,20 @@ for star_i in range(len(obs_std)):
     plt.tight_layout()
     plt.savefig("plots/mag_check/{}_{}.pdf".format(teff, obs_std.iloc[star_i]["id"]))
 
-flux_pcs_all = np.stack(flux_pcs_all)
+# Merge
 pplt.merge_spectra_pdfs("plots/mag_check/*.pdf", "plots/integration.pdf")
+
+# Dump integrations
+flux_pcs_all = np.stack(flux_pcs_all)
+mag_diffs_all = np.stack(mag_diffs_all)
+
+bp_rps = np.asarray(bp_rps)
+
+sorted_i = np.argsort(bp_rps)
+df = pd.DataFrame(
+    data=mag_diffs_all[sorted_i], 
+    columns=filters, 
+    index=bp_rps[sorted_i]) 
+df.index.rename("Bp-Rp", inplace=True)
+
+df.to_csv("data/mag_offset_results.csv")

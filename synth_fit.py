@@ -22,7 +22,8 @@ from collections import OrderedDict
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std"
+label = "std_fluxed"
+cat_label = "std"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -44,16 +45,16 @@ include_photometry = True
 
 filter_defs = np.array([
     # [filt, use, error, mag_col, e_mag_col],
-    ["Bp", True, 1.04, "Bp_mag_offset", "e_Bp_mag"],
+    ["Bp", True, 1.05, "Bp_mag_offset", "e_Bp_mag"],
     ["Rp", True, 1.02, "Rp_mag", "e_Rp_mag"],
     ["J", True, 1.0, "J_mag", "e_J_mag"],
     ["H", True, 1.0, "H_mag", "e_H_mag"],
     ["K", True, 1.0, "K_mag", "e_K_mag"],
     ["v", False, 2.0, "v_psf", "e_v_psf"],
-    ["g", False, 1.2, "g_psf", "e_g_psf"],
-    ["r", True, 1.02 , "r_psf", "e_r_psf"],
-    ["i", True, 1.02, "i_psf", "e_i_psf"],
-    ["z", True, 1.02, "z_psf", "e_z_psf"],
+    ["g", False, 1.1, "g_psf_offset", "e_g_psf"],
+    ["r", True, 1.02 , "r_psf_offset", "e_r_psf"],
+    ["i", True, 1.01, "i_psf", "e_i_psf"],
+    ["z", True, 1.01, "z_psf", "e_z_psf"],
 ], dtype=object)
 
 # Mask out unused filters
@@ -69,7 +70,7 @@ e_phot_band_cols = filter_defs[:,4].astype(str)
 phot_scale_fac = 1
 
 # Literature information (including photometry)
-info_cat_path = "data/{}_info.tsv".format(label)
+info_cat_path = "data/{}_info.tsv".format(cat_label)
 info_cat = utils.load_info_cat(info_cat_path, in_paper=True, only_observed=True)
 
 skymapper_phot = pd.read_csv( 
@@ -109,7 +110,7 @@ band_settings_r = {
 fit_for_params = OrderedDict([
     ("teff",True),
     ("logg",False),
-    ("feh",True),
+    ("feh",False),
     ("Mbol",True),])
 
 #fit_for_params = [False, False, True]   #[teff, logg, feh]
@@ -129,23 +130,38 @@ mask_sodium_wings = False
 low_cutoff = None
 high_cutoff = None
 
-do_polynomial_spectra_norm = True
+# Whether to do 'internally consistent normalisation' with quadratic
+do_polynomial_spectra_norm = False
 
-def calc_bp_offset(bp_rp,):
+# Offsetting observed photometry to synthetic equivalents
+def calc_filt_offset(filter, bp_rp,):
+    """Filter offset for MARCS models parameterised as a function of observed 
+    Bp-Rp colour.
     """
-    """
-    bp_offset = np.zeros_like(bp_rp)
+    # Calculate offset
+    if filter == "g":
+        filt_offset = 0.116 * bp_rp - 0.072
 
-    bp_offset[bp_rp > 3] = 2.5*np.log10(3**-1 * bp_rp[bp_rp > 3] + 0.05)
+    if filter == "BP":
+        filt_offset = 0.084 * bp_rp - 0.069
+    
+    elif filter == "r":
+        filt_offset = 0.034 * bp_rp - 0.037
 
-    mask = np.logical_and(bp_rp > 2, bp_rp <= 3)
+    else:
+        filt_offset = np.zeros_like(bp_rp)
+    
+    # Set all negative offsets to zero
+    neg_mask = filt_offset < 0
+    filt_offset[neg_mask] = 0
 
-    bp_offset[mask] = 2.5*np.log10(0.05 * bp_rp[mask] + 0.9)
+    return filt_offset
 
-    return bp_offset
-
-# Offset Bp to synthetic equivalent
-info_cat["Bp_mag_offset"] = info_cat["Bp_mag"] - calc_bp_offset(info_cat["Bp-Rp"])
+# Offset g, r, and Bp to synthetic equivalents
+bp_rp = info_cat["Bp-Rp"]
+info_cat["g_psf_offset"] = info_cat["g_psf"] - calc_filt_offset("g", bp_rp)
+info_cat["r_psf_offset"] = info_cat["r_psf"] - calc_filt_offset("r", bp_rp)
+info_cat["Bp_mag_offset"] = info_cat["Bp_mag"] - calc_filt_offset("BP", bp_rp)
 
 # -----------------------------------------------------------------------------
 # Do fitting
