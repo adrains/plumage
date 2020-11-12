@@ -295,11 +295,14 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     header_2.insert(3, "\\contcaption{Observing log}")
     
     # Populate the table for every science target
-    for star_i, star in comb_info.iterrows():
+    for source_id, star in comb_info.iterrows():
         table_row = ""
         
         # Step through column by column
-        table_row += "%s & " % star[id_col]
+        if label == "tess":
+           table_row += "%s & " % star[id_col]
+        else: 
+            table_row += "%s & " % source_id
         table_row += "%s & " % star["date"].split("T")[0][2:]
         table_row += "%0.1f & " % star["airmass"]
         table_row += "%0.0f & " % star["exp_time"]

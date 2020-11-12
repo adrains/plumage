@@ -825,8 +825,14 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
 # -----------------------------------------------------------------------------
 # Loading in literature info (e.g. photometry)
 # ----------------------------------------------------------------------------- 
-def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False, 
-                  only_observed=False, use_plx_systematic=True, in_paper=True):
+def load_info_cat(
+    path="data/tess_info.tsv", 
+    clean=True, 
+    remove_fp=False, 
+    only_observed=False, 
+    use_plx_systematic=True, 
+    in_paper=True,
+    allow_alt_plx=False,):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -886,6 +892,12 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Distance, absolute magnitudes, and colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if allow_alt_plx:
+        for source_id, row in info_cat.iterrows():
+            if type(source_id) == str and ~np.isnan(info_cat.loc[source_id]["plx_alt"]):
+                info_cat.at[source_id, "plx"] = info_cat.loc[source_id]["plx_alt"]
+                info_cat.at[source_id, "e_plx"] = info_cat.loc[source_id]["e_plx_alt"]
+
     # Stassun & Torres systematic offsets
     if use_plx_systematic:
         plx_off = -0.082    # mas
@@ -907,6 +919,10 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
     info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
 
+    info_cat["e_K_mag_abs"] = np.sqrt(
+        info_cat["e_K_mag"]**2
+        + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
+
     # Compute additional colours
     info_cat["Rp-J"] = info_cat["Rp_mag"] - info_cat["J_mag"]
     info_cat["J-H"] = info_cat["J_mag"] - info_cat["H_mag"]
@@ -914,6 +930,10 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
 
     info_cat["G-K"] = info_cat["G_mag"] - info_cat["K_mag"]
     info_cat["J-K"] = info_cat["J_mag"] - info_cat["K_mag"]
+
+    # Wide
+    info_cat["Bp-K"] = info_cat["Bp_mag"] - info_cat["K_mag"]
+    info_cat["Rp-K"] = info_cat["Rp_mag"] - info_cat["K_mag"]
 
     # Compute colour uncertainties (assuming no cross-correlation)
     info_cat["e_Bp-Rp"] = np.sqrt(info_cat["e_Bp_mag"]**2
@@ -923,6 +943,12 @@ def load_info_cat(path="data/tess_info.tsv", clean=True, remove_fp=False,
     info_cat["e_J-H"] = np.sqrt(info_cat["e_J_mag"]**2 
                                  + info_cat["e_H_mag"]**2)
     info_cat["e_H-K"] = np.sqrt(info_cat["e_H_mag"]**2
+                                 + info_cat["e_K_mag"]**2)
+
+    info_cat["e_Bp-K"] = np.sqrt(info_cat["e_Bp_mag"]**2
+                                 + info_cat["e_K_mag"]**2)
+
+    info_cat["e_Rp-K"] = np.sqrt(info_cat["e_Rp_mag"]**2
                                  + info_cat["e_K_mag"]**2)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
