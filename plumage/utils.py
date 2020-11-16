@@ -931,7 +931,7 @@ def load_info_cat(
     info_cat["G-K"] = info_cat["G_mag"] - info_cat["K_mag"]
     info_cat["J-K"] = info_cat["J_mag"] - info_cat["K_mag"]
 
-    # Wide
+    # Widest colour lever
     info_cat["Bp-K"] = info_cat["Bp_mag"] - info_cat["K_mag"]
     info_cat["Rp-K"] = info_cat["Rp_mag"] - info_cat["K_mag"]
 
@@ -949,6 +949,9 @@ def load_info_cat(
                                  + info_cat["e_K_mag"]**2)
 
     info_cat["e_Rp-K"] = np.sqrt(info_cat["e_Rp_mag"]**2
+                                 + info_cat["e_K_mag"]**2)
+    
+    info_cat["e_G-K"] = np.sqrt(info_cat["e_G_mag"]**2
                                  + info_cat["e_K_mag"]**2)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
