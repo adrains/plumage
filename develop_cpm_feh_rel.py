@@ -6,14 +6,60 @@ import matplotlib.pyplot as plt
 import plumage.utils as utils
 from scipy.optimize import least_squares
 
+# -----------------------------------------------------------------------------
+# Options
+# -----------------------------------------------------------------------------
+# Import settings
+apply_ruwe_cut = True
+use_only_aaa_2mass = True
+rule_out_gaia_dups = True
+
+# Which colour relation to use
+c_rel = "Bp-K"
+e_c_rel = "e_{}".format(c_rel)
+c_label = "B_P-K_S"
+
+# Whether to use only Mann+15 for the main sequence fit, or both M15 and CPM
+only_use_m15_ms = True
+
+# Polynnomial order when fitting main sequence
+main_seq_poly_deg = 3
+
+# Whether the offset from the MS is M_Ks per JA09, or offset per SL10
+use_bp_k_offset = True
+
+# Whether to do the [Fe/H] fit with just the CPM sample, or just the M15 sample
+fit_feh_with_cpm = True
+
+# Or both samples
+fit_feh_with_both = False
+
+# Polynomial order of the fitted offset function
+offset_poly_order = 1
+
+# Whether to apply an additional linear correction to the residuals
+apply_correction = True
+
+# -----------------------------------------------------------------------------
+# Import and setup
+# -----------------------------------------------------------------------------
 # Import CPM info
 cpm_info = utils.load_info_cat("data/cpm_info.tsv", clean=False, allow_alt_plx=True) 
 
 # Only keep reliable pairs
 cpm_info = cpm_info[cpm_info["included"] == "yes"]
 
+if use_only_aaa_2mass:
+    cpm_info = cpm_info[cpm_info["Qflg"] == "AAA"]
+
+if rule_out_gaia_dups:
+    cpm_info = cpm_info[cpm_info["dup"] == 0]
+
+if apply_ruwe_cut:
+    cpm_info = cpm_info[cpm_info["ruwe"] < 1.4]
+
 # Exclude those with parallaxes from the primary
-cpm_info = cpm_info[np.isnan(cpm_info["plx_alt"])]
+#cpm_info = cpm_info[np.isnan(cpm_info["plx_alt"])]
 
 # Only keep stars with 1.5 < Bp-Rp < 3.5
 bp_rp_mask = np.logical_and(cpm_info["Bp-Rp"] > 1.5, cpm_info["Bp-Rp"] < 3.5)
@@ -62,6 +108,11 @@ for source_id, cpm_row in cpm_info.iterrows():
         feh_corr = cpm_row["feh_prim_n14"] + feh_offsets["VF05"]
         e_feh_corr = cpm_row["e_feh_prim_n14"]
     
+    # Then check other entries
+    elif cpm_row["feh_prim_ref_other"] == "Ra07":
+        feh_corr = cpm_row["feh_prim_other"] + feh_offsets["Ra07"]
+        e_feh_corr = cpm_row["e_feh_prim_other"]
+
     # Don't know systematics, ignore
     else:
         feh_corr = np.nan
@@ -78,35 +129,6 @@ cpm_info["e_feh_corr"] = e_feh_corr_all
 
 # Now mask out stars which we've excluded
 cpm_info_feh_corr = cpm_info[~np.isnan(feh_corr_all)]
-
-# -----------------------------------------------------------------------------
-# Options
-# -----------------------------------------------------------------------------
-# Which colour relation to use
-c_rel = "Bp-K"
-e_c_rel = "e_{}".format(c_rel)
-c_label = "B_P-K_S"
-
-# Whether to use only Mann+15 for the main sequence fit, or both M15 and CPM
-only_use_m15_ms = True
-
-# Polynnomial order when fitting main sequence
-main_seq_poly_deg = 3
-
-# Whether the offset from the MS is M_Ks per JA09, or offset per SL10
-use_bp_k_offset = True
-
-# Whether to do the [Fe/H] fit with just the CPM sample, or just the M15 sample
-fit_feh_with_cpm = True
-
-# Or both samples
-fit_feh_with_both = False
-
-# Polynomial order of the fitted offset function
-offset_poly_order = 1
-
-# Whether to apply an additional linear correction to the residuals
-apply_correction = True
 
 # -----------------------------------------------------------------------------
 # Fit polynomial to mean MS
@@ -276,6 +298,12 @@ resid_m15_coeff = np.polynomial.polynomial.polyfit(
     deg=1,
     w=1/m15_data["e_[Fe/H]"],)
 
+# Calculate trend in residuals, update coefficients
+params_corr = [params[0]*(1+resid_cpm_coeff[1]) + resid_cpm_coeff[0],
+                   params[1] * (1+resid_cpm_coeff[1])]
+
+feh_poly_corr = np.polynomial.polynomial.Polynomial(params_corr)
+
 # Correct for trend in residuals
 if apply_correction:
     feh_pred_cpm = feh_pred_cpm + (resid_cpm_coeff[1]*feh_pred_cpm + resid_cpm_coeff[0])
@@ -283,7 +311,9 @@ if apply_correction:
 
     # Recalculate residuals
     feh_cpm_resid = cpm_info_feh_corr["feh_corr"] - feh_pred_cpm
+    cpm_info_feh_corr["feh_resid"] = feh_cpm_resid
     feh_m15_resid = m15_data["[Fe/H]"] - feh_pred_m15
+    m15_data["feh_resid"] = feh_m15_resid
 
     # Recalculate resid fit
     resid_cpm_coeff = np.polynomial.polynomial.polyfit(
@@ -351,7 +381,7 @@ cpm_ax.errorbar(
 cb = fig.colorbar(sc, ax=cpm_ax)
 cb.set_label(r"[Fe/H]")
 cpm_ax.set_title("CPM Sample")
-cpm_ax.set_xlabel(r"${}$".format(c_label))
+cpm_ax.set_xlabel(r"$({})$".format(c_label))
 cpm_ax.set_ylabel(r"$M_{K_S}$")
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -373,7 +403,7 @@ m15_ax.errorbar(
 cb = fig.colorbar(sc, ax=m15_ax)
 cb.set_label(r"[Fe/H]")
 m15_ax.set_title("Mann+15")
-m15_ax.set_xlabel(r"${}$".format(c_label))
+m15_ax.set_xlabel(r"$({})$".format(c_label))
 #m15_ax.set_ylabel(r"$M_{K_S}$")
 
 # Ensure axes have same limits
@@ -402,30 +432,39 @@ else:
 # Bp-Ks fit
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if not use_bp_k_offset:
-    delta_m_ks = cpm_info_feh_corr["K_mag_abs"] - main_seq(cpm_info_feh_corr[c_rel])
-    offset_fit_ax.errorbar(
-        delta_m_ks,
-        cpm_info_feh_corr["feh_corr"], 
-        yerr=cpm_info_feh_corr["e_feh_corr"],
-        fmt=".") 
-    offset = np.arange(delta_m_ks.min(), delta_m_ks.max(), 0.01)
-    offset_fit_ax.plot(offset, feh_poly(offset), "r--")
+    offset = cpm_info_feh_corr["K_mag_abs"] - main_seq(cpm_info_feh_corr[c_rel])
 
     offset_fit_ax.set_xlabel(r"$\Delta M_{K_S}$")
 
 if use_bp_k_offset:
-    delta_bp_k = cpm_info_feh_corr[c_rel] - main_seq(cpm_info_feh_corr["K_mag_abs"])
-    offset_fit_ax.errorbar(
-        delta_bp_k,
-        cpm_info_feh_corr["feh_corr"],
-        yerr=cpm_info_feh_corr["e_feh_corr"],
-        fmt=".") 
-    offset = np.arange(delta_bp_k.min(), delta_bp_k.max(), 0.01)
-    offset_fit_ax.plot(offset, feh_poly(offset), "r--")
+    offset = cpm_info_feh_corr[c_rel] - main_seq(cpm_info_feh_corr["K_mag_abs"])
+    
+    offset_fit_ax.set_xlabel(r"$\Delta ({})$".format(c_label))
 
-    offset_fit_ax.set_xlabel(r"$\Delta {}$".format(c_label))
+sc = offset_fit_ax.scatter(
+    offset,
+    cpm_info_feh_corr["feh_corr"],
+    c=cpm_info_feh_corr["Bp-Rp"],
+    cmap="plasma",
+    zorder=2,
+    label=None,)
+    
+offset_fit_ax.errorbar(
+    offset,
+    cpm_info_feh_corr["feh_corr"],
+    yerr=cpm_info_feh_corr["e_feh_corr"],
+    fmt=".",
+    zorder=1,
+    label=None,) 
 
+# Plot fits
+xx = np.arange(offset.min(), offset.max(), 0.01)
+offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="LS fit")
+offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="green", label="LS fit (corr)")
+cb = fig.colorbar(sc, ax=offset_fit_ax)
+cb.set_label(r"$(B_P-R_P)$")
 offset_fit_ax.set_ylabel("[Fe/H]")
+offset_fit_ax.legend(fontsize="small")
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # CPM comp
@@ -445,10 +484,10 @@ cpm_feh_ax.errorbar(
     fmt=".",
     zorder=1,)
 
-xx = np.arange(-1,0.5,0.1)
+xx = np.arange(-1.5,0.5,0.01)
 cpm_feh_ax.plot(xx,xx,"k--")
 cb = fig.colorbar(sc, ax=cpm_feh_ax)
-cb.set_label(r"$B_P-R_P$")
+cb.set_label(r"$(B_P-R_P)$")
 #cpm_feh_ax.set_xlabel("[Fe/H] (CPM)")
 cpm_feh_ax.set_ylabel("[Fe/H] (fit)")
 
@@ -475,13 +514,13 @@ cpm_resid_ax.errorbar(
     zorder=1,)
 
 # Plot resid trend
-fehs = np.arange(-1, 0.5, 0.01)
+fehs = np.arange(-1.5, 0.5, 0.01)
 cpm_resid_poly = np.polynomial.polynomial.Polynomial(resid_cpm_coeff)
 cpm_resid_ax.plot(fehs, cpm_resid_poly(fehs), "r--")
 
 cpm_resid_ax.hlines(0, -1, 0.5, colors="k", linestyles="--")
 cb = fig.colorbar(sc, ax=cpm_resid_ax)
-cb.set_label(r"$B_P-R_P$")
+cb.set_label(r"$(B_P-R_P)$")
 cpm_resid_ax.set_xlabel("[Fe/H] (CPM)")
 cpm_resid_ax.set_ylabel("[Fe/H] Resid")
 
@@ -504,14 +543,14 @@ m15_feh_ax.errorbar(
     zorder=1,)
 
 # Plot resid trend
-fehs = np.arange(-1, 0.5, 0.01)
+fehs = np.arange(-1.5, 0.5, 0.01)
 m15_resid_poly = np.polynomial.polynomial.Polynomial(resid_m15_coeff)
 m15_resid_ax.plot(fehs, m15_resid_poly(fehs), "r--")
 
-xx = np.arange(-1,0.5,0.1)
+xx = np.arange(-1.5,0.5,0.01)
 m15_feh_ax.plot(xx, xx, "k--")
 cb = fig.colorbar(sc, ax=m15_feh_ax)
-cb.set_label(r"$B_P-R_P$")
+cb.set_label(r"$(B_P-R_P)$")
 #m15_feh_ax.set_xlabel("[Fe/H] (Mann+15)")
 m15_feh_ax.set_ylabel("[Fe/H] (fit)")
 
@@ -539,7 +578,7 @@ m15_resid_ax.errorbar(
 
 m15_resid_ax.hlines(0, -1, 0.5, colors="k", linestyles="--")
 cb = fig.colorbar(sc, ax=m15_resid_ax)
-cb.set_label(r"$B_P-R_P$")
+cb.set_label(r"$(B_P-R_P)$")
 m15_resid_ax.set_xlabel("[Fe/H] (Mann+15)")
 m15_resid_ax.set_ylabel("[Fe/H] Resid")
 
