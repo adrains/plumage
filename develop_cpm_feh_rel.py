@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plumage.utils as utils
 from scipy.optimize import least_squares
+import matplotlib.ticker as plticker
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # -----------------------------------------------------------------------------
 # Options
@@ -39,6 +41,9 @@ offset_poly_order = 1
 
 # Whether to apply an additional linear correction to the residuals
 apply_correction = True
+
+# Whether to plot remaining residual trend
+plot_resid_trend = False
 
 # -----------------------------------------------------------------------------
 # Import and setup
@@ -339,15 +344,17 @@ feh_offset_m15_std = np.std(feh_m15_resid)
 # Plotting
 # -----------------------------------------------------------------------------
 plt.close("all")
-fig, ax = plt.subplots(3,3)
+fig, (cpm_ax, offset_fit_ax, cpm_feh_ax,) = plt.subplots(1,3)
+fig2, (m15_ax, m15_feh_ax, m15_resid_ax) = plt.subplots(3,1)
 
 # Assign axis names
-(cpm_ax, m15_ax, offset_fit_ax, 
-cpm_feh_ax, m15_feh_ax, empty_ax_1, 
-cpm_resid_ax, m15_resid_ax, empty_ax_2) = ax.flatten()
+#(cpm_ax, m15_ax, offset_fit_ax, 
+#cpm_feh_ax, m15_feh_ax, empty_ax_1, 
+#cpm_resid_ax, m15_resid_ax, empty_ax_2) = ax.flatten()
+#(cpm_ax, offset_fit_ax, cpm_feh_ax,) = ax.flatten()
 
-empty_ax_1.set_visible(False)
-empty_ax_2.set_visible(False)
+#empty_ax_1.set_visible(False)
+#empty_ax_2.set_visible(False)
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # CPM Scatter
@@ -380,9 +387,11 @@ cpm_ax.errorbar(
 
 cb = fig.colorbar(sc, ax=cpm_ax)
 cb.set_label(r"[Fe/H]")
-cpm_ax.set_title("CPM Sample")
+#cpm_ax.set_title("CPM Sample")
 cpm_ax.set_xlabel(r"$({})$".format(c_label))
 cpm_ax.set_ylabel(r"$M_{K_S}$")
+
+cpm_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # Mann+15 Scatter
@@ -460,11 +469,13 @@ offset_fit_ax.errorbar(
 # Plot fits
 xx = np.arange(offset.min(), offset.max(), 0.01)
 offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="LS fit")
-offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="green", label="LS fit (corr)")
+offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", label="LS fit (corr)")
 cb = fig.colorbar(sc, ax=offset_fit_ax)
 cb.set_label(r"$(B_P-R_P)$")
 offset_fit_ax.set_ylabel("[Fe/H]")
 offset_fit_ax.legend(fontsize="small")
+
+offset_fit_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # CPM comp
@@ -492,12 +503,16 @@ cb.set_label(r"$(B_P-R_P)$")
 cpm_feh_ax.set_ylabel("[Fe/H] (fit)")
 
 cpm_feh_ax.text(
-    x=-0.25, 
-    y=-1.0, 
+    x=-0.6, 
+    y=0.9, 
     s=r"$\Delta[Fe/H]={:0.2f}\pm {:0.2f}$".format(feh_offset_cpm_mean, feh_offset_cpm_std),
-    horizontalalignment="center")
+    horizontalalignment="center",
+    fontsize="small")
 
-# Resid
+# Residuals
+divider = make_axes_locatable(cpm_feh_ax)
+cpm_resid_ax = divider.append_axes("bottom", size="30%", pad=0)
+cpm_feh_ax.figure.add_axes(cpm_resid_ax, sharex=cpm_feh_ax)
 sc = cpm_resid_ax.scatter(
     cpm_info_feh_corr["feh_corr"],
     feh_cpm_resid,
@@ -514,15 +529,21 @@ cpm_resid_ax.errorbar(
     zorder=1,)
 
 # Plot resid trend
-fehs = np.arange(-1.5, 0.5, 0.01)
-cpm_resid_poly = np.polynomial.polynomial.Polynomial(resid_cpm_coeff)
-cpm_resid_ax.plot(fehs, cpm_resid_poly(fehs), "r--")
+if plot_resid_trend:
+    fehs = np.arange(-1.5, 0.5, 0.01)
+    cpm_resid_poly = np.polynomial.polynomial.Polynomial(resid_cpm_coeff)
+    cpm_resid_ax.plot(fehs, cpm_resid_poly(fehs), "r--")
 
-cpm_resid_ax.hlines(0, -1, 0.5, colors="k", linestyles="--")
-cb = fig.colorbar(sc, ax=cpm_resid_ax)
-cb.set_label(r"$(B_P-R_P)$")
-cpm_resid_ax.set_xlabel("[Fe/H] (CPM)")
+cpm_resid_ax.hlines(0, -1.5, 0.5, colors="k", linestyles="--")
+#cb = fig.colorbar(sc, ax=cpm_resid_ax)
+#cb.set_label(r"$(B_P-R_P)$")
+cpm_resid_ax.set_xlabel("[Fe/H] (Primary)")
 cpm_resid_ax.set_ylabel("[Fe/H] Resid")
+
+cpm_feh_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_feh_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # Mann+15 comp
@@ -582,7 +603,8 @@ cb.set_label(r"$(B_P-R_P)$")
 m15_resid_ax.set_xlabel("[Fe/H] (Mann+15)")
 m15_resid_ax.set_ylabel("[Fe/H] Resid")
 
-
 # Wrap up
-plt.gcf().set_size_inches(12, 8)
-plt.tight_layout() 
+fig.set_size_inches(9, 2.5)
+fig.tight_layout() 
+fig.savefig("paper/phot_feh_rel.pdf")
+fig.savefig("paper/phot_feh_rel.png")

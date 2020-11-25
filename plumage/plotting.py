@@ -2516,25 +2516,14 @@ def get_gaia_rv(uid, std_params):
     return rv, e_rv
 
 
-def plot_std_rv_comparison(observations, std_params):
+def plot_rv_comparison():
     """
     """
-    rvs_gaia = []
-    e_rvs_gaia = []
-    markers = []
+    # Import catalogues
+    catalogue = spec.compare_to_gaia_rvs(["tess", "std"]) 
 
-    for star_i in range(0, len(observations)):
-        rv, e_rv = get_gaia_rv(observations.iloc[star_i]["uid"], std_params)
-        rvs_gaia.append(rv)
-        e_rvs_gaia.append(e_rv)
-
-    rvs_gaia = np.array(rvs_gaia)
-    e_rvs_gaia = np.array(e_rvs_gaia)
-
-    e_rvs = np.sqrt(observations["e_rv"].values**2 + 
-                    (3*np.ones(len(observations)))**2)
-
-    #e_rvs = observations["e_rv"].values
+    is_tess_mask = ~np.isnan(catalogue["TIC"])
+    
     plt.close("all")
     fig, axis = plt.subplots(sharex=True)
 
@@ -2543,37 +2532,72 @@ def plot_std_rv_comparison(observations, std_params):
     divider = make_axes_locatable(axis)
     res_ax = divider.append_axes("bottom", size="30%", pad=0)
     axis.figure.add_axes(res_ax, sharex=axis)
-    xx = np.arange(-200,100) 
-    axis.plot(xx, xx, color="black") 
+    
+    xx = np.arange(catalogue["rv_info"].min(),catalogue["rv_info"].max()) 
+    axis.plot(xx, xx, "k--") 
     plt.setp(axis.get_xticklabels(), visible=False)
     
-    axis.errorbar(rvs_gaia, observations["rv"].values, yerr=e_rvs, 
-                 xerr=e_rvs_gaia, fmt=".", zorder=0)
-    scatter = axis.scatter(rvs_gaia, observations["rv"].values, 
-                           c=observations["teff_fit_rv"], marker="o", 
-                           cmap="magma", zorder=1)
+    plt.hlines(0, catalogue["rv_info"].min(),catalogue["rv_info"].max(), linestyles="--")
 
-    cb = fig.colorbar(scatter, ax=axis)
-    cb.set_label(r"$T_{\rm eff}$")
+    # Plot TESS
+    axis.errorbar(
+        x=catalogue[is_tess_mask]["rv_info"], 
+        y=catalogue[is_tess_mask]["rv"], 
+        xerr=catalogue[is_tess_mask]["e_rv_info"], 
+        yerr=catalogue[is_tess_mask]["e_rv"], 
+        fmt=".", 
+        zorder=0,
+        color="#1f77b4",
+        ecolor="black",
+        label="TESS",
+        alpha=0.9)
+    
+    res_ax.errorbar(
+        x=catalogue[is_tess_mask]["rv_info"], 
+        y=catalogue[is_tess_mask]["rv_info"]-catalogue[is_tess_mask]["rv"], 
+        xerr=catalogue[is_tess_mask]["e_rv_info"], 
+        yerr=np.sqrt(
+            catalogue[is_tess_mask]["e_rv"]**2 
+            + catalogue[is_tess_mask]["e_rv_info"]**2), 
+        fmt=".", 
+        zorder=0,
+        color="#1f77b4",
+        ecolor="black",
+        alpha=0.9)
 
-    # Residuals
-    res_ax.errorbar(rvs_gaia,
-                    observations["rv"].values-rvs_gaia,  
-                    yerr=e_rvs, 
-                    xerr=e_rvs_gaia, fmt=".", zorder=0) 
-    res_ax.scatter(rvs_gaia, 
-                   observations["rv"].values - rvs_gaia, 
-                    c=observations["teff_fit_rv"], marker="o", 
-                    cmap="magma", zorder=1)
-    res_ax.hlines(0, -200, 100, color="black") 
+    # Plot Standard
+    axis.errorbar(
+        x=catalogue[~is_tess_mask]["rv_info"], 
+        y=catalogue[~is_tess_mask]["rv"], 
+        xerr=catalogue[~is_tess_mask]["e_rv_info"], 
+        yerr=catalogue[~is_tess_mask]["e_rv"], 
+        fmt="*", 
+        zorder=0,
+        color="#ff7f0e",
+        ecolor="black",
+        label="Standard",
+        alpha=0.9)
+    
+    res_ax.errorbar(
+        x=catalogue[~is_tess_mask]["rv_info"], 
+        y=catalogue[~is_tess_mask]["rv_info"]-catalogue[~is_tess_mask]["rv"], 
+        xerr=catalogue[~is_tess_mask]["e_rv_info"], 
+        yerr=np.sqrt(
+            catalogue[~is_tess_mask]["e_rv"]**2 
+            + catalogue[~is_tess_mask]["e_rv_info"]**2), 
+        fmt="*", 
+        zorder=0,
+        color="#ff7f0e",
+        ecolor="black",
+        alpha=0.9,)
 
-    axis.set_xlim(-200,100)
-    res_ax.set_xlim(-200,100)
-    res_ax.set_ylim(-20, 20)
-
+    axis.legend()
+    #axis.set_aspect(1./axis.get_data_ratio())
     res_ax.set_xlabel(r"RV, Gaia DR2 (km$\,$s$^{-1}$)")
-    res_ax.set_ylabel(r"RV, residuals (km$\,$s$^{-1}$)")
+    res_ax.set_ylabel(r"Residuals")
     axis.set_ylabel(r"RV, WiFeS (km$\,$s$^{-1}$)")
 
-    med_diff = np.nanmedian(observations["rv"].values-rvs_gaia)
-    print("Median RV difference: %f km/s" % med_diff)
+    plt.gcf().set_size_inches(6, 6)
+    fig.tight_layout()
+    plt.savefig("paper/rv_comp.pdf")
+    plt.savefig("paper/rv_comp.png")

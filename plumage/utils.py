@@ -417,6 +417,43 @@ def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
     return spec_b_subset, spec_r_subset
 
 
+def combine_obs_and_lit_tables(labels):
+    """Combine two separate sets of observation and literature info dataframes
+    """
+    catalogues = []
+    
+    # Import and combine literature and observed information for each label
+    for label in labels:
+        # Load info cat
+        info_cat_path = "data/{}_info.tsv".format(label)
+        info_cat = utils.load_info_cat(
+            info_cat_path, 
+            in_paper=True, 
+            only_observed=True)
+        
+        # Load observed results
+        observations = utils.load_fits_table("OBS_TAB", label)
+
+        # Join
+        obs_join = observations.join(
+            info_cat, 
+            "source_id", 
+            rsuffix="_info",
+            how="inner")
+
+        # Save
+        catalogues.append(obs_join)
+
+    # If we only got one label, just take that table
+    if len(catalogues) == 1:
+        catalogue = catalogues[0]
+
+    # Otherwise combine
+    else:
+        catalogue = pd.concat(catalogues, sort=False)
+    
+    return catalogue
+
 # -----------------------------------------------------------------------------
 # Spectra and table of observations
 # ----------------------------------------------------------------------------- 
