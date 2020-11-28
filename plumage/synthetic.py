@@ -1074,6 +1074,7 @@ def do_synthetic_fit(
     stellar_phot=None,
     e_stellar_phot=None,
     phot_bands=None,
+    phot_bands_all=None,
     feh_offset=10,
     resid_norm_fac={'blue':1, 'red':1, 'phot':1,},
     scale_threshold={"blue":1,"red":1,"phot":1},
@@ -1085,6 +1086,8 @@ def do_synthetic_fit(
     science spectra given an initial stellar parameter guess. By default only
     fits red arm spectra (to account for poor SNR blue spectra), but will fit 
     blue spectra if provided.
+
+    Note: currently do not rescale blue residuals.
 
     Parameters
     ----------
@@ -1142,6 +1145,8 @@ def do_synthetic_fit(
 
     phot_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
         Colour bands to use in the fit.
+
+    phot_bands_all: ...
 
     feh_offset: float, default: 10
         Arbitrary offset to add to [Fe/H] so that it never goes below zero to
@@ -1316,11 +1321,32 @@ def do_synthetic_fit(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Sort out fit results
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Get the length of each of the sub-residual vectors
+    len_b = 0 if spec_b is None else len(spec_b)
+    len_r = 0 if spec_r is None else len(spec_r)
+    len_p = 0 if stellar_phot is None else len(stellar_phot)
+
+    # Pull out the residuals
+    res = opt_res["fun"]
+
+    # Rescale the residuals in three components (blue, red, phot)
+    unscaled_res = np.concatenate((
+        res[:len_b] * resid_norm_fac["blue"],
+        res[len_b:(len_b+len_r)] * resid_norm_fac["red"],
+        res[-len_p:] * resid_norm_fac["phot"] / phot_scale_fac,
+    ))
+
+    assert len(unscaled_res) == len(res)
+
+    # Calculate final scale factor to unscale the residuals. Note that this is
+    # a bit of a hack, as using unscaled_res in calculation of std results in
+    # a colossal variance, which then results in a huge std.
+    unscale_fac = np.sum(unscaled_res) / np.sum(res)
+
     # Calculate uncertainties
     jac = opt_res["jac"]
-    res = opt_res["fun"]
     cov = np.linalg.inv(jac.T.dot(jac))
-    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res) * unscale_fac
     opt_res["std"] = std
 
     # Teff
@@ -1409,7 +1435,7 @@ def do_synthetic_fit(
         synth_bc = np.array(
             [bc_interp.compute_bc(
                 (opt_res["teff"],opt_res["logg"],opt_res["feh"]),band) 
-            for band in phot_bands])
+            for band in phot_bands_all])
 
         synth_phot = opt_res["Mbol"] - synth_bc
 

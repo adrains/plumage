@@ -140,6 +140,9 @@ def calc_filt_offset(filter, bp_rp,):
     """Filter offset for MARCS models parameterised as a function of observed 
     Bp-Rp colour.
     """
+    # Convert to array
+    bp_rp = np.asarray(bp_rp)
+
     # Calculate offset
     if filter == "g":
         filt_offset = 0.116 * bp_rp - 0.072
@@ -159,11 +162,15 @@ def calc_filt_offset(filter, bp_rp,):
 
     return filt_offset
 
-# Offset g, r, and Bp to synthetic equivalents
-bp_rp = info_cat["Bp-Rp"]
-info_cat["g_psf_offset"] = info_cat["g_psf"] - calc_filt_offset("g", bp_rp)
-info_cat["r_psf_offset"] = info_cat["r_psf"] - calc_filt_offset("r", bp_rp)
-info_cat["Bp_mag_offset"] = info_cat["Bp_mag"] - calc_filt_offset("BP", bp_rp)
+# Offset g, r, and Bp to synthetic equivalents and save systematic
+info_cat["g_psf_systematic"] = calc_filt_offset("g", info_cat["Bp-Rp"])
+info_cat["g_psf_offset"] = info_cat["g_psf"] - info_cat["g_psf_systematic"]
+
+info_cat["r_psf_systematic"] = calc_filt_offset("r", info_cat["Bp-Rp"])
+info_cat["r_psf_offset"] = info_cat["r_psf"] - info_cat["r_psf_systematic"]
+
+info_cat["Bp_mag_systematic"] = calc_filt_offset("BP", info_cat["Bp-Rp"])
+info_cat["Bp_mag_offset"] = info_cat["Bp_mag"] - info_cat["Bp_mag_systematic"]
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -183,7 +190,8 @@ synth_fits_r = np.full(spectra_r[:,0,:].shape, np.nan)
 rchi2 = np.full(len(observations), np.nan)
 both_arm_synth_fit = np.full(len(observations), False)
 fit_used_colours = np.full(len(observations), False)
-colours_used = np.full(len(observations), "000")
+filters_used = np.full(len(observations), "", dtype=object)
+synth_phot_all = np.full((len(observations), len(filters)), np.nan)
 
 # initialise IDL
 idl = synth.idl_init()
@@ -227,8 +235,8 @@ for ob_i in range(0, len(observations)):
         e_photometry = np.sqrt(e_photometry**2 + e_phot_model**2)
 
         # Now write flags indicating which colours were used
-        flags = str(phot_mask.astype(int))[1:-1].replace(" ", "")
-        colours_used[ob_i] = flags
+        flags = str(filters[phot_mask]).replace("'","").replace(" ", ",")[1:-1]
+        filters_used[ob_i] = flags
     else:
         phot_mask = np.zeros(len(filters)).astype(bool)
         photometry = None
@@ -329,6 +337,7 @@ for ob_i in range(0, len(observations)):
         stellar_phot=photometry,
         e_stellar_phot=e_photometry,
         phot_bands=filters[phot_mask],   # Mask the colours to what we have
+        phot_bands_all=filters,          # Still gen synth mags for all bands
         phot_scale_fac=phot_scale_fac,
         fit_for_resid_norm_fac=True,
         do_polynomial_spectra_norm=do_polynomial_spectra_norm,)
@@ -337,16 +346,16 @@ for ob_i in range(0, len(observations)):
     # Sort out results
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     teff_synth[ob_i] = opt_res["teff"]
-    e_teff_synth[ob_i] = opt_res["e_teff"] # TODO
+    e_teff_synth[ob_i] = opt_res["e_teff"]
 
     logg_synth[ob_i] = opt_res["logg"]
-    e_logg_synth[ob_i] = opt_res["e_logg"] # TODO
+    e_logg_synth[ob_i] = opt_res["e_logg"]
 
     feh_synth[ob_i] = opt_res["feh"]
-    e_feh_synth[ob_i] = opt_res["e_feh"] # TODO
+    e_feh_synth[ob_i] = opt_res["e_feh"]
 
     mbol_synth[ob_i] = opt_res["Mbol"]
-    e_mbol_synth[ob_i] = opt_res["e_Mbol"] # TODO
+    e_mbol_synth[ob_i] = opt_res["e_Mbol"]
 
     fit_results.append(opt_res)
     synth_fits_r[ob_i] = opt_res["spec_synth_r"]
@@ -361,19 +370,43 @@ for ob_i in range(0, len(observations)):
                                                  opt_res["e_teff"]), 
           "logg = {:0.2f} +/- {:0.2f},".format(opt_res["logg"], 
                                                opt_res["e_logg"]), 
-          "[Fe/H] = {:+0.2f} +/- {:0.2f}\n".format(opt_res["feh"], 
+          "[Fe/H] = {:+0.2f} +/- {:0.2f},".format(opt_res["feh"], 
                                                    opt_res["e_feh"]),
-          "m_bol = {:0.2f} +/- {:0.2f}\n".format(opt_res["Mbol"], 
+          "m_bol = {:0.3f} +/- {:0.3f}\n".format(opt_res["Mbol"], 
                                                    opt_res["e_Mbol"]),)
 
-    # Print observed stellar colours
+    # Grab synthetic photometry
     synth_phot = opt_res["synth_phot"]
     synth_bc = opt_res["synth_bc"]
 
+    # Correct filters (note the sign - our corrections add to the synthetic 
+    # magnitudes and thus make them *fainter*)
+    if "g" in filters[phot_mask]:
+        filt_i = int(np.argwhere(filters[phot_mask]=="g"))
+        synth_phot[filt_i] += star_info["g_psf_systematic"]
+    
+    if "r" in filters[phot_mask]:
+        filt_i = int(np.argwhere(filters[phot_mask]=="r"))
+        synth_phot[filt_i] += star_info["r_psf_systematic"]
+
+    if "Bp" in filters[phot_mask]:
+        filt_i = int(np.argwhere(filters[phot_mask]=="Bp"))
+        synth_phot[filt_i] += star_info["Bp_mag_systematic"]
+
+    # Print real and synthetic photometry
     if synth_phot is not None:
+        print("Observed mags: ", end="")
+        for filt, preal in zip(filters[phot_mask], photometry):
+            print("{} = {:0.3f}, ".format(filt, preal), end="")
+        print("\n")
+
+        print("Synthetic mags: ", end="")
         for filt, psynth in zip(filters[phot_mask], synth_phot):
             print("{} = {:0.3f}, ".format(filt, psynth), end="")
         print("\n")
+    
+    # Save synthetic photometry
+    synth_phot_all[ob_i] = synth_phot
 
 # -----------------------------------------------------------------------------
 # Save results
@@ -391,7 +424,10 @@ observations["e_mbol_synth"] = e_mbol_synth
 observations["rchi2_synth"] = rchi2
 observations["both_arm_synth_fit"] = both_arm_synth_fit
 observations["fit_used_colours"] = fit_used_colours
-observations["colours_used"] = colours_used
+observations["filters_used"] = filters_used
+
+synth_mag_cols = ["{}_mag_synth".format(filt) for filt in filters]
+observations[synth_mag_cols] = synth_phot_all
 #observations["colour_resid_scale_factor"] = scale_fac
 
 # Now calculate final params
