@@ -113,13 +113,15 @@ fit_for_params = OrderedDict([
     ("feh",False),
     ("Mbol",True),])
 
-#fit_for_params = [False, False, True]   #[teff, logg, feh]
-
 n_params = np.sum(list(fit_for_params.values()))
 
 teff_init_col = "teff_fit_rv"
 logg_init_col = "logg_m19"
-feh_init_col = "feh_fit_rv"
+feh_init_col = "phot_feh"
+
+# Use the mean solar neighbourhood [Fe/H] for those stars not appropriate for
+# the photometric [Fe/H] relation. From Schlaufman & Laughlin 2010.
+mean_solar_neighbourhood_feh = -0.14 # +/-0.06
 
 # Masking of bad model wavelength regions
 cutoff_temp = 8000
@@ -238,9 +240,13 @@ for ob_i in range(0, len(observations)):
     params_init = {
         "teff":observations.iloc[ob_i][teff_init_col],
         "logg":star_info[logg_init_col],
-        "feh":observations.iloc[ob_i][feh_init_col],
+        "feh":star_info[feh_init_col],
         "Mbol":0,
     }
+
+    # Check if our [Fe/H] is undefined, and if so set to the SL10 value
+    if np.isnan(params_init["feh"]):
+        params_init["feh"] = mean_solar_neighbourhood_feh
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Wavelength masks

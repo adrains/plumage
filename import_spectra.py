@@ -36,10 +36,10 @@ import plumage.utils as utils
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of fits file of all spec
-label =  "std_fluxed"
+label =  "tess"
 
 # Base folder of 1D fits spectra
-spectra_folder = "spectra/standard"
+spectra_folder = "spectra/tess"
 
 # If 1D fits spectra are within additional subfolders (e.g. nights)
 include_subfolders = False
@@ -51,6 +51,7 @@ fits_save_path = "spectra"
 cat_type = "csv"
 cat_file = "data/all_2m3_star_ids.csv"
 
+# Whether to import the spectra in units of counts, and then flux ourselves
 use_counts_ext_and_flux = True
 
 # -----------------------------------------------------------------------------

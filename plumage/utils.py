@@ -1026,6 +1026,25 @@ def load_info_cat(
     info_cat["logg_m19"] = logg
     info_cat["e_logg_m19"] = e_logg
 
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Photometric [Fe/H]
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Only accept stars that Gaia has not flagged as a duplicate, and those 
+    # with RUWE below 1.4 - i.e. the same criteria we used when building the
+    # relation to begin with
+    valid_star_mask = np.logical_and(
+        ~info_cat["dup"].astype(bool),
+        info_cat["ruwe"] < 1.4)
+
+    phot_feh, e_phot_feh = params.calc_photometric_feh_with_coeff_import(
+        info_cat["Bp-K"].values,
+        info_cat["K_mag_abs"].values,
+        info_cat["Bp-Rp"].values, 
+        valid_star_mask)
+
+    info_cat["phot_feh"] = phot_feh
+    info_cat["e_phot_feh"] = e_phot_feh
+
     return info_cat
 
 

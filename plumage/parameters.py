@@ -8,6 +8,7 @@ import plumage.spectra as spec
 from astropy.io import fits
 from astropy.table import Table
 from collections import OrderedDict
+from scipy.optimize import least_squares
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
 
@@ -1029,6 +1030,151 @@ def compute_final_params(
     for col in result_df.columns:
         observations[col] = result_df[col]
 
+
+# -----------------------------------------------------------------------------
+# Photometric [Fe/H] relation
+# -----------------------------------------------------------------------------
+def calc_photometric_feh_with_coeff_import(
+    bp_k,
+    k_mag_abs,
+    bp_rp,
+    isolated_ms_star_mask,
+    ms_coeff_path="data/phot_feh_rel_ms_coeff.csv",
+    offset_coeff_path="data/phot_feh_rel_offset_coeff.csv",
+    e_phot_feh=0.19,
+    bp_rp_bounds=(1.51,3.3)):
+    """
+    Parameters
+    ----------
+    bp_k: float array
+        (Bp-Ks) colour for each star.
+
+    k_mag_abs: float array
+        Absolute Ks band magnitude.
+    
+    bp_rp: float array
+        (Bp-Rp) colour for each star.
+
+    isolated_ms_star_mask: boolean array
+        Array indicating which stars are able to be used for the photometric
+        [Fe/H] relation, True where valid, and False where not.
+
+    ms_coeff_path, offset_coeff_path: str
+        Paths to the save polynomial coefficients for the mean main sequence,
+        and fitted offset in (Bp-Ks). Expected file format is a single line 
+        CSV, with coefficients order from lowest order to highest order.
+
+    e_phot_feh: float, default: 0.19
+        Uncertainty on the predicted [Fe/H]
+
+    bp_rp_bounds: float array, default: (1.51,3.4)
+        The bounds of the relation in (Bp-Rp)
+
+    Returns
+    -------
+    phot_fehs, e_phot_fehs: float array
+        Predicted photometric [Fe/H] plus associated uncertainties.
+    """
+    # Import both sets of coefficients
+    ms_coeff = np.loadtxt(ms_coeff_path)
+    offset_coeff = np.loadtxt(offset_coeff_path)
+
+    # Make the MS polynomial
+    main_seq = np.polynomial.polynomial.Polynomial(ms_coeff)
+
+    # Calculate photometric [Fe/H]
+    phot_fehs = calc_photometric_feh(
+        offset_coeff, 
+        bp_k, 
+        k_mag_abs, 
+        main_seq, 
+        use_bp_k_offset=True,)
+
+    # Assign uncertainties
+    e_phot_fehs = np.ones_like(phot_fehs) * e_phot_feh
+
+    # Finally, assign nans to anything suspected of not being an isolated main
+    # sequence star (using the provided mask) *or* outside of the valid Bp-Rp
+    # range
+    valid_bp_rp_mask = np.logical_and(
+        bp_rp > bp_rp_bounds[0], 
+        bp_rp < bp_rp_bounds[1])
+
+    valid_star_mask = np.logical_and(isolated_ms_star_mask, valid_bp_rp_mask)
+
+    phot_fehs[~valid_star_mask] = np.nan
+    e_phot_fehs[~valid_star_mask] = np.nan
+
+    return phot_fehs, e_phot_fehs
+
+
+def calc_photometric_feh(
+    params, 
+    bp_k, 
+    k_mag_abs, 
+    main_seq, 
+    use_bp_k_offset):
+    """Calculate [Fe/H] given Bp-K, M_Ks, the mean main sequence, and 
+    polynomial coefficients.
+    """
+    # Use absolute K band offset from MS (per Johnson & Apps 2009)
+    if not use_bp_k_offset:
+        delta_mk = k_mag_abs - main_seq(bp_k)
+
+        feh_poly = np.polynomial.polynomial.Polynomial(params)
+        feh_fit = feh_poly(delta_mk)
+
+    # Use (Bp-K) colour offset from MS (per Schlaufman & Laughlin 2010)
+    elif use_bp_k_offset:
+        delta_bp_k = bp_k - main_seq(k_mag_abs)
+
+        feh_poly = np.polynomial.polynomial.Polynomial(params)
+        feh_fit = feh_poly(delta_bp_k)
+
+    return feh_fit
+
+
+def calc_feh_resid(
+    params, 
+    bp_k, 
+    k_mag_abs, 
+    feh, 
+    e_feh, 
+    main_seq, 
+    use_bp_k_offset):
+    """Calculate residuals from [Fe/H] fit for optimisation
+    """
+    feh_fit = calc_photometric_feh(
+        params, bp_k, k_mag_abs, main_seq, use_bp_k_offset)
+
+    resid = (feh - feh_fit) / e_feh
+
+    return resid
+
+
+def fit_feh_model(
+    bp_k, 
+    k_mag_abs, 
+    feh, 
+    e_feh, 
+    main_seq, 
+    offset_poly_order,
+    use_bp_k_offset):
+    """Fit [Fe/H] model
+    """
+    args = (bp_k, k_mag_abs, feh, e_feh, main_seq, use_bp_k_offset)
+    init_params = np.ones(offset_poly_order+1)
+    diff_step = np.ones(offset_poly_order+1) * 0.01
+    opt_res = least_squares(
+        calc_feh_resid,
+        init_params,
+        jac="2-point",
+        args=args,
+        #method="lm",
+        #diff_step=diff_step,
+    )
+
+    return opt_res
 
 # -----------------------------------------------------------------------------
 # Saving and loading sampled params

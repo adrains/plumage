@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import plumage.utils as utils
+import plumage.parameters as params
 from scipy.optimize import least_squares
 import matplotlib.ticker as plticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -153,7 +154,7 @@ else:
 # Use absolute K band magnitude as offset
 if not use_bp_k_offset:
     print("M_Ks offset per JA09")
-    coeff = np.polynomial.polynomial.polyfit(
+    ms_coeff = np.polynomial.polynomial.polyfit(
         x=bp_k,
         y=k_mag_abs,
         deg=main_seq_poly_deg,
@@ -162,77 +163,24 @@ if not use_bp_k_offset:
 # Instead use the Bp-K colour as the offset (per Schlaufman & Laughlin 2010)
 else:
     print("Bp-Ks offset per SL10")
-    coeff = np.polynomial.polynomial.polyfit(
+    ms_coeff = np.polynomial.polynomial.polyfit(
         x=k_mag_abs,
         y=bp_k,
         deg=main_seq_poly_deg,
         w=1/e_bp_k,)
 
-main_seq = np.polynomial.polynomial.Polynomial(coeff)
+main_seq = np.polynomial.polynomial.Polynomial(ms_coeff)
 
 # Now strip away the Mannn+15 targets who fall outside the Bp-Rp range
 bp_rp_mask = np.logical_and(m15_data["Bp-Rp"] > 1.5, m15_data["Bp-Rp"] < 3.5)
 m15_data = m15_data[bp_rp_mask]
 
 # -----------------------------------------------------------------------------
-# Fitting functions
-# -----------------------------------------------------------------------------
-def calc_feh(params, bp_k, k_mag_abs, main_seq, use_bp_k_offset):
-    """Calculate [Fe/H] given Bp-K, M_Ks, the mean main sequence, and 
-    polynomial coefficients.
-    """
-    # Use absolute K band offset from MS (per Johnson & Apps 2009)
-    if not use_bp_k_offset:
-        delta_mk = k_mag_abs - main_seq(bp_k)
-
-        feh_poly = np.polynomial.polynomial.Polynomial(params)
-        feh_fit = feh_poly(delta_mk)
-
-    # Use (Bp-K) colour offset from MS (per Schlaufman & Laughlin 2010)
-    elif use_bp_k_offset:
-        delta_bp_k = bp_k - main_seq(k_mag_abs)
-
-        feh_poly = np.polynomial.polynomial.Polynomial(params)
-        feh_fit = feh_poly(delta_bp_k)
-
-    return feh_fit
-
-def calc_resid(params, bp_k, k_mag_abs, feh, e_feh, main_seq, use_bp_k_offset):
-    """Calculate residuals from [Fe/H] fit for optimisation
-    """
-    feh_fit = calc_feh(params, bp_k, k_mag_abs, main_seq, use_bp_k_offset)
-
-    resid = (feh - feh_fit) / e_feh
-
-    #print(params, np.sum(resid**2 / (len(resid)-len(params)+1)))
-
-    return resid
-
-def fit_feh_model(bp_k, k_mag_abs, feh, e_feh, main_seq, offset_poly_order,
-    use_bp_k_offset):
-    """
-    """
-    #print("\nFitting:")
-    args = (bp_k, k_mag_abs, feh, e_feh, main_seq, use_bp_k_offset)
-    init_params = np.ones(offset_poly_order+1)
-    diff_step = np.ones(offset_poly_order+1) * 0.01
-    opt_res = least_squares(
-        calc_resid,
-        init_params,
-        jac="2-point",
-        args=args,
-        #method="lm",
-        #diff_step=diff_step,
-    )
-
-    return opt_res
-
-# -----------------------------------------------------------------------------
 # Fit [Fe/H] offset
 # -----------------------------------------------------------------------------
 if fit_feh_with_cpm and not fit_feh_with_both:
     print("[Fe/H] fit to only CPM sample")
-    opt_res = fit_feh_model(
+    opt_res = params.fit_feh_model(
         bp_k=cpm_info_feh_corr[c_rel],
         k_mag_abs=cpm_info_feh_corr["K_mag_abs"],
         feh=cpm_info_feh_corr["feh_corr"],
@@ -243,7 +191,7 @@ if fit_feh_with_cpm and not fit_feh_with_both:
 
 elif not fit_feh_with_both:
     print("[Fe/H] fit to only Mann+15 sample")
-    opt_res = fit_feh_model(
+    opt_res = params.fit_feh_model(
         bp_k=m15_data[c_rel],
         k_mag_abs=m15_data["K_mag_abs"],
         feh=m15_data["[Fe/H]"],
@@ -254,7 +202,7 @@ elif not fit_feh_with_both:
 
 else:
     print("[Fe/H] fit to both CPM and Mann+15 sample")
-    opt_res = fit_feh_model(
+    opt_res = params.fit_feh_model(
         bp_k=np.concatenate((m15_data[c_rel], cpm_info_feh_corr[c_rel])),
         k_mag_abs=np.concatenate((m15_data["K_mag_abs"], cpm_info_feh_corr["K_mag_abs"])),
         feh=np.concatenate((m15_data["[Fe/H]"], cpm_info_feh_corr["feh_corr"])),
@@ -264,23 +212,23 @@ else:
         use_bp_k_offset=use_bp_k_offset,)
 
 # Get coeffs and function
-params = opt_res["x"]
-feh_poly = np.polynomial.polynomial.Polynomial(params)
+offset_coeff = opt_res["x"]
+feh_poly = np.polynomial.polynomial.Polynomial(offset_coeff)
 
 # Calculate rchi2
 rchi2 = np.sum(opt_res["fun"]**2) / (len(opt_res["fun"])-offset_poly_order)
 print("rchi^2 = {:0.2f}".format(rchi2))
 
 # Compute [Fe/H] from relation for CPM and M15 sample
-feh_pred_cpm = calc_feh(
-    params,
+feh_pred_cpm = params.calc_photometric_feh(
+    offset_coeff,
     cpm_info_feh_corr[c_rel],
     cpm_info_feh_corr["K_mag_abs"],
     main_seq,
     use_bp_k_offset,)
 
-feh_pred_m15 = calc_feh(
-    params,
+feh_pred_m15 = params.calc_photometric_feh(
+    offset_coeff,
     m15_data[c_rel],
     m15_data["K_mag_abs"],
     main_seq,
@@ -304,8 +252,8 @@ resid_m15_coeff = np.polynomial.polynomial.polyfit(
     w=1/m15_data["e_[Fe/H]"],)
 
 # Calculate trend in residuals, update coefficients
-params_corr = [params[0]*(1+resid_cpm_coeff[1]) + resid_cpm_coeff[0],
-                   params[1] * (1+resid_cpm_coeff[1])]
+params_corr = [offset_coeff[0]*(1+resid_cpm_coeff[1]) + resid_cpm_coeff[0],
+               offset_coeff[1] * (1+resid_cpm_coeff[1])]
 
 feh_poly_corr = np.polynomial.polynomial.Polynomial(params_corr)
 
@@ -339,6 +287,11 @@ feh_offset_cpm_std = np.std(feh_cpm_resid)
 
 feh_offset_m15_mean = np.mean(feh_m15_resid)
 feh_offset_m15_std = np.std(feh_m15_resid)
+
+# Dump coefficients
+np.savetxt("data/phot_feh_rel_ms_coeff.csv", ms_coeff)
+np.savetxt("data/phot_feh_rel_offset_coeff.csv", offset_coeff)
+
 
 # -----------------------------------------------------------------------------
 # Plotting
