@@ -922,7 +922,7 @@ def calc_radii(teff, e_teff, fbol, e_fbol, dist, e_dist,):
     """
     """
     # Constants
-    pc = const.pc.cgs
+    pc = const.pc.cgs.value
     r_sun = const.R_sun.cgs.value
     sigma = const.sigma_sb.cgs.value
 

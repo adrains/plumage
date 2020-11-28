@@ -135,6 +135,9 @@ high_cutoff = None
 # Whether to do 'internally consistent normalisation' with quadratic
 do_polynomial_spectra_norm = False
 
+# Whether to do second pass to get more accurate logg
+do_iterative_fit = True
+
 # Offsetting observed photometry to synthetic equivalents
 def calc_filt_offset(filter, bp_rp,):
     """Filter offset for MARCS models parameterised as a function of observed 
@@ -197,10 +200,6 @@ synth_phot_all = np.full((len(observations), len(filters)), np.nan)
 idl = synth.idl_init()
 
 # Do table join
-try:
-    observations.rename(columns={"uid":"source_id"}, inplace=True)
-except:
-    print("failed")
 obs_join = observations.join(info_cat, "source_id", rsuffix="_info")
 
 # For every star, do synthetic fitting
@@ -316,8 +315,9 @@ for ob_i in range(0, len(observations)):
         bad_px_mask_b = None
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Do synthetic fit
+    # Do synthetic fit (with optional second passs)
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Do first fit using the parameters we've been given
     opt_res = synth.do_synthetic_fit(
         spectra_r[ob_i, 0], # Red wl
         spectra_r[ob_i, 1], # Red spec
@@ -341,6 +341,62 @@ for ob_i in range(0, len(observations)):
         phot_scale_fac=phot_scale_fac,
         fit_for_resid_norm_fac=True,
         do_polynomial_spectra_norm=do_polynomial_spectra_norm,)
+
+    # Do a second pass of fitting
+    if do_iterative_fit:
+        # Calculate radius via fbol
+        fbol_prelim, e_fbol_prelim = params.calc_f_bol_from_mbol(
+            opt_res["Mbol"], 
+            opt_res["e_Mbol"])
+
+        rad_prelim, e_rad_prelim = params.calc_radii(
+            opt_res["teff"],
+            opt_res["e_teff"],
+            fbol_prelim,
+            e_fbol_prelim, 
+            star_info["dist"],
+            star_info["e_dist"],)
+
+        # Recalculate logg
+        logg_prelim, e_logg_prelim = params.compute_logg(
+            star_info["mass_m19"],
+            star_info["e_mass_m19"],
+            rad_prelim,
+            e_rad_prelim,)
+
+        print("\n",ln)
+        print("Doing second pass of fitting with updated logg")
+        print("{:0.2f} --> {:0.2f}\n".format(
+            params_init["logg"], 
+            float(logg_prelim)))
+
+        # Update logg
+        params_init["logg"] = float(logg_prelim)
+
+        # And do second pass of fitting
+        opt_res = synth.do_synthetic_fit(
+            spectra_r[ob_i, 0], # Red wl
+            spectra_r[ob_i, 1], # Red spec
+            spectra_r[ob_i, 2], # Red uncertainties
+            bad_px_mask_r,
+            params_init, 
+            observations.iloc[ob_i]["rv"], 
+            observations.iloc[ob_i]["bcor"],
+            idl,
+            band_settings_r,
+            fit_for_params=fit_for_params,
+            band_settings_b=band_settings_b,
+            wave_b=wave_b, 
+            spec_b=spec_b, 
+            e_spec_b=e_spec_b, 
+            bad_px_mask_b=bad_px_mask_b,
+            stellar_phot=photometry,
+            e_stellar_phot=e_photometry,
+            phot_bands=filters[phot_mask],
+            phot_bands_all=filters,
+            phot_scale_fac=phot_scale_fac,
+            fit_for_resid_norm_fac=True,
+            do_polynomial_spectra_norm=do_polynomial_spectra_norm,)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Sort out results
