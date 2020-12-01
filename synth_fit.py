@@ -22,7 +22,7 @@ from collections import OrderedDict
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std_fluxed"
+label = "std"
 cat_label = "std"
 
 # Where to load from and save to
@@ -216,6 +216,11 @@ for ob_i in range(0, len(observations)):
         fit_results.append(None)
         continue
     
+    # Also continue if logg is undefined (likely outside the mass relation)
+    if np.isnan(star_info[logg_init_col]):
+        fit_results.append(None)
+        continue
+
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Initialise colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

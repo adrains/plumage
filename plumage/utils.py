@@ -3,6 +3,7 @@
 import os
 import numpy as np
 import pandas as pd
+import mk_mass 
 from astropy.io import fits
 from astropy.table import Table
 import plumage.parameters as params
@@ -869,7 +870,9 @@ def load_info_cat(
     only_observed=False, 
     use_plx_systematic=True, 
     in_paper=True,
-    allow_alt_plx=False,):
+    allow_alt_plx=False,
+    use_mann_code_for_masses=True,
+    mann_mass_mk_bounds=(4,11)):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -925,6 +928,12 @@ def load_info_cat(
 
     if "wife_obs" not in info_cat:
         info_cat["wife_obs"] = 1
+
+    # Set Gaia dup column to be boolean (weird fix to this breaking is doing
+    # it in multiple steps)
+    dup1 = info_cat["dup"].values.astype(int)
+    dup2 = dup1.astype(bool)
+    info_cat["dup"] = dup2
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Distance, absolute magnitudes, and colours
@@ -1016,8 +1025,44 @@ def load_info_cat(
     info_cat["radii_m19"] = radii
     info_cat["e_radii_m19"] = e_radii
 
-    # Mann+19 masses
-    masses, e_masses = params.compute_mann_2019_masses(info_cat["K_mag_abs"]) 
+    # Compute Mann+19 masses from provided code that samples posteriors
+    if use_mann_code_for_masses:
+        masses = np.full(len(info_cat), np.nan)
+        e_masses = np.full(len(info_cat), np.nan)
+
+        for star_i, (source_id, star_info) in enumerate(info_cat.iterrows()):
+            # Assign defaults if outside the absolute K bounds of the relation
+            if star_info["K_mag_abs"] < 4 or star_info["K_mag_abs"] > 11:
+                continue
+
+            # Calculate masses and uncertainties from code provided at:
+            # https://github.com/awmann/M_-M_K-
+            mass, e_mass = mk_mass.posterior(
+                star_info["K_mag"], 
+                star_info["dist"],
+                star_info["e_K_mag"],
+                star_info["e_dist"],
+                oned=True,
+                silent=True)
+
+            masses[star_i] = mass
+            e_masses[star_i] = e_mass
+
+    # Otherwise just use relations from the paper
+    else:
+        # Compute masses from relation
+        masses, e_masses = params.compute_mann_2019_masses(
+            info_cat["K_mag_abs"])
+
+        # Exclude those beyond the bounds of the relation
+        outside_bounds = np.logical_or(
+            info_cat["K_mag_abs"].values < 4,
+            info_cat["K_mag_abs"].values > 11)
+
+        masses[outside_bounds] = np.nan
+        e_masses[outside_bounds] = np.nan
+    
+    # Whatever the method, add to dataframe
     info_cat["mass_m19"] = masses
     info_cat["e_mass_m19"] = e_masses
 
