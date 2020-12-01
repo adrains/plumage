@@ -631,6 +631,32 @@ def norm_spec_by_wl_region(wave, spectrum, arm, e_spec=None):
         return spec_norm
 
 
+def merge_wifes_arms(wl_b, spec_b, wl_r, spec_r):
+    """Merge WiFeS arms with proper normalisation, then remove overlap region.
+    """
+    # Normalise red
+    med_mask = wl_r > 6200
+    norm_spec_r = spec_r / np.nanmedian(spec_r[med_mask])
+
+    # Get a normalisation factor from the overlap region
+    norm_fac_overlap = np.nanmean(norm_spec_r[wl_r < 5445])
+
+    # Normalise blue by overlap
+    norm_mask_b = np.logical_and(wl_b > 5400, wl_b < 5445)
+    norm_spec_b = spec_b / np.nanmean(spec_b[norm_mask_b]) * norm_fac_overlap
+
+    # Now get rid of overlap region
+    overlap_mask = wl_b < 5400
+    wl_b = wl_b[overlap_mask]
+    norm_spec_b = norm_spec_b[overlap_mask]
+
+    # Combine
+    wl_br = np.concatenate((wl_b, wl_r))
+    spec_br = np.concatenate((norm_spec_b, norm_spec_r))
+
+    return wl_br, spec_br
+
+
 def make_wavelength_mask(wave_array, mask_emission=True, 
     mask_blue_edges=False, mask_sky_emission=False, mask_edges=False,
     mask_bad_px=True):

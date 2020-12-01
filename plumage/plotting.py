@@ -11,6 +11,7 @@ import matplotlib.colors as mplc
 import plumage.spectra as spec
 import plumage.synthetic as synth
 import plumage.transits as transit
+import plumage.utils as utils
 from tqdm import tqdm
 import matplotlib.transforms as transforms
 import matplotlib.ticker as plticker
@@ -1990,16 +1991,73 @@ def plot_fbol_comp(
     plt.savefig("paper/fbol_comp.pdf")
 
 
-def plot_representative_spectra():
-    """Plots a representative set of standard stars
+def plot_representative_spectral_model_limitations(
+    source_id,
+    label="std",
+    spec_path="spectra",
+    btsettl_path="phoenix",
+    btsettl_grid_point=(3200,5.0),
+    blue_conv_res=0.77*10,
+    red_conv_res=0.44*10,):
+    """Plots the observed, MARCS literature, and closest BT-Settl spectra with
+    overplotted filters to compare. Some sample stars:
+    
         ~3000 K --> Gl 447 (Gaia DR2 3796072592206250624)
         ~3500 K --> Gl 876 (Gaia DR2 2603090003484152064 )
         ~4000 K --> PM I12507-0046 (Gaia DR2 3689602277083844480)
         ~4500 K --> HD 131977 (Gaia DR2 6232511606838403968)
-
-
     """
-    pass
+    # Import observed spectra and merge
+    spec_b_all, spec_r_all, obs_std = utils.load_fits(label, path=spec_path)
+
+    # Get index
+    star_i = int(np.argwhere(obs_std.index==source_id))
+
+    wl_br, spec_br = spec.merge_wifes_arms(
+        spec_b_all[star_i,0],
+        spec_b_all[star_i,1],
+        spec_r_all[star_i,0],
+        spec_r_all[star_i,1],)
+
+    # Import literature MARCS spectra and merge
+    synth_lit_b_all = utils.load_fits_image_hdu("synth_lit", label, arm="b")
+    synth_lit_r_all = utils.load_fits_image_hdu("synth_lit", label, arm="r")
+
+    _, spec_lit = spec.merge_wifes_arms(
+        spec_b_all[star_i,0],
+        synth_lit_b_all[star_i],
+        spec_r_all[star_i,0],
+        synth_lit_r_all[star_i],)
+
+    # Import BT-Settl spectra and merge
+    wl_bts_b, spec_bts_b, wl_bts_r, spec_bts_r = synth.import_btsettl_spectra(
+        blue_conv_res=blue_conv_res,
+        red_conv_res=red_conv_res)
+    wl_bts, spec_bts = spec.merge_wifes_arms(
+        wl_bts_b, spec_bts_b, wl_bts_r, spec_bts_r)
+
+    # Plot
+    plt.close("all")
+    plt.plot(wl_br, spec_br, linewidth=0.3, label="Observed", alpha=0.7, zorder=2)
+    plt.plot(wl_br, spec_lit, "--", linewidth=0.3,  label="MARCS", alpha=0.7, zorder=1)
+    plt.plot(wl_bts, spec_bts, ":", linewidth=0.3, label="BT-Settl", alpha=0.7, zorder=0)
+
+    # Filter profiles
+    filters = ["v", "g", "r", "BP", "RP"]
+    filter_labels = ["v", "g", "r", "B_P", "R_P"]
+
+    for filt_i, (filt, lbl) in enumerate(zip(filters, filter_labels)):
+        wl_f, fp = synth.load_filter_profile(filt, 3000, 7000, do_zero_pad=True)
+        plt.plot(wl_f, fp*2, linewidth=1.0, label=r"${}$".format(lbl), zorder=3)
+
+    plt.xlabel("Wavelength (A)")
+    plt.ylabel("Flux (Normalised)")
+    plt.xlim(3200, 7000)
+    plt.legend(loc="upper center", ncol=8)
+    plt.gcf().set_size_inches(9, 2.5)
+    plt.tight_layout()
+    plt.savefig("paper/model_spectra_limitations.pdf")
+    plt.savefig("paper/model_spectra_limitations.png")
 
 
 def plot_label_comparison(
@@ -2517,7 +2575,8 @@ def get_gaia_rv(uid, std_params):
 
 
 def plot_rv_comparison():
-    """
+    """Join catalogues, and plot a comparison of observed RVs with those from
+    Gaia.
     """
     # Import catalogues
     catalogue = spec.compare_to_gaia_rvs(["tess", "std"]) 

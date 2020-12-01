@@ -17,6 +17,7 @@ from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 from scipy.interpolate import LinearNDInterpolator
+import astropy.convolution as conv
 
 #------------------------------------------------------------------------------    
 # Setup IDL
@@ -2542,3 +2543,75 @@ class SyntheticBCInterpolator():
                 self.VALID_COLOURS))
 
         return bc_synth
+
+# -----------------------------------------------------------------------------
+# BT-Settl Spectra
+# ----------------------------------------------------------------------------- 
+def import_btsettl_spectra(
+    bbtsettl_path="phoenix",
+    btsettl_grid_point=(3200,5.0),
+    blue_conv_res=0.77,
+    red_conv_res=0.44,
+    len_wl_b=2858,
+    len_wl_r=3637,):
+    """Import BT-Settl spectra (given Teff and logg), convolve, and regrid to
+    WiFeS B3000 and R7000.
+    """
+    # Construct filename
+    bts_fn = "lte0{:0.0f}.0-{:0.1f}-0.0a+0.0.BT-Settl.spec.7".format(
+        btsettl_grid_point[0]/100,  # teff
+        btsettl_grid_point[1],)     # logg
+    bts_file = os.path.join(bbtsettl_path, bts_fn)
+
+    print("Importing:", bts_file)
+
+    try:
+        # Import the BBT-Settl spectrum, sort, and put flux in proper units
+        spec_bts = pd.read_csv(bts_file, delim_whitespace=True,
+            names=["wl", "flux", "bb_flux"]+list(np.arange(0,23)))
+        
+        sort_bts = np.argsort(spec_bts["wl"].values)
+        wl = spec_bts["wl"][sort_bts].values
+        spec_bts = 10**(spec_bts["flux"][sort_bts].values-8)
+
+    except:
+        raise ValueError("Invalid BT-Settl grid point")
+
+    wl_b_mask = np.logical_and(wl > 3500, wl < 5700)
+    wl_r_mask = np.logical_and(wl > 5400, wl < 7000)
+
+    wl_b_all = wl[wl_b_mask]
+    spec_b_all = spec_bts[wl_b_mask]
+
+    wl_r_all = wl[wl_r_mask]
+    spec_r_all = spec_bts[wl_r_mask]
+
+    # Convolve
+    gc_b =  conv.Gaussian1DKernel(blue_conv_res, x_size=len(wl_b_all))
+    gc_r =  conv.Gaussian1DKernel(red_conv_res, x_size=len(wl_r_all))
+
+    spec_b_conv = conv.convolve_fft(spec_b_all, gc_b)
+    spec_r_conv = conv.convolve_fft(spec_r_all, gc_r)
+
+    # Regrid the wavelengths, dropping any values that don't evenly fold in
+    n_b = int(np.round(len(wl_b_all) / len_wl_b))
+    cutoff_b = len(wl_b_all) % n_b
+
+    if cutoff_b == 0:
+        wl_b_conv_rg = wl_b_all.reshape(-1, n_b).mean(axis=1)
+        spec_b_conv_rg = spec_b_conv.reshape(-1, n_b).sum(axis=1)
+    else:
+        wl_b_conv_rg = wl_b_all[:-cutoff_b].reshape(-1, n_b).mean(axis=1)
+        spec_b_conv_rg = spec_b_conv[:-cutoff_b].reshape(-1, n_b).sum(axis=1)
+
+    n_r = int(np.round(len(wl_r_all) / len_wl_r))
+    cutoff_r = len(wl_r_all) % n_r
+
+    if cutoff_r == 0:
+        wl_r_conv_rg = wl_r_all.reshape(-1, n_r).mean(axis=1)
+        spec_r_conv_rg = spec_r_conv.reshape(-1, n_r).sum(axis=1)
+    else:
+        wl_r_conv_rg = wl_r_all[:-cutoff_r].reshape(-1, n_r).mean(axis=1)
+        spec_r_conv_rg = spec_r_conv[:-cutoff_r].reshape(-1, n_r).sum(axis=1)
+    
+    return wl_b_conv_rg, spec_b_conv_rg, wl_r_conv_rg, spec_r_conv_rg
