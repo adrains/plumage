@@ -1344,8 +1344,8 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 # -----------------------------------------------------------------------------
 # Comparisons & other paper plots
 # ----------------------------------------------------------------------------- 
-def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label, 
-    y_label, cb_label, lims, cmap, show_offset,):
+def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
+    lit_label, cb_label, lims, cmap, show_offset, ticks,):
     """
     Parameters
     ----------
@@ -1374,31 +1374,70 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, x_label,
         Whether to plot the median uncertainty as text.
     """
     # Plot error bars with overplotted scatter points + colour bar
-    axis.errorbar(fit, lit, xerr=e_fit, yerr=e_lit, fmt=".", zorder=0,)
+    axis.errorbar(lit, fit, xerr=e_lit, yerr=e_fit, fmt=".", zorder=0,)
 
-    sc = axis.scatter(fit, lit, c=colour, zorder=1, cmap=cmap)
+    sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
 
     cb = fig.colorbar(sc, ax=axis)
     cb.set_label(cb_label)
 
-    axis.set_xlabel(x_label)
-    axis.set_ylabel(y_label)
-
     # Plot 1:1 line
     xx = np.arange(lims[0], lims[1], (lims[1]-lims[0])/100)
-    axis.plot(xx, xx, "--")
+    axis.plot(xx, xx, "k--", zorder=0)
+
+    # Plot residuals
+    divider = make_axes_locatable(axis)
+    resid_ax = divider.append_axes("bottom", size="30%", pad=0)
+    axis.figure.add_axes(resid_ax, sharex=axis)
+
+    resid = lit - fit
+    e_resid = np.sqrt(e_lit**2 + e_fit**2)
+
+    resid_ax.scatter(
+        lit,
+        resid,
+        c=colour,
+        cmap=cmap,
+        zorder=1,)
+
+    resid_ax.errorbar(
+        lit,
+        resid,
+        xerr=e_lit,
+        yerr=e_resid,
+        fmt=".",
+        zorder=0,)
+
+    # Plot 0 line
+    plt.setp(axis.get_xticklabels(), visible=False)
+    resid_ax.hlines(0, lims[0], lims[1], linestyles="--", zorder=0)
+
+    resid_ax.set_xlabel(lit_label)
+    axis.set_ylabel(fit_label)
 
     axis.set_xlim(lims)
+    resid_ax.set_xlim(lims)
     axis.set_ylim(lims)
 
-    axis.set_aspect("equal")
+    #axis.set_aspect("equal")
 
+    # Ticks
+    resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
+    resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=ticks[0]))
+
+    resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[3]))
+    resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=ticks[2]))
+
+    axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=ticks[0]))
+
+    # Show mean and std
     if show_offset:
         mean_offset = np.nanmean(fit - lit)
         std = np.nanstd(fit - lit)
         axis.text(
             x=np.mean(lims), 
-            y=0.9*lims[1], 
+            y=0.95*lims[1], 
             s=r"${:0.2f}\pm {:0.2f}$".format(mean_offset, std),
             horizontalalignment="center")
 
@@ -1410,7 +1449,10 @@ def plot_std_comp(
     feh_lims=[-1.4,0.75],
     show_offset=False,
     fn_suffix="",
-    title_text="",):
+    title_text="",
+    teff_ticks=(500,250,150,75),
+    feh_ticks=(0.5,0.25,0.3,0.15),
+    feh_cb_label="[Fe/H] (phot)",):
     """Plot 2x3 grid of Teff and [Fe/H] literature comparisons.
         1 - Mann+15 Teffs
         2 - Rojas-Ayala+12 Teffs
@@ -1452,81 +1494,90 @@ def plot_std_comp(
     obs_join = observations.join(std_info, "source_id", rsuffix="_info")
 
     plt.close("all")
-    fig, axes = plt.subplots(2,4)
-    fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, 
-                            wspace=0.5)
 
-    # Unpack to improve readability
-    ((ax_teff_m15, ax_teff_ra12, ax_teff_int, ax_teff_other),
-     (ax_feh_m15, ax_feh_ra12, ax_feh_cpm, ax_feh_other)) = axes
+    # Make one plot for Teff comparison
+    fig_teff, axes_teff = plt.subplots(1,4)
+    (ax_teff_m15, ax_teff_ra12, ax_teff_int, ax_teff_other) = axes_teff
+    fig_teff.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, 
+                             wspace=0.5)
+
+    # And another for [Fe/H]
+    fig_feh, axes_feh = plt.subplots(1,4)
+    (ax_feh_m15, ax_feh_ra12, ax_feh_cpm, ax_feh_other) = axes_feh
+    fig_feh.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, 
+                             wspace=0.5)
 
     # Mann+15 temperatures
     plot_std_comp_generic(
-        fig,
+        fig_teff,
         ax_teff_m15, 
         obs_join["teff_synth"],
         obs_join["e_teff_synth"],
         obs_join["teff_m15"],
         obs_join["e_teff_m15"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}\,$K (fit)",
-        r"$T_{\rm eff}\,$K (Mann+15)",
-        "[Fe/H] (fit)",
-        lims=teff_lims,
+        r"$T_{\rm eff}$ (K, fit)",
+        r"$T_{\rm eff}$ (K, Mann+15)",
+        "[Fe/H] (phot)",
+        lims=(2800,4300),
         cmap="viridis",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=teff_ticks,)
     
     # Rojas-Ayala+12 temperatures
     plot_std_comp_generic(
-        fig,
+        fig_teff,
         ax_teff_ra12, 
         obs_join["teff_synth"],
         obs_join["e_teff_synth"],
         obs_join["teff_ra12"],
         obs_join["e_teff_ra12"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}\,$K (fit)",
-        r"$T_{\rm eff}\,$K (Rojas-Ayala+12)",
-        "[Fe/H] (fit)",
-        lims=teff_lims,
+        r"$T_{\rm eff}$ (K, fit)",
+        r"$T_{\rm eff}$ (K, Rojas-Ayala+12)",
+        feh_cb_label,
+        lims=(2800,4300),
         cmap="viridis",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=teff_ticks,)
     
     # Interferometric temperatures
     plot_std_comp_generic(
-        fig,
+        fig_teff,
         ax_teff_int, 
         obs_join["teff_synth"],
         obs_join["e_teff_synth"],
         obs_join["teff_int"],
         obs_join["e_teff_int"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}\,$K (fit)",
-        r"$T_{\rm eff}\,$K (interferometric)",
-        "[Fe/H] (fit)",
-        lims=teff_lims,
+        r"$T_{\rm eff}$ (K, fit)",
+        r"$T_{\rm eff}$ (K, interferometric)",
+        feh_cb_label,
+        lims=(2800,5100),
         cmap="viridis",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=teff_ticks,)
 
     # Other temperatures
     plot_std_comp_generic(
-        fig,
+        fig_teff,
         ax_teff_other, 
         obs_join["teff_synth"],
         obs_join["e_teff_synth"],
         obs_join["teff_other"],
         obs_join["e_teff_other"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}\,$K (fit)",
-        r"$T_{\rm eff}\,$K (other)",
-        "[Fe/H] (fit)",
-        lims=teff_lims,
+        r"$T_{\rm eff}$ (K, fit)",
+        r"$T_{\rm eff}$ (K, other)",
+        feh_cb_label,
+        lims=(3500,5100),
         cmap="viridis",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=teff_ticks,)
 
     # Mann+15 [Fe/H]
     plot_std_comp_generic(
-        fig,
+        fig_feh,
         ax_feh_m15, 
         obs_join["feh_synth"],
         obs_join["e_feh_synth"],
@@ -1538,11 +1589,12 @@ def plot_std_comp(
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=feh_ticks,)
     
     # Rojas-Ayala+12 [Fe/H]
     plot_std_comp_generic(
-        fig,
+        fig_feh,
         ax_feh_ra12, 
         obs_join["feh_synth"],
         obs_join["e_feh_synth"],
@@ -1554,11 +1606,12 @@ def plot_std_comp(
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=feh_ticks,)
 
     # CPM [Fe/H]
     plot_std_comp_generic(
-        fig,
+        fig_feh,
         ax_feh_cpm, 
         obs_join["feh_synth"],
         obs_join["e_feh_synth"],
@@ -1570,11 +1623,12 @@ def plot_std_comp(
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=feh_ticks,)
 
     # Other [Fe/H]
     plot_std_comp_generic(
-        fig,
+        fig_feh,
         ax_feh_other, 
         obs_join["feh_synth"],
         obs_join["e_feh_synth"],
@@ -1586,13 +1640,22 @@ def plot_std_comp(
         r"$T_{\rm eff}\,$K (fit)",
         lims=feh_lims,
         cmap="magma",
-        show_offset=show_offset,)
+        show_offset=show_offset,
+        ticks=feh_ticks,)
 
-    fig.suptitle(title_text)
-    plt.gcf().set_size_inches(16, 8)
-    plt.tight_layout()
-    plt.savefig("paper/std_comp{}.pdf".format(fn_suffix))
-    plt.savefig("paper/std_comp{}.png".format(fn_suffix))
+    #fig.suptitle(title_text)
+
+    # Save Teff plot
+    fig_teff.set_size_inches(16, 3)
+    fig_teff.tight_layout()
+    fig_teff.savefig("paper/std_comp_teff{}.pdf".format(fn_suffix))
+    fig_teff.savefig("paper/std_comp_teff{}.png".format(fn_suffix))
+
+    # Save [Fe/H] plot
+    fig_feh.set_size_inches(16, 3)
+    fig_feh.tight_layout()
+    fig_feh.savefig("paper/std_comp_feh{}.pdf".format(fn_suffix))
+    fig_feh.savefig("paper/std_comp_feh{}.png".format(fn_suffix))
 
 
 def plot_teff_comp(
@@ -2001,7 +2064,7 @@ def plot_representative_spectral_model_limitations(
     red_conv_res=0.44*10,):
     """Plots the observed, MARCS literature, and closest BT-Settl spectra with
     overplotted filters to compare. Some sample stars:
-    
+
         ~3000 K --> Gl 447 (Gaia DR2 3796072592206250624)
         ~3500 K --> Gl 876 (Gaia DR2 2603090003484152064 )
         ~4000 K --> PM I12507-0046 (Gaia DR2 3689602277083844480)

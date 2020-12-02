@@ -259,6 +259,10 @@ for ob_i in range(0, len(observations)):
     # Check if our [Fe/H] is undefined, and if so set to the SL10 value
     if np.isnan(params_init["feh"]):
         params_init["feh"] = mean_solar_neighbourhood_feh
+    
+    # And make sure we're within the grid boundaries
+    elif params_init["feh"] > 0.5:
+        params_init["feh"] = 0.5
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Wavelength masks
@@ -328,7 +332,7 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 1], # Red spec
         spectra_r[ob_i, 2], # Red uncertainties
         bad_px_mask_r,
-        params_init, 
+        params_init.copy(), 
         observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
         idl,
@@ -384,7 +388,7 @@ for ob_i in range(0, len(observations)):
             spectra_r[ob_i, 1], # Red spec
             spectra_r[ob_i, 2], # Red uncertainties
             bad_px_mask_r,
-            params_init, 
+            params_init.copy(), 
             observations.iloc[ob_i]["rv"], 
             observations.iloc[ob_i]["bcor"],
             idl,
