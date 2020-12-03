@@ -1345,7 +1345,8 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 # Comparisons & other paper plots
 # ----------------------------------------------------------------------------- 
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
-    lit_label, cb_label, lims, cmap, show_offset, ticks,):
+    lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
+    resid_y_lims=None,):
     """
     Parameters
     ----------
@@ -1381,8 +1382,12 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     cb = fig.colorbar(sc, ax=axis)
     cb.set_label(cb_label)
 
+    # Split lims if we've been given different x and y limits
+    lim_min = np.min([x_lims[0], y_lims[0]])
+    lim_max = np.min([x_lims[1], y_lims[1]])
+
     # Plot 1:1 line
-    xx = np.arange(lims[0], lims[1], (lims[1]-lims[0])/100)
+    xx = np.arange(lim_min, lim_max, (lim_max-lim_min)/100)
     axis.plot(xx, xx, "k--", zorder=0)
 
     # Plot residuals
@@ -1410,14 +1415,14 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     # Plot 0 line
     plt.setp(axis.get_xticklabels(), visible=False)
-    resid_ax.hlines(0, lims[0], lims[1], linestyles="--", zorder=0)
+    resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0)
 
     resid_ax.set_xlabel(lit_label)
     axis.set_ylabel(fit_label)
 
-    axis.set_xlim(lims)
-    resid_ax.set_xlim(lims)
-    axis.set_ylim(lims)
+    axis.set_xlim(x_lims)
+    resid_ax.set_xlim(x_lims)
+    axis.set_ylim(y_lims)
 
     #axis.set_aspect("equal")
 
@@ -1431,13 +1436,17 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
     axis.yaxis.set_major_locator(plticker.MultipleLocator(base=ticks[0]))
 
+    # Set limits on y residuals if given
+    if resid_y_lims is not None:
+        resid_ax.set_ylim(resid_y_lims)
+
     # Show mean and std
     if show_offset:
         mean_offset = np.nanmean(fit - lit)
         std = np.nanstd(fit - lit)
         axis.text(
-            x=np.mean(lims), 
-            y=0.95*lims[1], 
+            x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
+            y=0.05*(y_lims[1]-y_lims[0])+y_lims[0], 
             s=r"${:0.2f}\pm {:0.2f}$".format(mean_offset, std),
             horizontalalignment="center")
 
@@ -1445,13 +1454,12 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 def plot_std_comp(
     observations, 
     std_info,
-    teff_lims=[3000,4600],
-    feh_lims=[-1.4,0.75],
     show_offset=False,
     fn_suffix="",
     title_text="",
     teff_ticks=(500,250,150,75),
-    feh_ticks=(0.5,0.25,0.3,0.15),
+    feh_ticks=(0.5,0.25,0.6,0.3),
+    feh_resid_y_lims=(-0.8,1.5),
     feh_cb_label="[Fe/H] (phot)",):
     """Plot 2x3 grid of Teff and [Fe/H] literature comparisons.
         1 - Mann+15 Teffs
@@ -1519,7 +1527,8 @@ def plot_std_comp(
         r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, Mann+15)",
         "[Fe/H] (phot)",
-        lims=(2800,4300),
+        x_lims=(2800,4300),
+        y_lims=(2800,4300),
         cmap="viridis",
         show_offset=show_offset,
         ticks=teff_ticks,)
@@ -1536,7 +1545,8 @@ def plot_std_comp(
         r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, Rojas-Ayala+12)",
         feh_cb_label,
-        lims=(2800,4300),
+        x_lims=(2800,4300),
+        y_lims=(2800,4300),
         cmap="viridis",
         show_offset=show_offset,
         ticks=teff_ticks,)
@@ -1553,7 +1563,8 @@ def plot_std_comp(
         r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, interferometric)",
         feh_cb_label,
-        lims=(2800,5100),
+        x_lims=(2800,5100),
+        y_lims=(2800,5100),
         cmap="viridis",
         show_offset=show_offset,
         ticks=teff_ticks,)
@@ -1570,7 +1581,8 @@ def plot_std_comp(
         r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, other)",
         feh_cb_label,
-        lims=(3500,5100),
+        x_lims=(3500,5100),
+        y_lims=(3500,5100),
         cmap="viridis",
         show_offset=show_offset,
         ticks=teff_ticks,)
@@ -1587,10 +1599,12 @@ def plot_std_comp(
         r"[Fe/H] (fit)",
         r"[Fe/H] (Mann+15)",
         r"$T_{\rm eff}\,$K (fit)",
-        lims=feh_lims,
+        x_lims=(-0.65,0.6),
+        y_lims=(-0.95,0.6),
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        resid_y_lims=(-0.8,1.5),)
     
     # Rojas-Ayala+12 [Fe/H]
     plot_std_comp_generic(
@@ -1604,10 +1618,12 @@ def plot_std_comp(
         r"[Fe/H] (fit)",
         r"[Fe/H] (Rojas-Ayala+12)",
         r"$T_{\rm eff}\,$K (fit)",
-        lims=feh_lims,
+        x_lims=(-0.8,0.6),
+        y_lims=(-1.2,0.6),
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        resid_y_lims=(-0.8,1.2),)
 
     # CPM [Fe/H]
     plot_std_comp_generic(
@@ -1621,10 +1637,12 @@ def plot_std_comp(
         r"[Fe/H] (fit)",
         r"[Fe/H] (CPM)",
         r"$T_{\rm eff}\,$K (fit)",
-        lims=feh_lims,
+        x_lims=(-1.2,0.6),
+        y_lims=(-1.2,0.6),
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        resid_y_lims=(-0.8,0.7),)
 
     # Other [Fe/H]
     plot_std_comp_generic(
@@ -1638,10 +1656,12 @@ def plot_std_comp(
         r"[Fe/H] (fit)",
         r"[Fe/H] (other)",
         r"$T_{\rm eff}\,$K (fit)",
-        lims=feh_lims,
+        x_lims=(-1.1,0.6),
+        y_lims=(-0.95,0.6),
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        resid_y_lims=(-1.0,1.05),)
 
     #fig.suptitle(title_text)
 
@@ -2113,8 +2133,8 @@ def plot_representative_spectral_model_limitations(
         wl_f, fp = synth.load_filter_profile(filt, 3000, 7000, do_zero_pad=True)
         plt.plot(wl_f, fp*2, linewidth=1.0, label=r"${}$".format(lbl), zorder=3)
 
-    plt.xlabel("Wavelength (A)")
-    plt.ylabel("Flux (Normalised)")
+    plt.xlabel(r"Wavelength (\AA)")
+    plt.ylabel(r"$f_\lambda$ (Normalised)")
     plt.xlim(3200, 7000)
     plt.legend(loc="upper center", ncol=8)
     plt.gcf().set_size_inches(9, 2.5)
