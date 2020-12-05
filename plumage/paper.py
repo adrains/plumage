@@ -19,7 +19,8 @@ if not os.path.isdir(plot_dir):
 def make_table_final_results(
     break_row=45, 
     logg_col="logg_m19",
-    exp_scale=-12):
+    exp_scale=-12,
+    tic_info=None,):
     """Make the final results table to display the angular diameters and 
     derived fundamental parameters.
 
@@ -29,9 +30,10 @@ def make_table_final_results(
         Which row to break table 1 at and start table 2.
     """
     # Load in observations, TIC, and TOI info
-    observations = utils.load_fits_obs_table("TESS", path="spectra")
-    tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
-    toi_info = utils.load_exofop_toi_cat()
+    observations = utils.load_fits_table("OBS_TAB", "TESS", path="spectra")
+    
+    if tic_info is None:
+        tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
 
     comb_info = observations.join(tic_info, "source_id", rsuffix="_info")
     comb_info.sort_values("teff_synth", inplace=True)
@@ -43,6 +45,7 @@ def make_table_final_results(
         (r"[Fe/H]", ""),
         (r"$M$", "($M_\odot$)"),
         (r"$R$", "($R_\odot$)"),
+        (r"$m_{\rm bol}$", ""),
         (r"$f_{\rm bol}$", 
          r"(10$^{%i}\,$ergs s$^{-1}$ cm $^{-2}$)" % exp_scale),
         (r"$L$", "($L_\odot$)"),
@@ -81,29 +84,38 @@ def make_table_final_results(
         # Step through column by column
         table_row += "%s & " % star["TIC"]
 
-        # Fitted spectroscopic params
+        # Temperature
         table_row += r"{:0.0f} $\pm$ {:0.0f} & ".format(
             star["teff_synth"], star["e_teff_synth"])
 
         table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
             star[logg_col], star["e_{}".format(logg_col)])
 
-        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
-            star["feh_synth"], star["e_feh_synth"])
+        # Photometric [Fe/H]
+        if np.isnan(star["phot_feh"]):
+            table_row += "- &"
+        else:
+            table_row += r"{:0.2f} &".format(star["phot_feh"])
 
+        # Mass and radius
         table_row += r"{:0.3f} $\pm$ {:0.2f} &".format(
             star["mass_m19"], star["e_mass_m19"])
 
         table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
             star["radius"], star["e_radius"])
 
+        # Bolometric magnitude
+        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
+            star["mbol_synth"], star["e_mbol_synth"])
+
         # For fbol representation, split mantissa and exponent
         table_row += r"{:5.1f} $\pm$ {:0.1f} &".format(
-            star["f_bol_avg"] / 10**exp_scale, 
-            star["e_f_bol_avg"] / 10**exp_scale)
+            star["fbol"] / 10**exp_scale, 
+            star["e_fbol"] / 10**exp_scale)
         
+        # Luminosity
         table_row += r"{:0.3f} $\pm$ {:0.3f} ".format(
-            star["lum"], star["e_lum"])
+            star["L_star"], star["e_L_star"])
 
         table_rows.append(table_row + r"\\")
         

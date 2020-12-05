@@ -17,14 +17,17 @@ label = "tess"
 spec_path =  "spectra"
 
 # Load in literature info for our stars
-tic_info = utils.load_info_cat(remove_fp=True, only_observed=True).reset_index()
+tic_info = utils.load_info_cat(
+    remove_fp=True,
+    only_observed=True,
+    use_mann_code_for_masses=True,).reset_index()
 tic_info.set_index("TIC", inplace=True)
 
 # Load NASA ExoFOP info on TOIs
 toi_info = utils.load_exofop_toi_cat(do_ctoi_merge=True)
 
 # Load in info on observations and fitting results
-observations = utils.load_fits_table("OBS_TAB", label, path=spec_path)
+observations = utils.load_fits_table("OBS_TAB", label, path=spec_path,)
 
 # Load in lightcurves
 light_curves = transit.load_all_light_curves(tic_info.index.values)
@@ -58,6 +61,11 @@ binsize = 10
 bin_lightcurve = True
 break_tolerance = dt * binsize * 18
 
+# List of bad regions to exclude
+bad_btjds_dict = {
+    261108236:(1700,2060)
+}
+
 # -----------------------------------------------------------------------------
 # Do fitting
 # -----------------------------------------------------------------------------
@@ -69,7 +77,8 @@ all_fits = {}
 result_cols = ["sma", "e_sma", "sma_rstar", "e_sma_rstar", "rp_rstar_fit", 
                "e_rp_rstar_fit",  "sma_rstar_fit", "e_sma_rstar_fit", 
                "inclination_fit", "e_inclination_fit", "rp_fit", "e_rp_fit", 
-               "window_length", "niters_flat", "rchi2"]
+               "window_length", "niters_flat", "rchi2", "period_fit", 
+               "e_period_fit"]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
@@ -85,6 +94,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     print("{}\n{}/{} - TOI {} (TIC {})\n{}".format(
         "-"*40, toi_i+1, len(toi_info), toi, tic, "-"*40))
     
+    # Import light curve
     if light_curves[tic] is None:
         print("Skipping: No light curve\n")
         all_fits[toi] = None
@@ -93,14 +103,28 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         print("Skipping: No transit duration\n")
         all_fits[toi] = None
         continue
-    #elif toi != 1073.01:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi != 142.01:#elif toi != 468.01:#270.02: #406.01:#
     #    continue
+    # Otherwise, we can go ahead and import the light curve
     else:
-        # Bin lightcurve
+        lightcurve = light_curves[tic]
+
+        # Exclude any bad data
+        if tic in bad_btjds_dict:
+            mask = np.logical_or(
+                lightcurve.time < bad_btjds_dict[tic][0],
+                lightcurve.time > bad_btjds_dict[tic][1])
+
+            lightcurve = lightcurve[mask]
+
+            # Save back to dict
+            light_curves[tic] = lightcurve
+
+        # Bin and remove nans
         if bin_lightcurve:
-            lightcurve = light_curves[tic].remove_nans().bin(binsize=binsize)
+            lightcurve = lightcurve.remove_nans().bin(binsize=binsize)
         else:
-            lightcurve = light_curves[tic].remove_nans()
+            lightcurve = lightcurve.remove_nans()
 
     # Calculate semi-major axis and scaled semimajor axis
     if np.isnan(toi_row["Period error"]):
@@ -114,7 +138,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         toi_row["Period (days)"],
         e_period,
         toi_row["radius"],
-        toi_row["e_radius"]*e_radius_mult,
+        toi_row["e_radius"],#*e_radius_mult,
         )
     
     # Get mask for all transits with this system
@@ -176,6 +200,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     e_param_cols = ["e_rp_rstar_fit", "e_sma_rstar_fit", "e_inclination_fit"]
     result_df.loc[toi][e_param_cols] = opt_res["std"]
+
+    result_df.loc[toi]["period_fit"] = opt_res["period_fit"]
+    result_df.loc[toi]["e_period_fit"] = opt_res["e_period_fit"]
 
     # Save details of flattening + fit
     result_df.loc[toi]["rchi2"] = opt_res["rchi2"]

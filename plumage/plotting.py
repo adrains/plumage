@@ -2223,7 +2223,8 @@ def plot_label_comparison(
 # -----------------------------------------------------------------------------
 # Planet plots
 # ----------------------------------------------------------------------------- 
-def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,):
+def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
+    plot_poisson_errors=True,):
     """Plots a histogram of stellar radii.
 
     Parameters
@@ -2241,10 +2242,31 @@ def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,):
     max_rp = np.max(lc_results["rp_fit"])
     bin_edges = np.arange(min_rp, max_rp+bin_width, bin_width)
 
-    axis.hist(lc_results["rp_fit"], bins=bin_edges)
+    nn, bins, _ = axis.hist(
+        lc_results["rp_fit"], 
+        bins=bin_edges,
+        linewidth=0.4,
+        edgecolor="black",
+        zorder=0)
+
+    if plot_poisson_errors:
+        bin_mids = 0.5*(bins[1:] + bins[:-1])
+        axis.errorbar(
+            bins[1:]-bin_width/2, 
+            nn, 
+            yerr=np.sqrt(nn), 
+            fmt='none', 
+            zorder=1,
+            linewidth=0.3,
+            e_linewidth=0.00005,
+            ecolor="red",
+            barsabove=True,
+            capsize=1,)
 
     axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
     axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
+
+    axis.set_xlim(bins[0], 17)
 
     axis.set_xlabel(r"Planet radius ($R_E$)")
     axis.set_ylabel("# Planets")
@@ -2545,6 +2567,12 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
             or np.all(np.isnan(toi_row[param_cols].astype(float)))):
             continue
 
+        # Use fitted period if we calculated it
+        if not np.isnan(toi_row["period_fit"]):
+            period = toi_row["period_fit"]
+        else:
+            period = toi_row["Period (days)"]
+
         #if toi_row["rp_rstar_fit"] < 0.1:
         #    continue 
 
@@ -2577,7 +2605,7 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
             mask=mask)
 
         # Phase fold the light curve
-        folded_lc = clean_lc.fold(period=toi_row["Period (days)"], t0=t0)
+        folded_lc = clean_lc.fold(period=period, t0=t0)
 
         #lightcurve = lightcurve.bin(binsize=binsize)
         #folded_lc = lightcurve.fold(
@@ -2605,13 +2633,13 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
             bm_params,
             bm_model, 
             bm_lightcurve, 
-            toi_row["Period (days)"], 
+            period, 
             t0, 
             toi_row["Duration (hours)"]/24,)
 
         # Set title
         title = (r"TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,"
-                 r"R_\odot$, T = {:0.2f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
+                 r"R_\odot$, T = {:0.5f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
                  r"$R_P$ = {:0.2f} $R_E$, "
                  r"$\frac{{a}}{{R_*}} = {:0.2f}$, $i = {:0.2f}]$")
 
@@ -2620,7 +2648,7 @@ def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
         title = title.format(toi, 
                      toi_row["teff_synth"], 
                      toi_row["radius"],
-                     toi_row["Period (days)"],
+                     period,
                      toi_row["rp_rstar_fit"],
                      toi_row["rp_fit"],
                      toi_row["sma_rstar_fit"],

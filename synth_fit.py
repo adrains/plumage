@@ -43,6 +43,10 @@ use_blue_spectra = False
 # Whether to include photometry in fit
 include_photometry = True
 
+# Teff uncertainty to add in quadrature with our statistical uncertainty
+e_teff_syst = 30
+e_mbol_syst = 2.5*np.log10(1.01)    # 1% uncertainty
+
 filter_defs = np.array([
     # [filt, use, error, mag_col, e_mag_col],
     ["Bp", True, 1.05, "Bp_mag_offset", "e_Bp_mag"],
@@ -67,7 +71,7 @@ phot_band_cols = filter_defs[:,3].astype(str)
 e_phot_band_cols = filter_defs[:,4].astype(str)
 
 # Scale factor for synthetic colour residuals
-phot_scale_fac = 1
+phot_scale_fac = 20
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(cat_label)
@@ -353,21 +357,24 @@ for ob_i in range(0, len(observations)):
 
     # Do a second pass of fitting
     if do_iterative_fit:
-        # Calculate radius via fbol
+        # Calculate radius via fbol, adding systematic uncertainty in 
+        # quadrature
         fbol_prelim, e_fbol_prelim = params.calc_f_bol_from_mbol(
             opt_res["Mbol"], 
-            opt_res["e_Mbol"])
+            np.sqrt(opt_res["e_Mbol"]**2 + e_mbol_syst**2))
 
+        # Calculate interim radii, making sure to add systematic Teff 
+        # uncertainty in quadrature
         rad_prelim, e_rad_prelim = params.calc_radii(
             opt_res["teff"],
-            opt_res["e_teff"],
+            np.sqrt(opt_res["e_teff"]**2 + e_teff_syst**2),
             fbol_prelim,
             e_fbol_prelim, 
             star_info["dist"],
             star_info["e_dist"],)
 
         # Recalculate logg
-        logg_prelim, e_logg_prelim = params.compute_logg(
+        logg_interim, e_logg_interim = params.compute_logg(
             star_info["mass_m19"],
             star_info["e_mass_m19"],
             rad_prelim,
@@ -377,10 +384,10 @@ for ob_i in range(0, len(observations)):
         print("Doing second pass of fitting with updated logg")
         print("{:0.2f} --> {:0.2f}\n".format(
             params_init["logg"], 
-            float(logg_prelim)))
+            float(logg_interim)))
 
         # Update logg
-        params_init["logg"] = float(logg_prelim)
+        params_init["logg"] = float(logg_interim)
 
         # And do second pass of fitting
         opt_res = synth.do_synthetic_fit(
@@ -410,17 +417,25 @@ for ob_i in range(0, len(observations)):
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Sort out results
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Add systematic Teff uncertainty in quadrature
     teff_synth[ob_i] = opt_res["teff"]
-    e_teff_synth[ob_i] = opt_res["e_teff"]
+    e_teff_synth[ob_i] = np.sqrt(opt_res["e_teff"]**2 + e_teff_syst**2)
 
-    logg_synth[ob_i] = opt_res["logg"]
-    e_logg_synth[ob_i] = opt_res["e_logg"]
+    # If we fit for logg (or didn't do an interim fit), record the initial
+    # value, likely from Mann+19. Otherwise take the interim ones.
+    if fit_for_params["logg"] or not do_iterative_fit:
+        logg_synth[ob_i] = opt_res["logg"]
+        e_logg_synth[ob_i] = opt_res["e_logg"]
+    else:
+        logg_synth[ob_i] = logg_interim
+        e_logg_synth[ob_i] = e_logg_interim
 
     feh_synth[ob_i] = opt_res["feh"]
     e_feh_synth[ob_i] = opt_res["e_feh"]
 
+    # Add mbol systematic uncertainty in quadrature
     mbol_synth[ob_i] = opt_res["Mbol"]
-    e_mbol_synth[ob_i] = opt_res["e_Mbol"]
+    e_mbol_synth[ob_i] = np.sqrt(opt_res["e_Mbol"]**2 + e_mbol_syst**2)
 
     fit_results.append(opt_res)
     synth_fits_r[ob_i] = opt_res["spec_synth_r"]
@@ -431,14 +446,14 @@ for ob_i in range(0, len(observations)):
         synth_fits_b[ob_i] = opt_res["spec_synth_b"]
 
     print("\n---Result---")
-    print("Teff = {:0.0f} +/- {:0.0f} K,".format(opt_res["teff"], 
-                                                 opt_res["e_teff"]), 
-          "logg = {:0.2f} +/- {:0.2f},".format(opt_res["logg"], 
-                                               opt_res["e_logg"]), 
-          "[Fe/H] = {:+0.2f} +/- {:0.2f},".format(opt_res["feh"], 
-                                                   opt_res["e_feh"]),
-          "m_bol = {:0.3f} +/- {:0.3f}\n".format(opt_res["Mbol"], 
-                                                   opt_res["e_Mbol"]),)
+    print("Teff = {:0.0f} +/- {:0.0f} K,".format(
+            teff_synth[ob_i], e_teff_synth[ob_i]), 
+          "logg = {:0.2f} +/- {:0.2f},".format(
+              logg_synth[ob_i], e_logg_synth[ob_i]), 
+          "[Fe/H] = {:+0.2f} +/- {:0.2f},".format(
+              feh_synth[ob_i], e_feh_synth[ob_i]),
+          "m_bol = {:0.3f} +/- {:0.3f}\n".format(
+              mbol_synth[ob_i], e_mbol_synth[ob_i]),)
 
     # Grab synthetic photometry
     synth_phot = opt_res["synth_phot"]

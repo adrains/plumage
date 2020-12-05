@@ -145,6 +145,148 @@ def load_all_light_curves(tic_ids):
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # -----------------------------------------------------------------------------
+def compute_lc_resid_for_period_fitting(
+    params,
+    t0,
+    clean_lc,
+    bm_lightcurve,
+    trans_dur,
+    n_trans_dur,
+    verbose,):
+    """Fold light curve on given period, and compute residuals
+    """
+    # Extract period
+    period = params[0]
+
+    #print(period)
+
+    # Fold
+    folded_lc = clean_lc.fold(period=period, t0=t0)
+
+    # Clean flux and uncertainties
+    flux = folded_lc.flux
+    e_flux = folded_lc.flux_err
+
+    bad_flux_mask = ~np.isfinite(flux)
+
+    e_flux[bad_flux_mask] = np.inf
+    flux[bad_flux_mask] = 1
+
+    # Calculate scaled residuals
+    resid = (flux - bm_lightcurve) / e_flux
+
+    # Only consider the transit duration itself. Need to convert the transit 
+    # duration to units of phase
+    td = trans_dur / period
+
+    mask = np.logical_and(
+        folded_lc.time > -0.5*n_trans_dur*td, 
+        folded_lc.time < 0.5*n_trans_dur*td)
+
+    resid[~mask] = 0
+
+    # Print
+    if verbose:
+        chi2 = np.sum(resid**2) / (len(resid)-len(params))
+        print("T = {:0.5f}, chi^2 = {:0.4f}".format(period, chi2))
+
+    return resid
+
+
+def fit_period(
+    t0,
+    period_init,
+    sma_rstar,
+    inclination,
+    ld_model,
+    ld_coeff,
+    trans_dur,
+    clean_lc,
+    n_trans_dur,
+    period_bounds_frac=0.01,
+    rp_r_star=None,
+    verbose=True,
+    do_plot=False,):
+    """Fit for the transit orbital period
+    """
+    # Convert between BJD and TESS BJD
+    if t0 > BTJD_OFFSET:
+        t0 -= BTJD_OFFSET
+    
+    if verbose:
+        print("Fitting period")
+
+    # Intial folding lightcurve
+    folded_lc_init = clean_lc.fold(period=period_init, t0=t0)
+
+    transit_mask = np.logical_and(
+        folded_lc_init.time < trans_dur/period_init/8,
+        folded_lc_init.time > -trans_dur/period_init/8)
+
+    # If we haven't been given a guess for Rp/R*, use the depth
+    if rp_r_star is None:
+        depth = 1-np.nanmean(folded_lc_init.flux[transit_mask])
+
+        if depth < 0:
+            rp_r_star = 0.01
+        else:
+            rp_r_star = np.sqrt(depth)
+
+    # Create initial lightcurve model
+    bm_params, bm_model, bm_lightcurve = initialise_bm_model(
+        t0=0,
+        period=1,
+        rp_rstar=rp_r_star,
+        sma_rstar=sma_rstar,
+        inclination=inclination,
+        ecc=0,
+        omega=90,
+        ld_model=ld_model,
+        ld_coeff=ld_coeff,
+        time=folded_lc_init.time,)
+
+    # Initial fit params
+    init_params = np.array([period_init])
+    pm_period = period_init*period_bounds_frac
+    bounds = ((period_init-pm_period), (period_init+pm_period))
+
+    args = (t0, clean_lc, bm_lightcurve, trans_dur, n_trans_dur, verbose)
+
+    #scale = (1, 1, 1)
+    step = (0.0005)
+
+    # Do fit
+    opt_res = least_squares(
+        compute_lc_resid_for_period_fitting, 
+        init_params, 
+        jac="3-point",
+        bounds=bounds,
+        #x_scale=scale,
+        diff_step=step,
+        args=args, 
+    )
+
+    # Calculate uncertainties
+    jac = opt_res["jac"]
+    res = opt_res["fun"]
+    
+    cov = np.linalg.inv(jac.T.dot(jac))
+    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+
+    opt_res["cov"] = cov
+    opt_res["std"] = std
+
+    # Plot
+    if do_plot:
+        folded_lc = clean_lc.fold(period=float(opt_res["x"]), t0=t0)
+        plt.close("all")
+        ax = folded_lc.errorbar() 
+        folded_lc.scatter(ax=ax) 
+        ax.plot(folded_lc.time, bm_lightcurve, "r-")
+
+    return opt_res
+
+
 def initialise_bm_model(t0, period, rp_rstar, sma_rstar, inclination, ecc, 
     omega, ld_model, ld_coeff, time, fac=1e-4):
     """Generates batman params, model, and light curve given orbital 
@@ -418,6 +560,33 @@ def fit_light_curve(
         break_tolerance=100,
         mask=mask)
 
+    # TODO move this to another function
+    # If the lightcurve has data from sectors widely spaced in time (more than
+    # a year), fit for the period as the given values are often wrong.
+    period_fitted = False
+
+    if (clean_lc.time[-1] - clean_lc.time[0]) > 365:
+        opt_res_period_fit = fit_period(
+            t0=t0,
+            period_init=period,
+            sma_rstar=sma_rstar,
+            inclination=90,
+            ld_model=ld_model,
+            ld_coeff=ld_coeff,
+            trans_dur=trans_dur, 
+            clean_lc=clean_lc, 
+            n_trans_dur=4,) 
+        
+        new_period = float(opt_res_period_fit["x"])
+        e_period = opt_res_period_fit["std"]
+        
+        print("Fitted period, {:0.5f} --> {:0.5f} days".format(
+            period, new_period))
+
+        period = new_period
+        
+        period_fitted = True
+
     # Phase fold the light curve
     folded_lc = clean_lc.fold(period=period, t0=t0)
 
@@ -510,6 +679,13 @@ def fit_light_curve(
     rchi2 = np.sum(opt_res["fun"]**2) / (np.sum(~(opt_res["fun"] == 0))-3)
 
     # Add extra info to fit dictionary
+    if period_fitted:
+        opt_res["period_fit"] = period
+        opt_res["e_period_fit"] = e_period
+    else:
+        opt_res["period_fit"] = np.nan
+        opt_res["e_period_fit"] = np.nan
+
     opt_res["folded_lc"] = folded_lc
     opt_res["window_length"] = window_length
     opt_res["niters_flat"] = niters_flat
