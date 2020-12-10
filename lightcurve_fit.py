@@ -49,9 +49,6 @@ mean_e_period = 10 / 60 / 24
 # Amount of lightcurve to fit to inn units of transit duration
 n_trans_dur = 1.2
 
-# Inflate the error on our fitted stellar radii
-e_radius_mult = 10
-
 # Min window size for flattening in days
 t_min = 8/24
 
@@ -138,7 +135,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         toi_row["Period (days)"],
         e_period,
         toi_row["radius"],
-        toi_row["e_radius"],#*e_radius_mult,
+        toi_row["e_radius"],
         )
     
     # Get mask for all transits with this system
@@ -183,8 +180,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     r_e = const.R_sun.si.value / const.R_earth.si.value
     
     r_p = rp_rstar_fit * toi_row["radius"] * r_e
-    e_r_p = r_p * np.sqrt((e_radius_mult*toi_row["e_radius"]/toi_row["radius"])**2
-                           + (e_rp_rstar_fit/rp_rstar_fit)**2) * r_e
+    e_r_p = r_p * np.sqrt(
+        (toi_row["e_radius"]/toi_row["radius"])**2
+        + (e_rp_rstar_fit/rp_rstar_fit)**2)
 
     # Record fit dictionaries
     all_fits[toi] = opt_res
@@ -234,6 +232,10 @@ print("TOIs: {}\n".format(str(list(toi_info.index[nan_mask]))))
 print("{} TOI fits unfeasibly small".format(len(toi_info[small_mask])))
 print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
 
+# Save results
+toi_info.index.set_names(["TOI"], inplace=True)
+utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
+
 # Plotting
 pplt.plot_all_lightcurve_fits(
     light_curves,
@@ -247,7 +249,3 @@ pplt.plot_all_lightcurve_fits(
 pplt.merge_spectra_pdfs(
     "plots/lc_diagnostics/*.pdf", 
     "plots/lc_diagnostics.pdf",) 
-
-# Save results
-toi_info.index.set_names(["TOI"], inplace=True)
-utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")

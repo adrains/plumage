@@ -1346,7 +1346,7 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 # ----------------------------------------------------------------------------- 
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
     lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
-    resid_y_lims=None,):
+    resid_y_lims=None, plot_scatter=True,ms=2):
     """
     Parameters
     ----------
@@ -1375,12 +1375,21 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         Whether to plot the median uncertainty as text.
     """
     # Plot error bars with overplotted scatter points + colour bar
-    axis.errorbar(lit, fit, xerr=e_lit, yerr=e_fit, fmt=".", zorder=0,)
+    axis.errorbar(
+        lit, 
+        fit, 
+        xerr=e_lit,
+        yerr=e_fit,
+        fmt=".",
+        zorder=0,
+        ecolor="black",
+        markersize=ms,)
 
-    sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
+    if plot_scatter:
+        sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
 
-    cb = fig.colorbar(sc, ax=axis)
-    cb.set_label(cb_label)
+        cb = fig.colorbar(sc, ax=axis)
+        cb.set_label(cb_label)
 
     # Split lims if we've been given different x and y limits
     lim_min = np.min([x_lims[0], y_lims[0]])
@@ -1396,14 +1405,25 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     axis.figure.add_axes(resid_ax, sharex=axis)
 
     resid = lit - fit
-    e_resid = np.sqrt(e_lit**2 + e_fit**2)
 
-    resid_ax.scatter(
-        lit,
-        resid,
-        c=colour,
-        cmap=cmap,
-        zorder=1,)
+    # Treat asymmetric errorbars if we have them
+    e_lit = np.asarray(e_lit)
+    
+    if len(e_lit.shape) > 1:
+        e_resid = np.array([
+            np.sqrt(e_lit[0]**2 + e_fit**2),
+            np.sqrt(e_lit[1]**2 + e_fit**2),
+        ])
+    else:
+        e_resid = np.sqrt(e_lit**2 + e_fit**2)
+
+    if plot_scatter:
+        resid_ax.scatter(
+            lit,
+            resid,
+            c=colour,
+            cmap=cmap,
+            zorder=1,)
 
     resid_ax.errorbar(
         lit,
@@ -1411,12 +1431,14 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         xerr=e_lit,
         yerr=e_resid,
         fmt=".",
-        zorder=0,)
+        zorder=0,
+        ecolor="black",
+        markersize=ms,)
 
     # Plot 0 line
     plt.setp(axis.get_xticklabels(), visible=False)
     resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0)
-
+    
     resid_ax.set_xlabel(lit_label)
     axis.set_ylabel(fit_label)
 
@@ -1442,7 +1464,7 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     # Show mean and std
     if show_offset:
-        mean_offset = np.nanmean(fit - lit)
+        mean_offset = np.nanmedian(fit - lit)
         std = np.nanstd(fit - lit)
         axis.text(
             x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
@@ -1949,7 +1971,13 @@ def plot_hr_diagram(
     plt.savefig("paper/tess_hr.png")
 
 
-def plot_radius_comp(observations, info_cat):
+def plot_radius_comp(
+    observations,
+    info_cat,
+    use_interferometric_radii=True,
+    uncertainty_pc_limit=0.05,
+    lims=(0.14,0.81),
+    ms=10):
     """Plot a comparison between our radii determined here vs their Mann+15 
     equivalents. Has colourbar for [Fe/H].
 
@@ -1960,38 +1988,120 @@ def plot_radius_comp(observations, info_cat):
 
     info_cat: pandas.DataFrame
         Corresponding table of stellar literature info.
+    
+    use_interferometric_radii: boolean
     """
     # Table join
     obs_join = observations.join(info_cat, "source_id", rsuffix="_info")
 
+    # 
+    if use_interferometric_radii:
+        label = "Interferometric"
+        lit_radii_col = "radius_int"
+        e_lit_radii_col = "e_radius_int"
+    else:
+        label = "Mann+15"
+        lit_radii_col = "radii_m19"
+        e_lit_radii_col = "e_lit_radii_col"
+
+    # Only take those stars with uncertainties below our threshold
+    e_rad_pc_lit = obs_join[e_lit_radii_col] / obs_join[lit_radii_col]
+
+    obs_join = obs_join[e_rad_pc_lit < uncertainty_pc_limit]
+
     # Plot errors, then coloured [Fe/H] scatter points on top of them
     plt.close("all")
-    plt.errorbar(
-        obs_join["radius"],
-        obs_join["radii_m19"],
-        xerr=obs_join["e_radius"],
-        yerr=obs_join["e_radii_m19"],
-        fmt=".",
-        zorder=0,)
+    fig, axis = plt.subplots()
 
-    sc = plt.scatter(
+    #ms = 0.2
+
+    axis.errorbar(
+        obs_join[lit_radii_col],
         obs_join["radius"],
-        obs_join["radii_m19"],
-        c=obs_join["feh_synth"],
+        xerr=obs_join[e_lit_radii_col],
+        yerr=obs_join["e_radius"],
+        fmt=".",
+        zorder=0,
+        markersize=ms,
+        ecolor="black",)
+
+    sc = axis.scatter(
+        obs_join[lit_radii_col],
+        obs_join["radius"],
+        c=obs_join["K_mag"],
         zorder=1,
+        cmap="plasma",
     )
 
-    cb = plt.colorbar(sc)
-    cb.set_label("[Fe/H]")
+    # Setup lower panel for residuals
+    plt.setp(axis.get_xticklabels(), visible=False)
+    divider = make_axes_locatable(axis)
+    res_ax = divider.append_axes("bottom", size="30%", pad=0)
+    axis.figure.add_axes(res_ax, sharex=axis)
+
+    resid = obs_join[lit_radii_col] - obs_join["radius"]
+    e_resid = np.sqrt(obs_join["e_radius"]**2 + obs_join[e_lit_radii_col]**2)
+
+    res_ax.errorbar(
+        obs_join[lit_radii_col],
+        resid,
+        xerr=obs_join[e_lit_radii_col],
+        yerr=e_resid,
+        fmt=".",
+        zorder=0,
+        markersize=ms,
+        ecolor="black",)
+
+    res_ax.scatter(
+        obs_join[lit_radii_col],
+        resid,
+        c=obs_join["K_mag"],
+        zorder=1,
+        cmap="plasma",
+    )
+
+    # Plot horizonal line
+    res_ax.hlines(
+        0,
+        obs_join[lit_radii_col].min(),
+        obs_join[lit_radii_col].max(),
+        linestyles="--",
+        color="black",
+        zorder=0,)
+
+    cb = plt.colorbar(sc, ax=axis)
+    cb.set_label(r"$K_S$")
 
     # Plot 1:1 line
-    plt.plot(np.arange(0.1,0.9,0.1),np.arange(0.1,0.9,0.1),"--",color="black")
+    axis.plot(
+        np.arange(0.1,0.9,0.1),
+        np.arange(0.1,0.9,0.1),
+        "--",
+        color="black",
+        zorder=0,)
 
-    plt.xlabel(r"Radius fit ($R_\odot$)")
-    plt.ylabel(r"Radius Mann+15 ($R_\odot$)")
+    axis.set_ylabel(r"Radius ($R_\odot$, fit)")
+    res_ax.set_xlabel(r"Radius ($R_\odot$, {})".format(label))
 
-    plt.savefig("paper/radius_comp.pdf")
-    plt.savefig("paper/radius_comp.png")
+    axis.set_xlim(lims)
+    axis.set_ylim(lims)
+    res_ax.set_xlim(lims)
+
+    # Ticks
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
+    axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
+
+    res_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+    res_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
+    res_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.025))
+    res_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
+
+    plt.tight_layout()
+
+    fig.savefig("paper/radius_comp_{}.pdf".format(label))
+    fig.savefig("paper/radius_comp_{}.png".format(label))
 
 
 def plot_fbol_comp(
@@ -2309,8 +2419,14 @@ def plot_confirmed_planet_comparison(
     confirmed_planet_tab="data/known_planets.tsv",
     rp_rstar_lims=(0.01,0.25),
     a_rstar_lims=(1,100),
-    i_lims=(80,100),
-    rp_lims=(0.2,16),):
+    i_lims=(85,91),
+    rp_lims=(0.2,16),
+    rp_rstar_ticks=(0.05,0.025,0.01,0.005),
+    a_rstar_ticks=(20,10,2,1),
+    i_ticks=(1,0.5,1,0.5),
+    rp_ticks=(2,1,1,0.5),
+    show_offset=True,
+    ms=5,):
     """
     """
     # Import literature data of confirmed planets
@@ -2322,6 +2438,90 @@ def plot_confirmed_planet_comparison(
     plt.close("all")
     fig, (rp_rstar_ax, a_rstar_ax, i_ax, rp_ax) = plt.subplots(1,4)
 
+    # Rp/R*
+    plot_std_comp_generic(
+        fig,
+        rp_rstar_ax, 
+        merged_cat["rp_rstar_fit"].values,
+        merged_cat["e_rp_rstar_fit"].values,
+        merged_cat["rp_rstar"].values,
+        [merged_cat["e_rp_rstar_neg"].values, merged_cat["e_rp_rstar_pos"].values],
+        None,
+        r"$R_P/R_*$ (fit)",
+        r"$R_P/R_*$ (literature)",
+        "",
+        x_lims=rp_rstar_lims,
+        y_lims=rp_rstar_lims,
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=rp_rstar_ticks,
+        plot_scatter=False,
+        ms=ms,
+        resid_y_lims=(-0.035,0.035))
+
+    # a/R*
+    plot_std_comp_generic(
+        fig,
+        a_rstar_ax, 
+        merged_cat["sma_rstar_fit"].values,
+        merged_cat["e_sma_rstar_fit"].values,
+        merged_cat["a_rstar"].values,
+        [merged_cat["e_a_rstar_neg"].values, merged_cat["e_a_rstar_pos"].values],
+        None,
+        r"$a/R_*$ (fit)",
+        r"$a/R_*$ (literature)",
+        "",
+        x_lims=a_rstar_lims,
+        y_lims=a_rstar_lims,
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=a_rstar_ticks,
+        plot_scatter=False,
+        ms=ms,
+        resid_y_lims=(-3.5,3.5))
+
+    # inclination
+    plot_std_comp_generic(
+        fig,
+        i_ax, 
+        merged_cat["inclination_fit"].values,
+        merged_cat["e_inclination_fit"].values,
+        merged_cat["i"].values,
+        [merged_cat["e_i_neg"].values, merged_cat["e_i_pos"].values],
+        None,
+        r"$i$ (fit)",
+        r"$i$ (literature)",
+        "",
+        x_lims=i_lims,
+        y_lims=i_lims,
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=i_ticks,
+        plot_scatter=False,
+        ms=ms,
+        resid_y_lims=(-2,2))
+
+    # Rp
+    plot_std_comp_generic(
+        fig,
+        rp_ax, 
+        merged_cat["rp_fit"].values,
+        merged_cat["e_rp_fit"].values,
+        merged_cat["rp"].values,
+        [merged_cat["e_rp_neg"].values, merged_cat["e_rp_pos"].values],
+        None,
+        r"$R_P$ (fit)",
+        r"$R_P$ (literature)",
+        "",
+        x_lims=rp_lims,
+        y_lims=rp_lims,
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=rp_ticks,
+        plot_scatter=False,
+        ms=ms,
+        resid_y_lims=(-1.6,1.6))
+    """
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Plot Rp/R_*
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -2344,7 +2544,7 @@ def plot_confirmed_planet_comparison(
     rp_rstar_ax.set_ylim(rp_rstar_lims)
     rp_rstar_ax.set_aspect(1./rp_rstar_ax.get_data_ratio())
     rp_rstar_ax.set_xlabel(r"$R_P/R_*$ (fit)")
-    rp_rstar_ax.set_ylabel(r"$R_P/R_*$ (literature)")
+    rp_rstar_ax.set_ylabel()
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Plot a/R_*
@@ -2417,7 +2617,7 @@ def plot_confirmed_planet_comparison(
     rp_ax.set_aspect(1./rp_ax.get_data_ratio())
     rp_ax.set_xlabel(r"$R_P$ (fit)")
     rp_ax.set_ylabel(r"$R_P$ (literature)")
-    
+    """
 
     # Wrap up
     plt.gcf().set_size_inches(16, 4)
