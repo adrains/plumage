@@ -7,6 +7,7 @@ import plumage.utils as utils
 import plumage.parameters as params
 from scipy.optimize import least_squares
 import matplotlib.ticker as plticker
+from collections import OrderedDict
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # -----------------------------------------------------------------------------
@@ -50,7 +51,11 @@ plot_resid_trend = False
 # Import and setup
 # -----------------------------------------------------------------------------
 # Import CPM info
-cpm_info = utils.load_info_cat("data/cpm_info.tsv", clean=False, allow_alt_plx=True) 
+cpm_info = utils.load_info_cat(
+    "data/cpm_info.tsv",
+    clean=False,
+    allow_alt_plx=True,
+    use_mann_code_for_masses=False) 
 
 # Only keep reliable pairs
 cpm_info = cpm_info[cpm_info["included"] == "yes"]
@@ -72,7 +77,10 @@ bp_rp_mask = np.logical_and(cpm_info["Bp-Rp"] > 1.5, cpm_info["Bp-Rp"] < 3.5)
 cpm_info = cpm_info[bp_rp_mask]
 
 # Import Mann+15 standards
-m15_data = utils.load_info_cat("data/mann15_all.tsv", clean=False)
+m15_data = utils.load_info_cat(
+    "data/mann15_all.tsv",
+    clean=False,
+    use_mann_code_for_masses=False)
 
 # Remove any entries without gaia photometry or parallaxes
 nan_mask = np.logical_and(~np.isnan(m15_data["Bp_mag"]), ~np.isnan(m15_data["plx"]))
@@ -561,3 +569,95 @@ fig.set_size_inches(9, 2.5)
 fig.tight_layout() 
 fig.savefig("paper/phot_feh_rel.pdf")
 fig.savefig("paper/phot_feh_rel.png")
+
+# -----------------------------------------------------------------------------
+# Table
+# -----------------------------------------------------------------------------
+break_row = 60
+
+cpm_info.sort_values("Bp-Rp", inplace=True)
+
+cols = OrderedDict([
+        ("Gaia DR2 ID (s)", ""),
+        (r"$B_P-R_P$", ""),
+        #(r"$a_4$", ""),
+        ("Gaia DR2 ID (p)", ""),
+        ("[Fe/H] ref", ""),
+        ("[Fe/H] adopted", ""),
+        #(r"$a_3$", ""),
+        #(r"$a_4$", ""),
+        
+])
+                        
+header = []
+header_1 = []
+header_2 = []
+table_rows = []
+footer = []
+notes = []
+
+# Construct the header of the table
+header.append("\\begin{table*}")
+header.append("\\centering")
+header.append("\\label{tab:cpm_feh}")
+
+header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
+header.append("\hline")
+header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
+header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
+header.append("\hline")
+
+# Now add the separate info for the two tables
+header_1 = header.copy()
+caption = ("Stellar pairs and primary [Fe/H] used for photometric [Fe/H] relation")
+header_1.insert(3, "\\caption{{{}}}".format(caption))
+
+#header_2 = header.copy()
+#header_2.insert(3, "\\contcaption{Limb darkening coefficients}")
+
+# Populate the table for every science target
+for star_i, star in cpm_info_feh_corr.iterrows():
+    
+    table_row = ""
+    
+    # Secondary source ID
+    table_row += "{} &".format(star.name)
+
+    # Bp-Rp
+    table_row += r"{:0.2f} & ".format(star["Bp-Rp"])
+
+    # Secondary source ID
+    table_row += "{} &".format(star["HIP"])
+
+    # [Fe/H] source
+    table_row += "{} &".format(star["ref_feh_prim_m13"])
+
+    # [Fe/H] source
+    table_row += r"${:0.2f}\pm{:0.2f}$".format(star["feh_corr"], star["e_feh_corr"])
+    #table_row += r"{:0.3f} & ".format(star["ldc_a2"])
+    #table_row += r"{:0.3f} & ".format(star["ldc_a3"])
+    #table_row += r"{:0.3f} ".format(star["ldc_a4"])
+
+    table_rows.append(table_row + r"\\")
+
+# Finish the table
+footer.append("\hline")
+footer.append("\end{tabular}")
+footer.append("\\end{table*}")
+
+# Write the table/s
+break_rows = np.arange(break_row, len(cpm_info_feh_corr), break_row)
+low_row = 0
+
+for table_i, break_row in enumerate(break_rows):
+    table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+    np.savetxt("paper/table_cpm_feh_{:0.0f}.tex".format(
+        table_i), table_x, fmt="%s")
+    low_row = break_row
+
+# Do final part table
+if low_row < len(cpm_info_feh_corr):
+    table_i += 1
+    table_x = header_1 + table_rows[low_row:] + footer + notes
+    np.savetxt("paper/table_cpm_feh_{:0.0f}.tex".format(
+        table_i), table_x, fmt="%s")
