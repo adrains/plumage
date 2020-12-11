@@ -1077,9 +1077,13 @@ def load_info_cat(
     # Only accept stars that Gaia has not flagged as a duplicate, and those 
     # with RUWE below 1.4 - i.e. the same criteria we used when building the
     # relation to begin with
-    valid_star_mask = np.logical_and(
-        ~info_cat["dup"].astype(bool),
-        info_cat["ruwe"] < 1.4)
+    if "ruwe" in info_cat.columns:
+        valid_star_mask = np.logical_and(
+            ~info_cat["dup"].astype(bool),
+            info_cat["ruwe"] < 1.4)
+    else:
+        print("Warning: no RUWE!")
+        valid_star_mask = ~info_cat["dup"].astype(bool)
 
     phot_feh, e_phot_feh = params.calc_photometric_feh_with_coeff_import(
         info_cat["Bp-K"].values,

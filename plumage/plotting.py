@@ -1346,7 +1346,8 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 # ----------------------------------------------------------------------------- 
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
     lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
-    resid_y_lims=None, plot_scatter=True,ms=2):
+    resid_y_lims=None, plot_scatter=True, ms=2, text_labels=None, 
+    print_labels=False,):
     """
     Parameters
     ----------
@@ -1447,6 +1448,24 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     axis.set_ylim(y_lims)
 
     #axis.set_aspect("equal")
+
+    # Print labels if we've been given them (mostly diagnostic)
+    if print_labels and text_labels is not None:
+        for planet_i in range(len(text_labels)):
+            axis.text(
+                lit[planet_i],
+                fit[planet_i], 
+                text_labels[planet_i],
+                fontsize=5,
+                horizontalalignment="center",)
+            
+            resid_ax.text(
+                lit[planet_i],
+                resid[planet_i], 
+                text_labels[planet_i],
+                fontsize=5,
+                horizontalalignment="center",)
+
 
     # Ticks
     resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
@@ -2419,14 +2438,15 @@ def plot_confirmed_planet_comparison(
     confirmed_planet_tab="data/known_planets.tsv",
     rp_rstar_lims=(0.01,0.25),
     a_rstar_lims=(1,100),
-    i_lims=(85,91),
+    i_lims=(82,91),
     rp_lims=(0.2,16),
     rp_rstar_ticks=(0.05,0.025,0.01,0.005),
     a_rstar_ticks=(20,10,2,1),
     i_ticks=(1,0.5,1,0.5),
     rp_ticks=(2,1,1,0.5),
     show_offset=True,
-    ms=5,):
+    ms=5,
+    print_labels=False,):
     """
     """
     # Import literature data of confirmed planets
@@ -2457,7 +2477,9 @@ def plot_confirmed_planet_comparison(
         ticks=rp_rstar_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-0.035,0.035))
+        resid_y_lims=(-0.035,0.035),
+        text_labels=merged_cat["name"].values,
+        print_labels=print_labels)
 
     # a/R*
     plot_std_comp_generic(
@@ -2478,7 +2500,9 @@ def plot_confirmed_planet_comparison(
         ticks=a_rstar_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-3.5,3.5))
+        resid_y_lims=(-3.5,3.5),
+        text_labels=merged_cat["name"].values,
+        print_labels=print_labels)
 
     # inclination
     plot_std_comp_generic(
@@ -2499,7 +2523,9 @@ def plot_confirmed_planet_comparison(
         ticks=i_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-2,2))
+        resid_y_lims=(-2,2),
+        text_labels=merged_cat["name"].values,
+        print_labels=print_labels)
 
     # Rp
     plot_std_comp_generic(
@@ -2520,104 +2546,9 @@ def plot_confirmed_planet_comparison(
         ticks=rp_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-1.6,1.6))
-    """
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Plot Rp/R_*
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    rp_rstar_ax.errorbar(
-        x=merged_cat["rp_rstar_fit"],
-        y=merged_cat["rp_rstar"],
-        xerr=merged_cat["e_rp_rstar_fit"],
-        yerr=[merged_cat["e_rp_rstar_neg"], merged_cat["e_rp_rstar_pos"]],
-        fmt=".",)
-
-    # Plot 1:1 line
-    xx = np.arange(
-        rp_rstar_lims[0], 
-        rp_rstar_lims[1], 
-        (rp_rstar_lims[1]-rp_rstar_lims[0])/100,)
-    rp_rstar_ax.plot(xx, xx, "--")
-
-    # Axis labels and setup
-    rp_rstar_ax.set_xlim(rp_rstar_lims)
-    rp_rstar_ax.set_ylim(rp_rstar_lims)
-    rp_rstar_ax.set_aspect(1./rp_rstar_ax.get_data_ratio())
-    rp_rstar_ax.set_xlabel(r"$R_P/R_*$ (fit)")
-    rp_rstar_ax.set_ylabel()
-
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Plot a/R_*
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    a_rstar_ax.errorbar(
-        x=merged_cat["sma_rstar_fit"],
-        y=merged_cat["a_rstar"],
-        xerr=merged_cat["e_sma_rstar_fit"],
-        yerr=[merged_cat["e_a_rstar_neg"], merged_cat["e_a_rstar_pos"]],
-        fmt=".",)
-
-    # Plot 1:1 line
-    xx = np.arange(
-        a_rstar_lims[0], 
-        a_rstar_lims[1], 
-        (a_rstar_lims[1]-a_rstar_lims[0])/100,)
-    a_rstar_ax.plot(xx, xx, "--")
-
-    # Axis labels and setup
-    a_rstar_ax.set_xlim(a_rstar_lims)
-    a_rstar_ax.set_ylim(a_rstar_lims)
-    a_rstar_ax.set_aspect(1./a_rstar_ax.get_data_ratio())
-    a_rstar_ax.set_xlabel(r"$a/R_*$ (fit)")
-    a_rstar_ax.set_ylabel(r"$a/R_*$ (literature)")
-
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Plot i
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    i_ax.errorbar(
-        x=merged_cat["inclination_fit"],
-        y=merged_cat["i"],
-        xerr=merged_cat["e_inclination_fit"],
-        yerr=[merged_cat["e_i_neg"], merged_cat["e_i_pos"]],
-        fmt=".",)
-
-    # Plot 1:1 line
-    xx = np.arange(
-        i_lims[0], 
-        i_lims[1], 
-        (i_lims[1]-i_lims[0])/100,)
-    i_ax.plot(xx, xx, "--")
-
-    # Axis labels and setup
-    i_ax.set_xlim(i_lims)
-    i_ax.set_ylim(i_lims)
-    i_ax.set_aspect(1./i_ax.get_data_ratio())
-    i_ax.set_xlabel(r"$i$ (fit)")
-    i_ax.set_ylabel(r"$i$ (literature)")
-
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Plot R_p
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    rp_ax.errorbar(
-        x=merged_cat["rp_fit"],
-        y=merged_cat["rp"],
-        xerr=merged_cat["e_rp_fit"],
-        yerr=[merged_cat["e_rp_neg"], merged_cat["e_rp_pos"]],
-        fmt=".",)
-
-    # Plot 1:1 line
-    xx = np.arange(
-        rp_lims[0], 
-        rp_lims[1], 
-        (rp_lims[1]-rp_lims[0])/100,)
-    rp_ax.plot(xx, xx, "--")
-
-    # Axis labels and setup
-    rp_ax.set_xlim(rp_lims)
-    rp_ax.set_ylim(rp_lims)
-    rp_ax.set_aspect(1./rp_ax.get_data_ratio())
-    rp_ax.set_xlabel(r"$R_P$ (fit)")
-    rp_ax.set_ylabel(r"$R_P$ (literature)")
-    """
+        resid_y_lims=(-1.6,1.6),
+        text_labels=merged_cat["name"].values,
+        print_labels=print_labels)
 
     # Wrap up
     plt.gcf().set_size_inches(16, 4)

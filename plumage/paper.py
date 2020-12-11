@@ -18,9 +18,10 @@ if not os.path.isdir(plot_dir):
 # ----------------------------------------------------------------------------- 
 def make_table_final_results(
     break_row=45, 
-    logg_col="logg_m19",
+    label="tess",
+    logg_col="logg_synth",
     exp_scale=-12,
-    tic_info=None,):
+    info_cat=None,):
     """Make the final results table to display the angular diameters and 
     derived fundamental parameters.
 
@@ -30,16 +31,25 @@ def make_table_final_results(
         Which row to break table 1 at and start table 2.
     """
     # Load in observations, TIC, and TOI info
-    observations = utils.load_fits_table("OBS_TAB", "TESS", path="spectra")
+    observations = utils.load_fits_table("OBS_TAB", label, path="spectra")
     
-    if tic_info is None:
-        tic_info = utils.load_info_cat(remove_fp=True, only_observed=True)  
+    if info_cat is None:
+        info_cat = utils.load_info_cat(
+            remove_fp=True, 
+            in_paper=True,
+            only_observed=True,
+            use_mann_code_for_masses=True,)
 
-    comb_info = observations.join(tic_info, "source_id", rsuffix="_info")
+    if label == "tess":
+        id_col = "TIC"
+    else:
+        id_col = "Gaia DR2"
+
+    comb_info = observations.join(info_cat, "source_id", rsuffix="_info", how="inner")
     comb_info.sort_values("teff_synth", inplace=True)
     
     cols = OrderedDict([
-        ("TIC", ""),
+        (id_col, ""),
         (r"$T_{\rm eff}$", "(K)"),
         (r"$\log g$", ""),
         (r"[Fe/H]", ""),
@@ -61,7 +71,7 @@ def make_table_final_results(
     # Construct the header of the table
     header.append("\\begin{table*}")
     header.append("\\centering")
-    header.append("\\label{tab:final_results}")
+    header.append("\\label{{tab:final_results_{}}}".format(label))
 
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
@@ -82,7 +92,10 @@ def make_table_final_results(
         table_row = ""
         
         # Step through column by column
-        table_row += "%s & " % star["TIC"]
+        if label == "tess":
+            table_row += "%s & " % star["TIC"]
+        else:
+            table_row += "%s & " % star.name
 
         # Temperature
         table_row += r"{:0.0f} $\pm$ {:0.0f} & ".format(
@@ -124,14 +137,22 @@ def make_table_final_results(
     footer.append("\end{tabular}")
     footer.append("\\end{table*}")
     
-    # Write the tables
-    table_1 = header_1 + table_rows[:break_row] + footer + notes
-    table_2 = header_2 + table_rows[break_row:] + footer + notes
+    # Write the table/s
+    break_rows = np.arange(break_row, len(comb_info), break_row)
+    low_row = 0
     
-    np.savetxt("paper/table_final_results_1.tex", table_1, fmt="%s")
-    np.savetxt("paper/table_final_results_2.tex", table_2, fmt="%s")
+    for table_i, break_row in enumerate(break_rows):
+        table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+        np.savetxt("paper/table_final_results_{}_{:0.0f}.tex".format(
+            label, table_i), table_x, fmt="%s")
+        low_row = break_row
 
-        
+    # Do final part table
+    if low_row < len(comb_info):
+        table_i += 1
+        table_x = header_1 + table_rows[low_row:] + footer + notes
+        np.savetxt("paper/table_final_results_{}_{:0.0f}.tex".format(
+            label, table_i), table_x, fmt="%s")
 
 def make_table_targets(break_row=45):
     """Make the LaTeX table to summarise the target information.
@@ -264,9 +285,11 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     if label == "tess":
         id_col = "TIC"
         id_label = "TIC"
+        table_kind = ""
     else:
         id_col = "source_id"
         id_label = "Gaia DR2"
+        table_kind = "*"
 
     cols = OrderedDict([
         (id_label, ""),
@@ -285,9 +308,9 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     
     # Construct the header of the table
     #header.append("\\begin{landscape}")
-    header.append("\\begin{table}")
+    header.append("\\begin{{table{}}}".format(table_kind))
     header.append("\\centering")
-    header.append("\\label{tab:observing_log}")
+    header.append("\\label{{tab:observing_log_{}}}".format(label))
     
     header.append("\\begin{tabular}{%s}" % ("c"*(2+len(cols))))
     header.append("\hline")
@@ -330,15 +353,32 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     footer.append("\\end{tabular}")
     
     #table_rows.append("\\end{minipage}")
-    footer.append("\\end{table}")
+    footer.append("\\end{{table{}}}".format(table_kind))
     #footer.append("\\end{landscape}")
     
-    table_1 = header_1 + table_rows[:break_row] + footer
-    table_2 = header_2 + table_rows[break_row:] + footer
+    # Write the table/s
+    break_rows = np.arange(break_row, len(comb_info), break_row)
+    low_row = 0
+    
+    for table_i, break_row in enumerate(break_rows):
+        table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+        np.savetxt("paper/table_observations_{}_{:0.0f}.tex".format(
+            label, table_i), table_x, fmt="%s")
+        low_row = break_row
+
+    # Do final part table
+    if low_row < len(comb_info):
+        table_i += 1
+        table_x = header_1 + table_rows[low_row:] + footer + notes
+        np.savetxt("paper/table_observations_{}_{:0.0f}.tex".format(
+            label, table_i), table_x, fmt="%s")
+
+    #table_1 = header_1 + table_rows[:break_row] + footer
+    #table_2 = header_2 + table_rows[break_row:] + footer
 
     # Write the table
-    np.savetxt("paper/table_observations_{}_1.tex".format(label), table_1, fmt="%s")
-    np.savetxt("paper/table_observations_{}_2.tex".format(label), table_2, fmt="%s")
+    #np.savetxt("paper/table_observations_{}_1.tex".format(label), table_1, fmt="%s")
+    #np.savetxt("paper/table_observations_{}_2.tex".format(label), table_2, fmt="%s")
 
 
 def make_table_planet_params(break_row=60,):
@@ -525,12 +565,109 @@ def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
     np.savetxt("paper/table_planet_lit_params.tex", table_rows, fmt="%s")
 
 
-def make_table_ld_coeff():
-    """
-    """
-    pass
+def make_table_ld_coeff(
+    break_row=45, 
+    label="tess",
+    info_cat=None,):
+    """Make the final results table to display the angular diameters and 
+    derived fundamental parameters.
 
-def make_table_fbol():
+    Parameters
+    ----------
+    break_row: int
+        Which row to break table 1 at and start table 2.
     """
-    """
-    pass
+    # Load in observations, TIC, and TOI info
+    observations = utils.load_fits_table("OBS_TAB", label, path="spectra")
+    
+    if info_cat is None:
+        info_cat = utils.load_info_cat(
+            remove_fp=True, 
+            in_paper=True,
+            only_observed=True,
+            use_mann_code_for_masses=True,)
+
+    if label == "tess":
+        id_col = "TIC"
+    else:
+        id_col = "Gaia DR2"
+
+    comb_info = observations.join(info_cat, "source_id", rsuffix="_info", how="inner")
+    comb_info.sort_values("teff_synth", inplace=True)
+    
+    cols = OrderedDict([
+        (id_col, ""),
+        (r"$a_1$", ""),
+        (r"$a_2$", ""),
+        (r"$a_3$", ""),
+        (r"$a_4$", ""),
+        
+    ])
+                           
+    header = []
+    header_1 = []
+    header_2 = []
+    table_rows = []
+    footer = []
+    notes = []
+    
+    # Construct the header of the table
+    header.append("\\begin{table}")
+    header.append("\\centering")
+    header.append("\\label{tab:ld_coeff}")
+
+    header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
+    header.append("\hline")
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
+    header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
+    header.append("\hline")
+    
+    # Now add the separate info for the two tables
+    header_1 = header.copy()
+    caption = ("Nonlinear limb darkening coefficients from "
+               "\citet{claret_limb_2017}")
+    header_1.insert(3, "\\caption{{{}}}".format(caption))
+
+    header_2 = header.copy()
+    header_2.insert(3, "\\contcaption{Limb darkening coefficients}")
+
+    # Populate the table for every science target
+    for star_i, star in comb_info.iterrows():
+        
+        table_row = ""
+        
+        # Step through column by column
+        if label == "tess":
+            table_row += "%s & " % star["TIC"]
+        else:
+            table_row += "%s & " % star.name
+
+        # Coefficients
+        table_row += r"{:0.3f} & ".format(star["ldc_a1"])
+        table_row += r"{:0.3f} & ".format(star["ldc_a2"])
+        table_row += r"{:0.3f} & ".format(star["ldc_a3"])
+        table_row += r"{:0.3f} ".format(star["ldc_a4"])
+
+        table_rows.append(table_row + r"\\")
+
+    # Finish the table
+    footer.append("\hline")
+    footer.append("\end{tabular}")
+    footer.append("\\end{table}")
+    
+    # Write the table/s
+    break_rows = np.arange(break_row, len(comb_info), break_row)
+    low_row = 0
+    
+    for table_i, break_row in enumerate(break_rows):
+        table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+        np.savetxt("paper/table_ldc_{}_{:0.0f}.tex".format(
+            label, table_i), table_x, fmt="%s")
+        low_row = break_row
+
+    # Do final part table
+    if low_row < len(comb_info):
+        table_i += 1
+        table_x = header_1 + table_rows[low_row:] + footer + notes
+        np.savetxt("paper/table_ldc_{}_{:0.0f}.tex".format(
+            label, table_i), table_x, fmt="%s")
