@@ -2644,6 +2644,33 @@ def plot_lightcurve_fit(lightcurve, folded_lc, flat_lc_trend, bm_params, bm_mode
     ax_lc_folded_all.set_ylim((1-y_lim, 1+std_lim))
     ax_lc_folded_transit.set_ylim((1-y_lim, 1+std_lim))
 
+    # Finally plot the residuals
+    divider = make_axes_locatable(ax_lc_folded_transit)
+    res_ax = divider.append_axes("bottom", size="30%", pad=0)
+    ax_lc_folded_transit.figure.add_axes(res_ax, sharex=ax_lc_folded_transit)
+
+    resid = folded_lc.flux - bm_lightcurve
+    res_ax.errorbar(
+        folded_lc.time,
+        resid,
+        yerr=folded_lc.flux_err,
+        fmt=".",
+        markersize=1,
+        elinewidth=0.1,
+        zorder=1)
+    res_ax.hlines(
+        0,
+        -2*trans_dur/period,
+        2*trans_dur/period,
+        colors="black",
+        linestyles="dashed",
+        zorder=0,)
+    res_ax.set_ylabel("Residuals")
+
+    plt.setp(ax_lc_folded_transit.get_xticklabels(), visible=False)
+    res_ax.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
+    res_ax.set_ylim(-0.01,0.01)
+
 
 def plot_all_lightcurve_fits(light_curves, toi_info, tess_info, observations,
         binsize=4, bin_lightcurve=False, break_tolerance=None):

@@ -54,7 +54,7 @@ t_min = 8/24
 
 # Plotting settings
 dt = 2
-binsize = 10
+binsize = 2
 bin_lightcurve = True
 break_tolerance = dt * binsize * 18
 
@@ -63,6 +63,10 @@ bad_btjds_dict = {
     261108236:(1700,2060)
 }
 
+# List of TOIs to exclude
+tois_to_exclude = [
+    256.01,     # Only have one transit with TESS
+]
 # -----------------------------------------------------------------------------
 # Do fitting
 # -----------------------------------------------------------------------------
@@ -82,6 +86,9 @@ result_df = pd.DataFrame(
     index=toi_info.index, 
     columns=result_cols)
 
+# To save time when plotting, save the binned lightcurves
+binned_lightcurves = light_curves.copy()
+
 # Given stars may have multiple planets, we have to loop over TOI ID
 for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     # Look up TIC ID in tess_info
@@ -100,7 +107,11 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         print("Skipping: No transit duration\n")
         all_fits[toi] = None
         continue
-    #elif toi != 142.01:#elif toi != 468.01:#270.02: #406.01:#
+    elif toi in tois_to_exclude:
+        print("Skipping: bad TOI\n")
+        all_fits[toi] = None
+        continue
+    #elif toi != 175.03:#elif toi != 468.01:#270.02: #406.01:#
     #    continue
     # Otherwise, we can go ahead and import the light curve
     else:
@@ -123,6 +134,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         else:
             lightcurve = lightcurve.remove_nans()
 
+        binned_lightcurves[tic] = lightcurve
+
     # Calculate semi-major axis and scaled semimajor axis
     if np.isnan(toi_row["Period error"]):
         e_period = mean_e_period
@@ -144,6 +157,12 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         toi_info, 
         tic)
 
+    # Determine if we need to fit for the period
+    if (lightcurve.time[-1] - lightcurve.time[0]) > 365:
+        do_period_fit = True
+    else:
+        do_period_fit = False
+
     # Fit light light curve, but catch and handle any errors with batman
     try:
         opt_res = transit.fit_light_curve(
@@ -160,7 +179,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             verbose=True,
             n_trans_dur=n_trans_dur,
             binsize=binsize,
-            bin_lightcurve=bin_lightcurve,)
+            bin_lightcurve=bin_lightcurve,
+            do_period_fit=do_period_fit,)
 
     except transit.BatmanError:
         print("\nBatman failure, skipping\n")
@@ -238,12 +258,12 @@ utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
 
 # Plotting
 pplt.plot_all_lightcurve_fits(
-    light_curves,
+    binned_lightcurves,
     toi_info,
     tic_info,
     observations,
     binsize=binsize,
-    bin_lightcurve=bin_lightcurve,
+    bin_lightcurve=False,
     break_tolerance=break_tolerance,)
 
 pplt.merge_spectra_pdfs(

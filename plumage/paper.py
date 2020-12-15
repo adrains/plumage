@@ -21,7 +21,8 @@ def make_table_final_results(
     label="tess",
     logg_col="logg_synth",
     exp_scale=-12,
-    info_cat=None,):
+    info_cat=None,
+    do_activity_crossmatch=False,):
     """Make the final results table to display the angular diameters and 
     derived fundamental parameters.
 
@@ -33,6 +34,13 @@ def make_table_final_results(
     # Load in observations, TIC, and TOI info
     observations = utils.load_fits_table("OBS_TAB", label, path="spectra")
     
+    # Crossmatch with activity
+    if do_activity_crossmatch:
+        observations = utils.merge_activity_table_with_obs(
+            observations,
+            label,
+            fix_missing_source_id=True)
+
     if info_cat is None:
         info_cat = utils.load_info_cat(
             remove_fp=True, 
@@ -59,6 +67,9 @@ def make_table_final_results(
         (r"$f_{\rm bol}$", 
          r"(10$^{%i}\,$ergs s$^{-1}$ cm $^{-2}$)" % exp_scale),
         (r"$L$", "($L_\odot$)"),
+        (r"EW(H$\alpha$)", r"\SI{}{\angstrom}"),
+        (r"$\log R^{'}_{\rm HK}$", ""),
+
     ])
                            
     header = []
@@ -127,11 +138,19 @@ def make_table_final_results(
             star["e_fbol"] / 10**exp_scale)
         
         # Luminosity
-        table_row += r"{:0.3f} $\pm$ {:0.3f} ".format(
+        table_row += r"{:0.3f} $\pm$ {:0.3f} & ".format(
             star["L_star"], star["e_L_star"])
 
+        # H alpha and logR`HK
+        if do_activity_crossmatch:
+            table_row += r"{:0.2f} & ".format(star["EW(Ha)"])
+            table_row += r"{:0.2f} ".format(star["logR'HK"])
+        else:
+            table_row += r"{:0.2f} & ".format(np.nan)
+            table_row += r"{:0.2f} ".format(np.nan)
+
         table_rows.append(table_row + r"\\")
-        
+
     # Finish the table
     footer.append("\hline")
     footer.append("\end{tabular}")
@@ -396,13 +415,15 @@ def make_table_planet_params(break_row=60,):
     cols = OrderedDict([
         ("TOI", ""),
         ("TIC", ""),
+        (r"\# Sectors", ""),       # Number of TESS sectors
         ("Period", "(days)"),
-        (r" $a/R_*$ ", r""),     # prior
+        #(r" $a/R_*$ ", r""),    # prior
         (r"$R_p/R_*$", r""),     # fit params
         (r"$a/R_*$", r""),       # fit params
+        (r"$e$ flag", ""),       # sma/r* mismatch flag
         (r"$i$", r"($^\circ$)"), # fit params
         (r"$R_p$", r"($R_E$)"),  # physical
-        (r"$a$", "(au)"),        # physical
+        #(r"$a$", "(au)"),        # physical
     ])
 
     header = []
@@ -420,10 +441,10 @@ def make_table_planet_params(break_row=60,):
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
 
-    mc = (r"\multicolumn{3}{c}{TESS} & Prior & \multicolumn{3}{c}{Fit}"
-          r" & \multicolumn{2}{c}{Physical} \\")
+    #mc = (r"\multicolumn{3}{c}{TESS} & Prior & \multicolumn{3}{c}{Fit}"
+    #      r" & \multicolumn{2}{c}{Physical} \\")
 
-    header.append(mc)
+    #header.append(mc)
     header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.keys()))
     header.append((("%s & "*len(cols))[:-2] + r"\\") % tuple(cols.values()))
     header.append("\hline")
@@ -435,6 +456,15 @@ def make_table_planet_params(break_row=60,):
     header_2 = header.copy()
     header_2.insert(3, "\\contcaption{Planet params}")
 
+    # Set unreasonably high uncertainties to nans TODO
+    bad_std_mask = np.logical_or(
+        toi_results["e_rp_rstar_fit"] > 10,
+        toi_results["e_inclination_fit"] > 10)
+    toi_results.loc[bad_std_mask, "e_sma_rstar_fit"] = np.nan
+    toi_results.loc[bad_std_mask, "e_rp_rstar_fit"] = np.nan
+    toi_results.loc[bad_std_mask, "e_inclination_fit"] = np.nan
+    toi_results.loc[bad_std_mask, "e_rp_fit"] = np.nan
+
     # Populate the table for every science target
     for toi, star in toi_results.iterrows():
         table_row = ""
@@ -443,34 +473,46 @@ def make_table_planet_params(break_row=60,):
         table_row += "{:0.2f} & ".format(toi)
         table_row += "{:0.0f} & ".format(star["TIC"])
 
-        # Period
-        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
-                star["Period (days)"], star["Period error"])
+        # Number of sectors. TODO
+        table_row += "{:0.0f} & ".format(np.nan)
 
+        # Use ExoFop period if we didn't fit for it
+        if np.isnan(star["period_fit"]):
+            table_row += r"{:0.5f} $\pm$ {:0.5f} &".format(
+                    star["Period (days)"], star["Period error"])
+
+        # Otherwise use the fitted period
+        else:
+            table_row += r"{:0.5f} $\pm$ {:0.5f}$\dagger$ &".format(
+                    star["period_fit"], star["e_period_fit"])
+            
         # a/R* (prior)
-        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
-                star["sma_rstar"], star["e_sma_rstar"])
+        #table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
+        #        star["sma_rstar"], star["e_sma_rstar"])
 
         # Rp/R*
         table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
                 star["rp_rstar_fit"], star["e_rp_rstar_fit"])
 
         # a/R*
-        table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
+        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
                 star["sma_rstar_fit"], star["e_sma_rstar_fit"])
+
+        # Flag
+        table_row += "{:0.0f} & ".format(star["sma_rstar_mismatch_flag"])
 
         # Inclination
         table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
             star["inclination_fit"], star["e_inclination_fit"])
 
         # Rp (physical)
-        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+        table_row += r"{:0.2f} $\pm$ {:0.2f}".format(
                 star["rp_fit"], star["e_rp_fit"])
 
         # SMA (physical)
-        table_row += r"{:0.3f} $\pm$ {:0.3f}".format(
-            star["sma"]/const.au.si.value, 
-            star["e_sma"]/const.au.si.value)
+        #table_row += r"{:0.3f} $\pm$ {:0.3f}".format(
+        #    star["sma"]/const.au.si.value, 
+        #    star["e_sma"]/const.au.si.value)
 
         table_rows.append(table_row + r"\\")
         

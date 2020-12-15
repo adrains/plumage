@@ -123,6 +123,7 @@ paper.make_table_planet_params()
 # Standards
 paper.make_table_targets()
 paper.make_table_observations(obs_std, std_info, "std")
+paper.make_table_final_results(label="std",info_cat=std_info, break_row=64)
 
 """
 pplt.plot_teff_comp(

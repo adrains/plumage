@@ -717,6 +717,36 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
             fits_file.append(fits_tab)
             fits_file.flush()
 
+
+def merge_activity_table_with_obs(
+    observations,
+    label,
+    path="data/tess_wifes_youth_indicators.fits",
+    fix_missing_source_id=False,):
+    """Function to merge activity table with observations list.
+    """
+    # Import
+    youth_indicators = Table(fits.open(path)[1].data).to_pandas()
+
+    # Fix incorrect source_id. TODO: fix this properly
+    if fix_missing_source_id:
+        youth_indicators.at[0, "source_id"] = 4785886941312921344
+
+    # Reset the index
+    youth_indicators["source_id"] = youth_indicators["source_id"].astype(str)
+    youth_indicators.set_index("source_id", inplace=True)
+
+    # Grab only the part we care about
+    cols = ["Sraw", "SMW_WiFeS", "logR'HK", "EW(Ha)", "EW(Li)"]
+    youth_indicators = youth_indicators[cols]
+
+    observations = observations.join(
+        youth_indicators,
+        how="inner",)
+
+    return observations
+
+
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits image HDUs
 # ----------------------------------------------------------------------------- 

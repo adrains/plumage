@@ -188,7 +188,7 @@ def compute_lc_resid_for_period_fitting(
     # Print
     if verbose:
         chi2 = np.sum(resid**2) / (len(resid)-len(params))
-        print("T = {:0.5f}, chi^2 = {:0.4f}".format(period, chi2))
+        print("T = {:0.6f}, chi^2 = {:0.4f}".format(period, chi2))
 
     return resid
 
@@ -253,7 +253,7 @@ def fit_period(
     args = (t0, clean_lc, bm_lightcurve, trans_dur, n_trans_dur, verbose)
 
     #scale = (1, 1, 1)
-    step = (0.0005)
+    step = (0.0001)
 
     # Do fit
     opt_res = least_squares(
@@ -270,8 +270,17 @@ def fit_period(
     jac = opt_res["jac"]
     res = opt_res["fun"]
     
+    # TODO remove this equivalent code from inside the residual function
+    td = trans_dur / period_init
+    transit_window_mask = np.logical_and(
+        folded_lc_init.time > -0.5*n_trans_dur*td, 
+        folded_lc_init.time < 0.5*n_trans_dur*td)
+
+    # Calculate RMS to scale uncertainties by
+    rms = np.sqrt(np.sum(res**2)/np.sum(transit_window_mask))
+
     cov = np.linalg.inv(jac.T.dot(jac))
-    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+    std = np.sqrt(np.diagonal(cov)) * rms #np.nanvar(res)
 
     opt_res["cov"] = cov
     opt_res["std"] = std
@@ -502,7 +511,9 @@ def fit_light_curve(
     n_trans_dur=2,
     binsize=2,
     bin_lightcurve=False,
-    break_tolerance=100,):
+    break_tolerance=100,
+    do_period_fit=False,
+    fitting_iterations=3,):
     """Perform least squares fitting on the provided light curve to determine
     Rp/R*, a/R*, and inclination.
 
@@ -560,75 +571,105 @@ def fit_light_curve(
         break_tolerance=100,
         mask=mask)
 
-    # TODO move this to another function
-    # If the lightcurve has data from sectors widely spaced in time (more than
-    # a year), fit for the period as the given values are often wrong.
-    period_fitted = False
+    # If we aren't fitting the period, only do a single iteration
+    if not do_period_fit:
+        print("Not fitting for period")
+        fitting_iterations = 1
+    
+    # Initialise
+    rp_r_star = None
+    inc_deg = 90
+    sin_inc = np.sin(inc_deg*np.pi/180)
 
-    if (clean_lc.time[-1] - clean_lc.time[0]) > 365:
-        opt_res_period_fit = fit_period(
-            t0=t0,
-            period_init=period,
-            sma_rstar=sma_rstar,
-            inclination=90,
-            ld_model=ld_model,
-            ld_coeff=ld_coeff,
-            trans_dur=trans_dur, 
-            clean_lc=clean_lc, 
-            n_trans_dur=4,) 
+    for fit_i in range(fitting_iterations):
+        print("\nFitting iteration #{:0.0f}".format(fit_i))
+
+        # If the lightcurve has data from sectors widely spaced in time (more
+        # than a year), fit for the period as the given values are often wrong.
+        if do_period_fit:
+            opt_res_period_fit = fit_period(
+                t0=t0,
+                period_init=period,
+                sma_rstar=sma_rstar,
+                inclination=inc_deg,
+                ld_model=ld_model,
+                ld_coeff=ld_coeff,
+                trans_dur=trans_dur, 
+                clean_lc=clean_lc, 
+                n_trans_dur=4,
+                rp_r_star=rp_r_star,) 
+            
+            new_period = float(opt_res_period_fit["x"])
+            e_period = opt_res_period_fit["std"]
+            
+            delta_period = (period - new_period) * 24 * 3600
+            print("Period: {:0.6f} --> {:0.6f} days [{:+0.1} mins]".format(
+                period, new_period, delta_period))
+
+            period = new_period
+
+        # Phase fold the light curve
+        folded_lc = clean_lc.fold(period=period, t0=t0)
+
+        # If this is our first pass through, have a guess at Rp/R_*. 
+        # Otherwise use the fitted value from the last iteration
+        if rp_r_star is None:
+            transit_mask = np.logical_and(
+                folded_lc.time < trans_dur/period/8,
+                folded_lc.time > -trans_dur/period/8)
+                
+            depth = 1-np.nanmean(folded_lc.flux[transit_mask])
+
+            if depth < 0:
+                rp_r_star = 0.01
+            else:
+                rp_r_star = np.sqrt(depth)
+
+        # Initialise transit params. Ftting for: 
+        # [rp, semi-major axis, sin(inclination)]
+        # We're assuming a circular orbit, so eccentricity=1, & longitude 
+        # periastron isn't relevant
+        init_params = np.array([rp_r_star, sma_rstar, sin_inc,])
+        bounds = ((0.001, 0.001, 0,), (1, 10000, 1,))
+
+        args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur, 
+                sma_rstar, e_sma_rstar, verbose, n_trans_dur,)
+
+        #scale = (1, 1, 1)
+        step = (0.01, 0.1, 0.000001)
+
+        # Do fit
+        print("\n Running lightcurve fit:")
+        opt_res = least_squares(
+            compute_lc_resid, 
+            init_params, 
+            jac="3-point",
+            bounds=bounds,
+            #x_scale=scale,
+            diff_step=step,
+            args=args, 
+        )
+
+        # Extract params from fit so we can either iterate or continue
+        rp_r_star = opt_res["x"][0]
         
-        new_period = float(opt_res_period_fit["x"])
-        e_period = opt_res_period_fit["std"]
-        
-        print("Fitted period, {:0.5f} --> {:0.5f} days".format(
-            period, new_period))
+        # Convert inclination back to angle
+        sin_inc = opt_res["x"][2]
+        inc_deg = np.arcsin(sin_inc)*180/np.pi
 
-        period = new_period
-        
-        period_fitted = True
-
-    # Phase fold the light curve
-    folded_lc = clean_lc.fold(period=period, t0=t0)
-
-    # Have an initial guess at Rp/R_*
-    transit_mask = np.logical_and(
-        folded_lc.time < trans_dur/period/8,
-        folded_lc.time > -trans_dur/period/8)
-        
-    depth = 1-np.nanmean(folded_lc.flux[transit_mask])
-
-    if depth < 0:
-        rp_r_star_init = 0.01
-    else:
-        rp_r_star_init = np.sqrt(depth)
-
-    # Initialise transit params. Ftting for: [rp, semi-major axis, inclination]
-    # and assuming a circular orbit, so eccentricity=1, & longitude periastron
-    # isn't relevant
-    init_params = np.array([rp_r_star_init, sma_rstar, 1E0,])
-    bounds = ((0.001, 0.001, 0,), (1, 10000, 1,))
-
-    args = (folded_lc, t0, period, ld_model, ld_coeff, trans_dur, sma_rstar,
-            e_sma_rstar, verbose, n_trans_dur,)
-
-    #scale = (1, 1, 1)
-    step = (0.05, 0.1, 0.000001)
-
-    # Do fit
-    opt_res = least_squares(
-        compute_lc_resid, 
-        init_params, 
-        jac="3-point",
-        bounds=bounds,
-        #x_scale=scale,
-        diff_step=step,
-        args=args, 
-    )
+    # TODO remove this equivalent code from inside the residual function
+    td = trans_dur / period
+    transit_window_mask = np.logical_and(
+        folded_lc.time > -0.5*n_trans_dur*td, 
+        folded_lc.time < 0.5*n_trans_dur*td)
 
     # Calculate uncertainties
     jac = opt_res["jac"]
     res = opt_res["fun"]
     
+    # Calculate RMS to scale uncertainties by
+    rms = np.sqrt(np.sum(res**2)/np.sum(transit_window_mask))
+
     # If jacobian is entirely 0, or if anything other than the inclination 
     # column is zero, assume singular, something went wrong entire with the 
     # fit. Set statistical uncertainties to nan
@@ -640,20 +681,13 @@ def fit_light_curve(
     # computing uncertainties and set nan
     elif np.sum(jac[:,2]) == 0:
         cov = np.linalg.inv(jac[:,:2].T.dot(jac[:,:2]))
-        std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
+        std = np.sqrt(np.diagonal(cov)) * rms #np.nanvar(res)
         std = np.concatenate((std, np.atleast_1d(np.nan)))
 
     # Everthing is behaving normally!
     else:
         cov = np.linalg.inv(jac.T.dot(jac))
-        std = np.sqrt(np.diagonal(cov)) * np.nanvar(res)
-
-    #import pdb
-    #pdb.set_trace()
-
-    # Convert back to angle
-    sin_inc = opt_res["x"][2]
-    inc_deg = np.arcsin(sin_inc)*180/np.pi
+        std = np.sqrt(np.diagonal(cov)) * rms #np.nanvar(res)
 
     # Uncertainty is d(sin(i))/d(i) * sigma sin(i)
     # where d(sin(i))/d(i) = 1 / sqrt(1-x**2)
@@ -679,7 +713,7 @@ def fit_light_curve(
     rchi2 = np.sum(opt_res["fun"]**2) / (np.sum(~(opt_res["fun"] == 0))-3)
 
     # Add extra info to fit dictionary
-    if period_fitted:
+    if do_period_fit:
         opt_res["period_fit"] = period
         opt_res["e_period_fit"] = e_period
     else:
