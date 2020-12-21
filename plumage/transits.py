@@ -147,7 +147,6 @@ def load_all_light_curves(tic_ids):
 # -----------------------------------------------------------------------------
 def compute_lc_resid_for_period_fitting(
     params,
-    t0,
     clean_lc,
     bm_lightcurve,
     trans_dur,
@@ -157,6 +156,7 @@ def compute_lc_resid_for_period_fitting(
     """
     # Extract period
     period = params[0]
+    t0 = params[1]
 
     #print(period)
 
@@ -188,14 +188,17 @@ def compute_lc_resid_for_period_fitting(
     # Print
     if verbose:
         chi2 = np.sum(resid**2) / (len(resid)-len(params))
-        print("T = {:0.6f}, chi^2 = {:0.4f}".format(period, chi2))
+        print("T = {:0.6f}, t0 = {:0.6f}, chi^2 = {:0.4f}".format(
+            period, t0, chi2))
 
     return resid
 
 
 def fit_period(
-    t0,
+    t0_init,
+    e_t0_init,
     period_init,
+    e_period_init,
     sma_rstar,
     inclination,
     ld_model,
@@ -203,21 +206,23 @@ def fit_period(
     trans_dur,
     clean_lc,
     n_trans_dur,
-    period_bounds_frac=0.01,
+    bounds_frac=0.01,
     rp_r_star=None,
     verbose=True,
-    do_plot=False,):
+    do_plot=False,
+    dt_step_min=1,):
     """Fit for the transit orbital period
     """
     # Convert between BJD and TESS BJD
-    if t0 > BTJD_OFFSET:
-        t0 -= BTJD_OFFSET
+    if t0_init > BTJD_OFFSET:
+        t0_init -= BTJD_OFFSET
     
     if verbose:
-        print("Fitting period")
+        print("Fitting T (+/-{:0.2f} sec) and T0 ({:0.2f} sec)".format(
+            e_period_init*24*360, e_t0_init*24*360))
 
     # Intial folding lightcurve
-    folded_lc_init = clean_lc.fold(period=period_init, t0=t0)
+    folded_lc_init = clean_lc.fold(period=period_init, t0=t0_init)
 
     transit_mask = np.logical_and(
         folded_lc_init.time < trans_dur/period_init/8,
@@ -246,14 +251,24 @@ def fit_period(
         time=folded_lc_init.time,)
 
     # Initial fit params
-    init_params = np.array([period_init])
-    pm_period = period_init*period_bounds_frac
-    bounds = ((period_init-pm_period), (period_init+pm_period))
+    init_params = np.array([period_init, t0_init])
 
-    args = (t0, clean_lc, bm_lightcurve, trans_dur, n_trans_dur, verbose)
+    # Set +/- bounds
+    pm_period = period_init*bounds_frac
+    pm_t0 = t0_init*bounds_frac
+    bounds = (
+        (period_init-pm_period, t0_init-pm_t0), 
+        (period_init+pm_period,  t0_init+pm_t0))
+
+    args = (clean_lc, bm_lightcurve, trans_dur, n_trans_dur, verbose)
 
     #scale = (1, 1, 1)
-    step = (0.0001)
+
+    # Set the step size to be dt_step_min
+    #dt_step_days = dt_step_min / 60 / 24
+    period_step_frac = (e_period_init / 10) / period_init
+    t0_step_frac = (e_t0_init / 10) / t0_init
+    step = (period_step_frac, t0_step_frac)
 
     # Do fit
     opt_res = least_squares(
@@ -495,8 +510,10 @@ def compute_lc_resid(
 
 def fit_light_curve(
     light_curve, 
-    t0, 
-    period, 
+    t0,
+    e_t0_init,
+    period,
+    e_period_init, 
     trans_dur, 
     ld_coeff, 
     sma_rstar, 
@@ -513,7 +530,9 @@ def fit_light_curve(
     bin_lightcurve=False,
     break_tolerance=100,
     do_period_fit=False,
-    fitting_iterations=3,):
+    fitting_iterations=2,
+    force_window_length_to_min=True,
+    break_tol_days=0.5,):
     """Perform least squares fitting on the provided light curve to determine
     Rp/R*, a/R*, and inclination.
 
@@ -561,15 +580,28 @@ def fit_light_curve(
     #clean_lc = light_curve.remove_outliers(sigma=outlier_sig)
 
     # Get window size for smoothing (note mask inversion)
-    window_length = determine_window_size(light_curve, t0, period, trans_dur, 
-        ~mask, t_min,)
+    window_length = determine_window_size(
+        light_curve,
+        t0,
+        period,
+        trans_dur, 
+        ~mask,
+        t_min,
+        force_window_length_to_min=force_window_length_to_min,)
+
+    # Set break tolerance
+    cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
+    break_tolerance = int(break_tol_days / cadence)
 
     clean_lc, flat_lc_trend = light_curve.flatten(
         window_length=window_length,
         return_trend=True,
         niters=niters_flat,
-        break_tolerance=100,
+        break_tolerance=break_tolerance,
         mask=mask)
+
+    #import pdb
+    #pdb.set_trace()
 
     # If we aren't fitting the period, only do a single iteration
     if not do_period_fit:
@@ -586,10 +618,15 @@ def fit_light_curve(
 
         # If the lightcurve has data from sectors widely spaced in time (more
         # than a year), fit for the period as the given values are often wrong.
-        if do_period_fit:
+        # Only do this however once we have already done a lightcurve fit to
+        # get the general shape - i.e. if fitting for the period, this happens
+        # on iterations 2+
+        if do_period_fit and fit_i >= 1:
             opt_res_period_fit = fit_period(
-                t0=t0,
+                t0_init=t0,
+                e_t0_init=e_t0_init,
                 period_init=period,
+                e_period_init=e_period_init,
                 sma_rstar=sma_rstar,
                 inclination=inc_deg,
                 ld_model=ld_model,
@@ -599,14 +636,22 @@ def fit_light_curve(
                 n_trans_dur=4,
                 rp_r_star=rp_r_star,) 
             
-            new_period = float(opt_res_period_fit["x"])
-            e_period = opt_res_period_fit["std"]
+            new_period = float(opt_res_period_fit["x"][0])
+            e_period = opt_res_period_fit["std"][0]
+
+            new_t0 = float(opt_res_period_fit["x"][1])
+            e_t0 = opt_res_period_fit["std"][1]
             
             delta_period = (period - new_period) * 24 * 3600
-            print("Period: {:0.6f} --> {:0.6f} days [{:+0.1} mins]".format(
+            print("Period: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
                 period, new_period, delta_period))
 
+            delta_t0 = (t0 - new_t0) * 24 * 3600
+            print("t0: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
+                t0, new_t0, delta_t0))
+
             period = new_period
+            t0 = new_t0
 
         # Phase fold the light curve
         folded_lc = clean_lc.fold(period=period, t0=t0)
@@ -716,10 +761,15 @@ def fit_light_curve(
     if do_period_fit:
         opt_res["period_fit"] = period
         opt_res["e_period_fit"] = e_period
+        opt_res["t0_fit"] = t0
+        opt_res["e_t0_fit"] = e_t0
     else:
         opt_res["period_fit"] = np.nan
         opt_res["e_period_fit"] = np.nan
+        opt_res["t0_fit"] = np.nan
+        opt_res["e_t0_fit"] = np.nan
 
+    opt_res["clean_lc"] = clean_lc
     opt_res["folded_lc"] = folded_lc
     opt_res["window_length"] = window_length
     opt_res["niters_flat"] = niters_flat
@@ -811,7 +861,7 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
 
 
 def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24,
-    show_diagnostic_plot=False,):
+    show_diagnostic_plot=False, force_window_length_to_min=False,):
     """
     mask: bool arrays
         True where we should use.
@@ -819,20 +869,30 @@ def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24,
     # Get mask of transits
     #mask = ~make_transit_mask(light_curve, t0, period, trans_dur,)
 
-    # Get periodogram
-    freq, power = LombScargle(light_curve.time[mask], light_curve.flux[mask]).autopower()
-
-    # Consider only those frequencies lower than t_min days
-    freq_mask = freq < t_min**-1
-    stellar_period = 1 / freq[np.argmax(power[freq_mask])]
-
     # Get cadence of observations
     cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
 
-    # Calculate window length
-    window_length = int(stellar_period / cadence / 4)
+    # Use periodogram if we're not forcing to the minimum
+    if not force_window_length_to_min:
+        # Get periodogram
+        freq, power = LombScargle(light_curve.time[mask], light_curve.flux[mask]).autopower()
 
-    if show_diagnostic_plot:
+        # Consider only those frequencies lower than t_min days
+        freq_mask = freq < t_min**-1
+        stellar_period = 1 / freq[np.argmax(power[freq_mask])]
+
+        # Calculate window length
+        window_length = int(stellar_period / cadence / 4)
+
+        print("Fitted stellar period for window: {:0.2f} days".format(
+            stellar_period))
+
+    # Otherwise just do based on minimum
+    else:
+        print("Window from provided t_min")
+        window_length = int(t_min / cadence)
+
+    if show_diagnostic_plot and not force_window_length_to_min:
         plt.plot(1/freq, power)
     
     if window_length % 2 == 0:
