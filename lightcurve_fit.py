@@ -20,7 +20,7 @@ spec_path =  "spectra"
 tic_info = utils.load_info_cat(
     remove_fp=True,
     only_observed=True,
-    use_mann_code_for_masses=False,).reset_index()
+    use_mann_code_for_masses=True,).reset_index()
 tic_info.set_index("TIC", inplace=True)
 
 # Load NASA ExoFOP info on TOIs
@@ -49,11 +49,16 @@ mean_e_period = 10 / 60 / 24
 # Amount of lightcurve to fit to inn units of transit duration
 n_trans_dur = 1.2
 
-# Period fitting/transit fitting iterations
+# Period fitting/transit fitting
 fitting_iterations = 3
+fit_for_period = True
+fit_for_t0 = False
+dt_step_fac = 10
+do_period_fit_plot = False
+n_trans_dur_period_fit = 4
 
 # Min window size for flattening in days
-t_min = 4/24
+t_min = 6/24
 force_window_length_to_min = True
 
 # Plotting settings
@@ -116,8 +121,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         print("Skipping: bad TOI\n")
         all_fits[toi] = None
         continue
-    elif toi != 129.01:#elif toi != 468.01:#270.02: #406.01:#
-        continue
+    #elif toi != 1067.01:#129.01:#elif toi != 468.01:#270.02: #406.01:#
+    #    continue
     # Otherwise, we can go ahead and import the light curve
     else:
         lightcurve = light_curves[tic]
@@ -162,11 +167,12 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         toi_info, 
         tic)
 
-    # Determine if we need to fit for the period
+    # Determine if we need to fit for the period - only do if time baseline is
+    # > 1 yr
     if (lightcurve.time[-1] - lightcurve.time[0]) > 365:
-        do_period_fit = True
+        do_period_and_t0_ls_fit = True
     else:
-        do_period_fit = False
+        do_period_and_t0_ls_fit = False
 
     # Fit light light curve, but catch and handle any errors with batman
     try:
@@ -187,10 +193,15 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             n_trans_dur=n_trans_dur,
             binsize=binsize,
             bin_lightcurve=bin_lightcurve,
-            do_period_fit=do_period_fit,
+            do_period_and_t0_ls_fit=do_period_and_t0_ls_fit,
             fitting_iterations=fitting_iterations,
             force_window_length_to_min=force_window_length_to_min,
-            break_tol_days=break_tol_days,)
+            break_tol_days=break_tol_days,
+            fit_for_period=fit_for_period,
+            fit_for_t0=fit_for_t0,
+            dt_step_fac=dt_step_fac,
+            do_period_fit_plot=do_period_fit_plot,
+            n_trans_dur_period_fit=n_trans_dur_period_fit,)
 
     except transit.BatmanError:
         print("\nBatman failure, skipping\n")
@@ -263,8 +274,8 @@ print("{} TOI fits unfeasibly small".format(len(toi_info[small_mask])))
 print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
 
 # Save results
-#toi_info.index.set_names(["TOI"], inplace=True)
-#utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
+toi_info.index.set_names(["TOI"], inplace=True)
+utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
 
 # Plotting
 pplt.plot_all_lightcurve_fits(

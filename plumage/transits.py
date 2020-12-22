@@ -8,6 +8,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.timeseries import LombScargle 
 from scipy.optimize import least_squares
+from collections import OrderedDict
 
 # Ensure the lightcurves folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -147,18 +148,34 @@ def load_all_light_curves(tic_ids):
 # -----------------------------------------------------------------------------
 def compute_lc_resid_for_period_fitting(
     params,
+    params_fit_keys,
+    params_fixed,
     clean_lc,
     bm_lightcurve,
     trans_dur,
     n_trans_dur,
     verbose,):
     """Fold light curve on given period, and compute residuals
-    """
-    # Extract period
-    period = params[0]
-    t0 = params[1]
 
-    #print(period)
+    Parameters
+    ----------
+    params_fit_keys: string list
+        List of parameters that are to be fitted for, either:
+         - 'period'
+         - 't0'
+
+    params_fixed: dict
+        Dictionary pairing of parameter ('period', 't0') for those
+        parameters that are fixed during fitting. Will contain those parameters
+        not in params_fit_keys.
+    """
+    # Unpack params, first period
+    Ti = np.argwhere(params_fit_keys=="period")
+    period = params[int(Ti)] if len(Ti) > 0 else params_fixed["period"]
+
+    # Now t0, the epoch
+    ei = np.argwhere(params_fit_keys=="t0")
+    t0 = params[int(ei)] if len(ei) > 0 else params_fixed["t0"]
 
     # Fold
     folded_lc = clean_lc.fold(period=period, t0=t0)
@@ -210,16 +227,36 @@ def fit_period(
     rp_r_star=None,
     verbose=True,
     do_plot=False,
-    dt_step_min=1,):
+    dt_step_fac=10,
+    fit_for_period=True,
+    fit_for_t0=False,):
     """Fit for the transit orbital period
     """
     # Convert between BJD and TESS BJD
     if t0_init > BTJD_OFFSET:
         t0_init -= BTJD_OFFSET
     
+    # Setup which parameters we're fitting for. Must fit for at least one.
+    if fit_for_period or fit_for_t0:
+        fit_for_params = OrderedDict([
+            ("period", fit_for_period),
+            ("t0", fit_for_t0),])
+    else:
+        raise ValueError("Must fit for at least one of period or t0!")
+
+    # Print an update, with our step size in seconds
     if verbose:
-        print("Fitting T (+/-{:0.2f} sec) and T0 ({:0.2f} sec)".format(
-            e_period_init*24*360, e_t0_init*24*360))
+        period_text = "Fitting T (+/-{:0.2f} sec)".format(
+                e_period_init*24*3600/dt_step_fac)
+        t0_text = "T0 ({:0.2f} sec)".format(
+                e_t0_init*24*3600/dt_step_fac)
+
+        if fit_for_period and fit_for_t0:
+            print(period_text, "and", t0_text)
+        elif fit_for_period:
+            print(period_text)
+        else:
+            print(t0_text)
 
     # Intial folding lightcurve
     folded_lc_init = clean_lc.fold(period=period_init, t0=t0_init)
@@ -245,39 +282,45 @@ def fit_period(
         sma_rstar=sma_rstar,
         inclination=inclination,
         ecc=0,
-        omega=90,
+        omega=0,
         ld_model=ld_model,
         ld_coeff=ld_coeff,
         time=folded_lc_init.time,)
 
-    # Initial fit params
-    init_params = np.array([period_init, t0_init])
-
     # Set +/- bounds
     pm_period = period_init*bounds_frac
     pm_t0 = t0_init*bounds_frac
-    bounds = (
+    bounds = np.array([
         (period_init-pm_period, t0_init-pm_t0), 
-        (period_init+pm_period,  t0_init+pm_t0))
+        (period_init+pm_period,  t0_init+pm_t0)])
 
-    args = (clean_lc, bm_lightcurve, trans_dur, n_trans_dur, verbose)
+    # Now sort out our fitted for and fixed parameters
+    param_mask = list(fit_for_params.values())
 
-    #scale = (1, 1, 1)
+    # Initialise param initial guess *to be fit for* as a list, save keys
+    params = {"period":period_init, "t0":t0_init}
+    params_init = [params[pp] for pp in params if fit_for_params[pp]]
+    params_init_keys = np.array([pp for pp in params if fit_for_params[pp]])
 
-    # Set the step size to be dt_step_min
-    #dt_step_days = dt_step_min / 60 / 24
-    period_step_frac = (e_period_init / 10) / period_init
-    t0_step_frac = (e_t0_init / 10) / t0_init
-    step = (period_step_frac, t0_step_frac)
+    # Keep the rest in dictionary form
+    params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
+
+    args = (params_init_keys, params_fixed, clean_lc, bm_lightcurve, trans_dur,
+            n_trans_dur, verbose)
+
+    # Set the step size to be dt_step_fac x smaller than our uncertainty
+    period_step_frac = (e_period_init / dt_step_fac) / period_init
+    t0_step_frac = (e_t0_init / dt_step_fac) / t0_init
+    step = np.array([period_step_frac, t0_step_frac])
 
     # Do fit
     opt_res = least_squares(
         compute_lc_resid_for_period_fitting, 
-        init_params, 
+        params_init, 
         jac="3-point",
-        bounds=bounds,
+        bounds=bounds[:,param_mask],
         #x_scale=scale,
-        diff_step=step,
+        diff_step=step[param_mask],
         args=args, 
     )
 
@@ -302,11 +345,21 @@ def fit_period(
 
     # Plot
     if do_plot:
-        folded_lc = clean_lc.fold(period=float(opt_res["x"]), t0=t0)
+        period = opt_res["x"][0] if fit_for_params["period"] else period_init
+
+        if fit_for_params["period"]:
+            t0 = opt_res["x"][1] if fit_for_params["t0"] else t0_init
+        else:
+            t0 = opt_res["x"][0] if fit_for_params["t0"] else t0_init
+
+        folded_lc = clean_lc.fold(period=period, t0=t0)
         plt.close("all")
         ax = folded_lc.errorbar() 
         folded_lc.scatter(ax=ax) 
         ax.plot(folded_lc.time, bm_lightcurve, "r-")
+
+        import pdb
+        pdb.set_trace()
 
     return opt_res
 
@@ -465,10 +518,13 @@ def compute_lc_resid(
         sma_rstar=sma_rstar_guess, 
         inclination=inclination_guess, 
         ecc=0, 
-        omega=90, 
+        omega=0, 
         ld_model=ld_model, 
         ld_coeff=ld_coeff, 
         time=folded_lc.time,)
+
+    # Check to ensure there the planet is still transiting
+    is_transiting = int(np.sum(bm_lightcurve)) != len(bm_lightcurve)
 
     # Clean flux and uncertainties
     flux = folded_lc.flux
@@ -492,6 +548,10 @@ def compute_lc_resid(
 
     resid[~mask] = 0
 
+    # Penalise the fit if the planet is not transiting
+    if not is_transiting:
+        resid *= 10
+
     # Add our prior on the SMA to the residual vector
     sma_resid = [(sma_rstar - sma_rstar_guess) / e_sma_rstar]
     resid = np.concatenate((resid, sma_resid))
@@ -503,7 +563,12 @@ def compute_lc_resid(
             inclination_guess), end="")
         
         rchi2 = np.sum(resid**2) / (np.sum(mask)-len(params))
-        print("\t--> rchi^2 = {:0.5f}".format(rchi2))
+        print("\t--> rchi^2 = {:0.5f}".format(rchi2), end="")
+
+        if not is_transiting:
+            print("\t [WARNING - planet is no longer transiting]")
+        else:
+            print("")
 
     return resid
 
@@ -529,10 +594,15 @@ def fit_light_curve(
     binsize=2,
     bin_lightcurve=False,
     break_tolerance=100,
-    do_period_fit=False,
+    do_period_and_t0_ls_fit=False,
     fitting_iterations=2,
     force_window_length_to_min=True,
-    break_tol_days=0.5,):
+    break_tol_days=0.5,
+    fit_for_period=True,
+    fit_for_t0=False,
+    dt_step_fac=10,
+    do_period_fit_plot=False,
+    n_trans_dur_period_fit=4,):
     """Perform least squares fitting on the provided light curve to determine
     Rp/R*, a/R*, and inclination.
 
@@ -604,8 +674,8 @@ def fit_light_curve(
     #pdb.set_trace()
 
     # If we aren't fitting the period, only do a single iteration
-    if not do_period_fit:
-        print("Not fitting for period")
+    if not do_period_and_t0_ls_fit:
+        print("Not fitting for period or t0")
         fitting_iterations = 1
     
     # Initialise
@@ -621,7 +691,7 @@ def fit_light_curve(
         # Only do this however once we have already done a lightcurve fit to
         # get the general shape - i.e. if fitting for the period, this happens
         # on iterations 2+
-        if do_period_fit and fit_i >= 1:
+        if do_period_and_t0_ls_fit and fit_i >= 1:
             opt_res_period_fit = fit_period(
                 t0_init=t0,
                 e_t0_init=e_t0_init,
@@ -633,25 +703,43 @@ def fit_light_curve(
                 ld_coeff=ld_coeff,
                 trans_dur=trans_dur, 
                 clean_lc=clean_lc, 
-                n_trans_dur=4,
-                rp_r_star=rp_r_star,) 
+                n_trans_dur=n_trans_dur_period_fit,
+                rp_r_star=rp_r_star,
+                fit_for_period=fit_for_period,
+                fit_for_t0=fit_for_t0,
+                dt_step_fac=dt_step_fac,
+                do_plot=do_period_fit_plot,) 
             
-            new_period = float(opt_res_period_fit["x"][0])
-            e_period = opt_res_period_fit["std"][0]
+            # If fit period, extract
+            if fit_for_period:
+                new_period = float(opt_res_period_fit["x"][0])
+                e_period = opt_res_period_fit["std"][0]
 
-            new_t0 = float(opt_res_period_fit["x"][1])
-            e_t0 = opt_res_period_fit["std"][1]
+                # Print update
+                delta_period = (period - new_period) * 24 * 3600
+                print("Period: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
+                    period, new_period, delta_period))
+
+                # Save
+                period = new_period
             
-            delta_period = (period - new_period) * 24 * 3600
-            print("Period: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
-                period, new_period, delta_period))
+            # If fit for t0 extract
+            if fit_for_t0:
+                # Set the index
+                if fit_for_period:
+                    t0_i = 1
+                else:
+                    t0_i = 0
+                
+                new_t0 = float(opt_res_period_fit["x"][t0_i])
+                e_t0 = opt_res_period_fit["std"][t0_i]
+                
+                # Print update
+                delta_t0 = (t0 - new_t0) * 24 * 3600
+                print("t0: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
+                    t0, new_t0, delta_t0))
 
-            delta_t0 = (t0 - new_t0) * 24 * 3600
-            print("t0: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
-                t0, new_t0, delta_t0))
-
-            period = new_period
-            t0 = new_t0
+                t0 = new_t0
 
         # Phase fold the light curve
         folded_lc = clean_lc.fold(period=period, t0=t0)
@@ -681,7 +769,7 @@ def fit_light_curve(
                 sma_rstar, e_sma_rstar, verbose, n_trans_dur,)
 
         #scale = (1, 1, 1)
-        step = (0.01, 0.1, 0.000001)
+        step = (0.01, 0.01, 0.000001)
 
         # Do fit
         print("\n Running lightcurve fit:")
@@ -697,6 +785,7 @@ def fit_light_curve(
 
         # Extract params from fit so we can either iterate or continue
         rp_r_star = opt_res["x"][0]
+        sma_rstar = opt_res["x"][1]
         
         # Convert inclination back to angle
         sin_inc = opt_res["x"][2]
@@ -757,18 +846,22 @@ def fit_light_curve(
     # Calculate rchi^2
     rchi2 = np.sum(opt_res["fun"]**2) / (np.sum(~(opt_res["fun"] == 0))-3)
 
-    # Add extra info to fit dictionary
-    if do_period_fit:
+    # Add period and t0 fits to dict
+    if do_period_and_t0_ls_fit and fit_for_period:
         opt_res["period_fit"] = period
         opt_res["e_period_fit"] = e_period
-        opt_res["t0_fit"] = t0
-        opt_res["e_t0_fit"] = e_t0
     else:
         opt_res["period_fit"] = np.nan
         opt_res["e_period_fit"] = np.nan
+    
+    if do_period_and_t0_ls_fit and fit_for_t0:
+        opt_res["t0_fit"] = t0
+        opt_res["e_t0_fit"] = e_t0
+    else:
         opt_res["t0_fit"] = np.nan
         opt_res["e_t0_fit"] = np.nan
 
+    # And add everything else
     opt_res["clean_lc"] = clean_lc
     opt_res["folded_lc"] = folded_lc
     opt_res["window_length"] = window_length
