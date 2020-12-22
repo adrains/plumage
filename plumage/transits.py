@@ -591,7 +591,6 @@ def fit_light_curve(
     t_min=1/24,
     verbose=True, 
     n_trans_dur=2,
-    binsize=2,
     bin_lightcurve=False,
     break_tolerance=100,
     do_period_and_t0_ls_fit=False,
@@ -654,7 +653,6 @@ def fit_light_curve(
         light_curve,
         t0,
         period,
-        trans_dur, 
         ~mask,
         t_min,
         force_window_length_to_min=force_window_length_to_min,)
@@ -953,15 +951,12 @@ def make_transit_mask_all_periods(light_curve, toi_info, tic_id):
     return mask
 
 
-def determine_window_size(light_curve, t0, period, trans_dur, mask, t_min=1/24,
+def determine_window_size(light_curve, t0, period, mask, t_min=1/24,
     show_diagnostic_plot=False, force_window_length_to_min=False,):
     """
     mask: bool arrays
         True where we should use.
     """
-    # Get mask of transits
-    #mask = ~make_transit_mask(light_curve, t0, period, trans_dur,)
-
     # Get cadence of observations
     cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
 
