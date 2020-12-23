@@ -49,6 +49,11 @@ mean_e_period = 10 / 60 / 24
 # Amount of lightcurve to fit to inn units of transit duration
 n_trans_dur = 1.2
 
+# Fit options
+binsize_fit = 2
+bin_lightcurve_fit = True
+break_tol_days = 12/24
+
 # Period fitting/transit fitting
 fitting_iterations = 3
 fit_for_period = True
@@ -62,11 +67,9 @@ t_min = 6/24
 force_window_length_to_min = True
 
 # Plotting settings
-dt = 2
-binsize = 2
-bin_lightcurve = True
-#break_tolerance = dt * binsize * 18
-break_tol_days = 12/24
+rasterized = True
+binsize_plot = 10
+bin_lightcurve_plot = False
 
 # List of bad regions to exclude
 bad_btjds_dict = {
@@ -82,6 +85,9 @@ tois_to_exclude = [
 # -----------------------------------------------------------------------------
 # Initialise array to hold dictionaries from fit
 all_fits = {}
+flat_lc_trends = {}
+bm_lc_times_unbinned = {}
+bm_lc_fluxes_unbinned = {}
 
 # Initialise new dataframe to hold results, which will be appended to 
 # toi_info and saved once we're done
@@ -89,7 +95,7 @@ result_cols = ["sma", "e_sma", "sma_rstar", "e_sma_rstar", "rp_rstar_fit",
                "e_rp_rstar_fit",  "sma_rstar_fit", "e_sma_rstar_fit", 
                "inclination_fit", "e_inclination_fit", "rp_fit", "e_rp_fit", 
                "window_length", "niters_flat", "rchi2", "period_fit", 
-               "e_period_fit"]
+               "e_period_fit", "t0_fit", "e_t0_fit",]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
@@ -108,43 +114,50 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     print("{}\n{}/{} - TOI {} (TIC {})\n{}".format(
         "-"*40, toi_i+1, len(toi_info), toi, tic, "-"*40))
     
+    do_skip = False
+
     # Import light curve
     if light_curves[tic] is None:
         print("Skipping: No light curve\n")
-        all_fits[toi] = None
-        continue
+        do_skip = True
     elif np.isnan(toi_row["Duration (hours)"]):
         print("Skipping: No transit duration\n")
-        all_fits[toi] = None
-        continue
+        do_skip = True
     elif toi in tois_to_exclude:
         print("Skipping: bad TOI\n")
+        do_skip = True
+    #elif toi != 507.01:#129.01:#elif toi != 468.01:#270.02: #406.01:#
+    #   do_skip = True
+
+    # We met a skip condition, skip this planet
+    if do_skip:
         all_fits[toi] = None
+        flat_lc_trends[toi] = None
+        bm_lc_times_unbinned[toi] = None
+        bm_lc_fluxes_unbinned[toi] = None
         continue
-    #elif toi != 1067.01:#129.01:#elif toi != 468.01:#270.02: #406.01:#
-    #    continue
+
     # Otherwise, we can go ahead and import the light curve
+    lightcurve = light_curves[tic]
+
+    # Exclude any bad data
+    if tic in bad_btjds_dict:
+        mask = np.logical_or(
+            lightcurve.time < bad_btjds_dict[tic][0],
+            lightcurve.time > bad_btjds_dict[tic][1])
+
+        lightcurve = lightcurve[mask]
+
+        # Save back to dict
+        light_curves[tic] = lightcurve
+
+    # Bin and remove nans
+    if bin_lightcurve_fit:
+        lightcurve = lightcurve.remove_nans().bin(binsize=binsize_fit)
     else:
-        lightcurve = light_curves[tic]
+        lightcurve = lightcurve.remove_nans()
 
-        # Exclude any bad data
-        if tic in bad_btjds_dict:
-            mask = np.logical_or(
-                lightcurve.time < bad_btjds_dict[tic][0],
-                lightcurve.time > bad_btjds_dict[tic][1])
-
-            lightcurve = lightcurve[mask]
-
-            # Save back to dict
-            light_curves[tic] = lightcurve
-
-        # Bin and remove nans
-        if bin_lightcurve:
-            lightcurve = lightcurve.remove_nans().bin(binsize=binsize)
-        else:
-            lightcurve = lightcurve.remove_nans()
-
-        binned_lightcurves[tic] = lightcurve
+    binned_lightcurves[tic] = lightcurve
 
     # Calculate semi-major axis and scaled semimajor axis
     if np.isnan(toi_row["Period error"]):
@@ -191,8 +204,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             t_min=t_min,
             verbose=True,
             n_trans_dur=n_trans_dur,
-            binsize=binsize,
-            bin_lightcurve=bin_lightcurve,
+            bin_lightcurve=bin_lightcurve_fit,
             do_period_and_t0_ls_fit=do_period_and_t0_ls_fit,
             fitting_iterations=fitting_iterations,
             force_window_length_to_min=force_window_length_to_min,
@@ -206,6 +218,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     except transit.BatmanError:
         print("\nBatman failure, skipping\n")
         all_fits[toi] = None
+        flat_lc_trends[toi] = None
+        bm_lc_times_unbinned[toi] = None
+        bm_lc_fluxes_unbinned[toi] = None
         continue
 
     # Before we go any further, check we actually got uncertainties out - 
@@ -228,6 +243,11 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     # Record fit dictionaries
     all_fits[toi] = opt_res
 
+    # Record flattened lightcurve trends, and batman model fluxes
+    flat_lc_trends[toi] = opt_res["flat_lc_trend"]
+    bm_lc_times_unbinned[toi] = opt_res["folded_lc"].time
+    bm_lc_fluxes_unbinned[toi] = opt_res["bm_lightcurve"]
+
     # Save calculated params + uncertainties
     result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
     result_df.loc[toi][["sma_rstar", "e_sma_rstar"]] = [sma_rstar, e_sma_rstar]
@@ -242,6 +262,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     result_df.loc[toi]["period_fit"] = opt_res["period_fit"]
     result_df.loc[toi]["e_period_fit"] = opt_res["e_period_fit"]
+
+    result_df.loc[toi]["t0_fit"] = opt_res["t0_fit"]
+    result_df.loc[toi]["e_t0_fit"] = opt_res["e_t0_fit"] 
 
     # Save details of flattening + fit
     result_df.loc[toi]["rchi2"] = opt_res["rchi2"]
@@ -277,15 +300,28 @@ print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
 toi_info.index.set_names(["TOI"], inplace=True)
 utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
 
+# If we want to bin the plots, send the unbinned lightcurves. If not binning,
+# send our light curves through with whatever binning we used for the fit
+if not bin_lightcurve_plot or binsize_fit == binsize_fit:
+    all_lcs = binned_lightcurves
+else:
+    all_lcs = light_curves
+
 # Plotting
 pplt.plot_all_lightcurve_fits(
-    binned_lightcurves,
+    all_lcs,
     toi_info,
     tic_info,
     observations,
-    binsize=binsize,
-    bin_lightcurve=False,
-    break_tolerance=None,)
+    binsize=binsize_plot,
+    break_tol_days=break_tol_days,
+    flat_lc_trends=flat_lc_trends,
+    bm_lc_times_unbinned=bm_lc_times_unbinned,
+    bm_lc_fluxes_unbinned=bm_lc_fluxes_unbinned,
+    bin_lightcurve=bin_lightcurve_plot,
+    t_min=t_min,
+    force_window_length_to_min=force_window_length_to_min,
+    rasterized=rasterized,)
 
 pplt.merge_spectra_pdfs(
     "plots/lc_diagnostics/*.pdf", 
