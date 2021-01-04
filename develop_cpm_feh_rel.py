@@ -331,7 +331,13 @@ np.savetxt("data/phot_feh_rel_offset_coeff.csv", offset_coeff)
 # Plotting
 # -----------------------------------------------------------------------------
 plt.close("all")
-fig, (cpm_ax, offset_fit_ax, cpm_feh_ax,) = plt.subplots(1,3)
+fig = plt.figure()
+gs = fig.add_gridspec(nrows=2, ncols=3)
+cpm_ax = fig.add_subplot(gs[0, 2])
+offset_fit_ax = fig.add_subplot(gs[1, 2])
+cpm_feh_ax = fig.add_subplot(gs[:, :2])
+#fig, (cpm_ax, offset_fit_ax, cpm_feh_ax,) = plt.subplots(1,3)
+
 fig2, (m15_ax, m15_feh_ax, m15_resid_ax) = plt.subplots(3,1)
 
 # Assign axis names
@@ -379,6 +385,9 @@ cpm_ax.set_xlabel(r"$({})$".format(c_label))
 cpm_ax.set_ylabel(r"$M_{K_S}$")
 
 cpm_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+cpm_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
+
+cpm_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # Mann+15 Scatter
@@ -455,14 +464,22 @@ offset_fit_ax.errorbar(
 
 # Plot fits
 xx = np.arange(offset.min(), offset.max(), 0.01)
-offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="LS fit")
-offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", label="LS fit (corr)")
+offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="Fit (uncorrected)")
+offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", 
+    label="Fit (adopted)")
 cb = fig.colorbar(sc, ax=offset_fit_ax)
 cb.set_label(r"$(B_P-R_P)$")
 offset_fit_ax.set_ylabel("[Fe/H]")
-offset_fit_ax.legend(fontsize="small")
+offset_fit_ax.legend(fontsize="x-small")
 
-offset_fit_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+offset_fit_ax.set_ylim([-1.5,0.75])
+
+plt.setp(offset_fit_ax.get_xticklabels(), rotation="vertical")
+
+offset_fit_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+offset_fit_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+offset_fit_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+offset_fit_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # CPM comp
@@ -529,8 +546,13 @@ cpm_resid_ax.set_ylabel("[Fe/H] Resid")
 
 cpm_feh_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
 cpm_feh_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_feh_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
 cpm_resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
-cpm_resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
+cpm_resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # Mann+15 comp
@@ -591,7 +613,7 @@ m15_resid_ax.set_xlabel("[Fe/H] (Mann+15)")
 m15_resid_ax.set_ylabel("[Fe/H] Resid")
 
 # Wrap up
-fig.set_size_inches(9, 2.5)
+fig.set_size_inches(9, 4.5)
 fig.tight_layout() 
 fig.savefig("paper/phot_feh_rel.pdf")
 fig.savefig("paper/phot_feh_rel.png")
