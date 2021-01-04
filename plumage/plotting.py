@@ -2613,12 +2613,17 @@ def plot_lightcurve_fit(
     flat_lc_trend.scatter(ax=ax_lc_unfolded, linewidth=0.2, color="green", 
         zorder=2, rasterized=rasterized,)
 
-    # Plot lines where the transits occur
-    transits = np.arange(t0, lightcurve.time[-1], period)
+    # Plot lines where transits occur (from beginning to end of our window)
+    transits = np.arange(t0-period*1000, lightcurve.time[-1], period)
+    observed_transits_mask = np.logical_and(
+        transits > lightcurve.time[0],
+        transits < lightcurve.time[-1]
+    )
+    transits = transits[observed_transits_mask]
 
     for transit in transits:
         ax_lc_unfolded.vlines(transit, 0.90, 1.10, colors="red", 
-            linestyles="dashed", linewidth=0.5, alpha=1.0, zorder=3)
+            linestyles="dashed", linewidth=0.25, alpha=1.0, zorder=3)
 
     ax_lc_unfolded.set_xlim((lightcurve.time[0], lightcurve.time[-1]))
 

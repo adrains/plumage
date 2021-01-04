@@ -977,7 +977,7 @@ def determine_window_size(light_curve, t0, period, mask, t_min=1/24,
 
     # Otherwise just do based on minimum
     else:
-        print("Window from provided t_min")
+        #print("Window from provided t_min")
         window_length = int(t_min / cadence)
 
     if show_diagnostic_plot and not force_window_length_to_min:

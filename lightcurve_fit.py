@@ -58,12 +58,12 @@ break_tol_days = 12/24
 fitting_iterations = 3
 fit_for_period = True
 fit_for_t0 = False
-dt_step_fac = 10
+dt_step_fac = 2
 do_period_fit_plot = False
 n_trans_dur_period_fit = 4
 
 # Min window size for flattening in days
-t_min = 6/24
+t_min = 12/24
 force_window_length_to_min = True
 
 # Plotting settings
@@ -126,7 +126,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     elif toi in tois_to_exclude:
         print("Skipping: bad TOI\n")
         do_skip = True
-    #elif toi != 507.01:#129.01:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi != 129.01:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
     # We met a skip condition, skip this planet
