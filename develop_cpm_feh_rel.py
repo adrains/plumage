@@ -108,6 +108,26 @@ feh_offsets = {
     "N12":0.00,
 }
 
+# Citations
+citations = []
+
+feh_citations = {
+    "TW":"mann_spectro-thermometry_2013",
+    "VF05":"valenti_spectroscopic_2005",
+    "CFHT":"",
+    "C01":"",
+    "M04" :"mishenina_correlation_2004",
+    "LH05":"luck_stars_2005",
+    "T05":"",
+    "B06":"bean_accurate_2006",
+    "Ra07":"ramirez_oxygen_2007",
+    "Ro07":"robinson_n2k_2007",
+    "F08":"fuhrmann_nearby_2008",
+    "C11":"casagrande_new_2011",
+    "S11":"da_silva_homogeneous_2011",
+    "N12":"neves_metallicity_2012",
+}
+
 ignored = []
 
 for source_id, cpm_row in cpm_info.iterrows():
@@ -116,30 +136,36 @@ for source_id, cpm_row in cpm_info.iterrows():
         ref = cpm_row["ref_feh_prim_m13"]
         feh_corr = cpm_row["feh_prim_m13"] + feh_offsets[ref]
         e_feh_corr = cpm_row["e_feh_prim_m13"]
+        citation = feh_citations[ref]
 
     # Then check those from Newton+14 that are from VF05
     elif cpm_row["feh_prim_ref_n14"] == "VF05":
         feh_corr = cpm_row["feh_prim_n14"] + feh_offsets["VF05"]
         e_feh_corr = cpm_row["e_feh_prim_n14"]
+        citation = feh_citations["VF05"]
     
     # Then check other entries
     elif cpm_row["feh_prim_ref_other"] == "Ra07":
         feh_corr = cpm_row["feh_prim_other"] + feh_offsets["Ra07"]
         e_feh_corr = cpm_row["e_feh_prim_other"]
+        citation = feh_citations["Ra07"]
 
     # Don't know systematics, ignore
     else:
         feh_corr = np.nan
         e_feh_corr = np.nan
         ignored.append(source_id)
+        citation = "--"
     
     feh_corr_all.append(feh_corr)
     e_feh_corr_all.append(e_feh_corr)
+    citations.append(citation)
 
 # All done
 print("Ignored {} stars: {}".format(len(ignored), str(ignored)))
 cpm_info["feh_corr"] = feh_corr_all
 cpm_info["e_feh_corr"] = e_feh_corr_all
+cpm_info["citation"] = citations
 
 # Now mask out stars which we've excluded
 cpm_info_feh_corr = cpm_info[~np.isnan(feh_corr_all)]
@@ -627,10 +653,10 @@ for star_i, star in cpm_info_feh_corr.iterrows():
     table_row += r"{:0.2f} & ".format(star["Bp-Rp"])
 
     # Secondary source ID
-    table_row += "{} &".format(star["HIP"])
+    table_row += "{} &".format(star["source_id_prim"])
 
     # [Fe/H] source
-    table_row += "{} &".format(star["ref_feh_prim_m13"])
+    table_row += r"\citealt{{{}}} &".format(star["citation"])
 
     # [Fe/H] source
     table_row += r"${:0.2f}\pm{:0.2f}$".format(star["feh_corr"], star["e_feh_corr"])
