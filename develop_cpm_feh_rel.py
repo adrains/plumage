@@ -108,6 +108,26 @@ feh_offsets = {
     "N12":0.00,
 }
 
+# Citations
+citations = []
+
+feh_citations = {
+    "TW":"mann_spectro-thermometry_2013",
+    "VF05":"valenti_spectroscopic_2005",
+    "CFHT":"",
+    "C01":"",
+    "M04" :"mishenina_correlation_2004",
+    "LH05":"luck_stars_2005",
+    "T05":"",
+    "B06":"bean_accurate_2006",
+    "Ra07":"ramirez_oxygen_2007",
+    "Ro07":"robinson_n2k_2007",
+    "F08":"fuhrmann_nearby_2008",
+    "C11":"casagrande_new_2011",
+    "S11":"da_silva_homogeneous_2011",
+    "N12":"neves_metallicity_2012",
+}
+
 ignored = []
 
 for source_id, cpm_row in cpm_info.iterrows():
@@ -116,30 +136,36 @@ for source_id, cpm_row in cpm_info.iterrows():
         ref = cpm_row["ref_feh_prim_m13"]
         feh_corr = cpm_row["feh_prim_m13"] + feh_offsets[ref]
         e_feh_corr = cpm_row["e_feh_prim_m13"]
+        citation = feh_citations[ref]
 
     # Then check those from Newton+14 that are from VF05
     elif cpm_row["feh_prim_ref_n14"] == "VF05":
         feh_corr = cpm_row["feh_prim_n14"] + feh_offsets["VF05"]
         e_feh_corr = cpm_row["e_feh_prim_n14"]
+        citation = feh_citations["VF05"]
     
     # Then check other entries
     elif cpm_row["feh_prim_ref_other"] == "Ra07":
         feh_corr = cpm_row["feh_prim_other"] + feh_offsets["Ra07"]
         e_feh_corr = cpm_row["e_feh_prim_other"]
+        citation = feh_citations["Ra07"]
 
     # Don't know systematics, ignore
     else:
         feh_corr = np.nan
         e_feh_corr = np.nan
         ignored.append(source_id)
+        citation = "--"
     
     feh_corr_all.append(feh_corr)
     e_feh_corr_all.append(e_feh_corr)
+    citations.append(citation)
 
 # All done
 print("Ignored {} stars: {}".format(len(ignored), str(ignored)))
 cpm_info["feh_corr"] = feh_corr_all
 cpm_info["e_feh_corr"] = e_feh_corr_all
+cpm_info["citation"] = citations
 
 # Now mask out stars which we've excluded
 cpm_info_feh_corr = cpm_info[~np.isnan(feh_corr_all)]
@@ -305,7 +331,13 @@ np.savetxt("data/phot_feh_rel_offset_coeff.csv", offset_coeff)
 # Plotting
 # -----------------------------------------------------------------------------
 plt.close("all")
-fig, (cpm_ax, offset_fit_ax, cpm_feh_ax,) = plt.subplots(1,3)
+fig = plt.figure()
+gs = fig.add_gridspec(nrows=2, ncols=3)
+cpm_ax = fig.add_subplot(gs[0, 2])
+offset_fit_ax = fig.add_subplot(gs[1, 2])
+cpm_feh_ax = fig.add_subplot(gs[:, :2])
+#fig, (cpm_ax, offset_fit_ax, cpm_feh_ax,) = plt.subplots(1,3)
+
 fig2, (m15_ax, m15_feh_ax, m15_resid_ax) = plt.subplots(3,1)
 
 # Assign axis names
@@ -353,6 +385,9 @@ cpm_ax.set_xlabel(r"$({})$".format(c_label))
 cpm_ax.set_ylabel(r"$M_{K_S}$")
 
 cpm_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+cpm_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
+
+cpm_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # Mann+15 Scatter
@@ -429,14 +464,22 @@ offset_fit_ax.errorbar(
 
 # Plot fits
 xx = np.arange(offset.min(), offset.max(), 0.01)
-offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="LS fit")
-offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", label="LS fit (corr)")
+offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="Fit (uncorrected)")
+offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", 
+    label="Fit (adopted)")
 cb = fig.colorbar(sc, ax=offset_fit_ax)
 cb.set_label(r"$(B_P-R_P)$")
 offset_fit_ax.set_ylabel("[Fe/H]")
-offset_fit_ax.legend(fontsize="small")
+offset_fit_ax.legend(fontsize="x-small")
 
-offset_fit_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+offset_fit_ax.set_ylim([-1.5,0.75])
+
+plt.setp(offset_fit_ax.get_xticklabels(), rotation="vertical")
+
+offset_fit_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+offset_fit_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+offset_fit_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+offset_fit_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # CPM comp
@@ -503,8 +546,13 @@ cpm_resid_ax.set_ylabel("[Fe/H] Resid")
 
 cpm_feh_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
 cpm_feh_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_feh_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
 cpm_resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
-cpm_resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
+cpm_resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+cpm_resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # Mann+15 comp
@@ -565,7 +613,7 @@ m15_resid_ax.set_xlabel("[Fe/H] (Mann+15)")
 m15_resid_ax.set_ylabel("[Fe/H] Resid")
 
 # Wrap up
-fig.set_size_inches(9, 2.5)
+fig.set_size_inches(9, 4.5)
 fig.tight_layout() 
 fig.savefig("paper/phot_feh_rel.pdf")
 fig.savefig("paper/phot_feh_rel.png")
@@ -628,10 +676,10 @@ for star_i, star in cpm_info_feh_corr.iterrows():
     table_row += r"{:0.2f} & ".format(star["Bp-Rp"])
 
     # Secondary source ID
-    table_row += "{} &".format(star["HIP"])
+    table_row += "{} &".format(star["source_id_prim"])
 
     # [Fe/H] source
-    table_row += "{} &".format(star["ref_feh_prim_m13"])
+    table_row += r"\citealt{{{}}} &".format(star["citation"])
 
     # [Fe/H] source
     table_row += r"${:0.2f}\pm{:0.2f}$".format(star["feh_corr"], star["e_feh_corr"])
