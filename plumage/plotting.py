@@ -16,6 +16,8 @@ from tqdm import tqdm
 import matplotlib.transforms as transforms
 import matplotlib.ticker as plticker
 from scipy.interpolate import interp1d
+from scipy.stats import norm
+from scipy.integrate import simps
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
@@ -2372,7 +2374,7 @@ def plot_label_comparison(
 # Planet plots
 # ----------------------------------------------------------------------------- 
 def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
-    plot_poisson_errors=True,):
+    plot_poisson_errors=True, plot_smooth_hist=False, x_lims=(0,14),):
     """Plots a histogram of stellar radii.
 
     Parameters
@@ -2388,36 +2390,66 @@ def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
 
     min_rp = np.min(lc_results["rp_fit"][lc_results["rp_fit"] > min_rp])
     max_rp = np.max(lc_results["rp_fit"])
-    bin_edges = np.arange(min_rp, max_rp+bin_width, bin_width)
 
-    nn, bins, _ = axis.hist(
-        lc_results["rp_fit"], 
-        bins=bin_edges,
-        linewidth=0.4,
-        edgecolor="black",
-        zorder=0)
+    # If plotting smooth histogram
+    if plot_smooth_hist:
+        rr = np.linspace(-20, 40, 100000)
+        density = []
 
-    if plot_poisson_errors:
-        bin_mids = 0.5*(bins[1:] + bins[:-1])
-        axis.errorbar(
-            bins[1:]-bin_width/2, 
-            nn, 
-            yerr=np.sqrt(nn), 
-            fmt='none', 
-            zorder=1,
-            linewidth=0.3,
-            e_linewidth=0.00005,
-            ecolor="red",
-            barsabove=True,
-            capsize=1,)
+        for toi, res in lc_results.iterrows():
+            if np.isnan(res["rp_fit"]) or np.isnan(res["e_rp_fit"]):
+                continue
 
-    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
-    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
+            density.append(
+                norm.pdf(
+                    rr, 
+                    loc=res["rp_fit"], 
+                    scale=res["e_rp_fit"]))
+        density = np.sum(density, axis=0) 
+        density /= np.sum([~np.isnan(lc_results["rp_fit"])])
 
-    axis.set_xlim(bins[0], 17)
+        axis.fill_between(rr, density, )#alpha=0.5)
+        
+        axis.set_xlim(x_lims)
+        axis.set_ylim(0, np.max(density)*1.01)
+        axis.set_ylabel("PDF")
+
+    # Plot normal histogram
+    else:
+        bin_edges = np.arange(min_rp, max_rp+bin_width, bin_width)
+
+        nn, bins, _ = axis.hist(
+            lc_results["rp_fit"], 
+            bins=bin_edges,
+            linewidth=0.4,
+            edgecolor="black",
+            zorder=0)
+
+        if plot_poisson_errors:
+            bin_mids = 0.5*(bins[1:] + bins[:-1])
+            axis.errorbar(
+                bins[1:]-bin_width/2, 
+                nn, 
+                yerr=np.sqrt(nn), 
+                fmt='none', 
+                zorder=1,
+                linewidth=0.3,
+                e_linewidth=0.00005,
+                ecolor="red",
+                barsabove=True,
+                capsize=1,)
+
+        axis.set_xlim(bins[0], 17)
+        axis.set_ylabel("# Planets")
+
+        axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+        axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
+
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=1))
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=2))
 
     axis.set_xlabel(r"Planet radius ($R_E$)")
-    axis.set_ylabel("# Planets")
+    
 
     plt.tight_layout()
     plt.savefig("paper/planet_radii_hist.pdf")
