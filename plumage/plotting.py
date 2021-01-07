@@ -1390,7 +1390,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
 
         cb = fig.colorbar(sc, ax=axis)
-        cb.set_label(cb_label)
+        if cb_label != "":
+            cb.set_label(cb_label)
 
     # Split lims if we've been given different x and y limits
     lim_min = np.min([x_lims[0], y_lims[0]])
@@ -1441,7 +1442,10 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0)
     
     resid_ax.set_xlabel(lit_label)
-    axis.set_ylabel(fit_label)
+
+    if fit_label != "":
+        axis.set_ylabel(fit_label)
+        resid_ax.set_ylabel("resid")
 
     axis.set_xlim(x_lims)
     resid_ax.set_xlim(x_lims)
@@ -1567,7 +1571,7 @@ def plot_std_comp(
         obs_join["feh_synth"],
         r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, Mann+15)",
-        "[Fe/H] (phot)",
+        "", #"[Fe/H] (phot)",
         x_lims=(2800,4300),
         y_lims=(2800,4300),
         cmap="viridis",
@@ -1583,9 +1587,9 @@ def plot_std_comp(
         obs_join["teff_ra12"],
         obs_join["e_teff_ra12"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}$ (K, fit)",
+        "", #r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, Rojas-Ayala+12)",
-        feh_cb_label,
+        "", #feh_cb_label,
         x_lims=(2800,4300),
         y_lims=(2800,4300),
         cmap="viridis",
@@ -1601,9 +1605,9 @@ def plot_std_comp(
         obs_join["teff_int"],
         obs_join["e_teff_int"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}$ (K, fit)",
+        "", #r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, interferometric)",
-        feh_cb_label,
+        "", #feh_cb_label,
         x_lims=(2800,5100),
         y_lims=(2800,5100),
         cmap="viridis",
@@ -1619,7 +1623,7 @@ def plot_std_comp(
         obs_join["teff_other"],
         obs_join["e_teff_other"],
         obs_join["feh_synth"],
-        r"$T_{\rm eff}$ (K, fit)",
+        "", #r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, other)",
         feh_cb_label,
         x_lims=(3500,5100),
@@ -1639,7 +1643,7 @@ def plot_std_comp(
         obs_join["teff_synth"],
         r"[Fe/H] (fit)",
         r"[Fe/H] (Mann+15)",
-        r"$T_{\rm eff}\,$K (fit)",
+        "",#r"$T_{\rm eff}\,$K (fit)",
         x_lims=(-0.65,0.6),
         y_lims=(-0.95,0.6),
         cmap="magma",
@@ -1656,9 +1660,9 @@ def plot_std_comp(
         obs_join["feh_ra12"],
         obs_join["e_feh_ra12"],
         obs_join["teff_synth"],
-        r"[Fe/H] (fit)",
+        "",#r"[Fe/H] (fit)",
         r"[Fe/H] (Rojas-Ayala+12)",
-        r"$T_{\rm eff}\,$K (fit)",
+        "",#r"$T_{\rm eff}\,$K (fit)",
         x_lims=(-0.8,0.6),
         y_lims=(-1.2,0.6),
         cmap="magma",
@@ -1672,12 +1676,12 @@ def plot_std_comp(
         ax_feh_cpm, 
         obs_join["feh_synth"],
         obs_join["e_feh_synth"],
-        obs_join["feh_n14"],
-        obs_join["e_feh_n14"],
+        obs_join["feh_cpm"],
+        obs_join["e_feh_cpm"],
         obs_join["teff_synth"],
-        r"[Fe/H] (fit)",
-        r"[Fe/H] (CPM)",
-        r"$T_{\rm eff}\,$K (fit)",
+        "", #r"[Fe/H] (fit)",
+        r"[Fe/H] (binary primary)",
+        "",#r"$T_{\rm eff}\,$K (fit)",
         x_lims=(-1.2,0.6),
         y_lims=(-1.2,0.6),
         cmap="magma",
@@ -1694,7 +1698,7 @@ def plot_std_comp(
         obs_join["feh_other"],
         obs_join["e_feh_other"],
         obs_join["teff_synth"],
-        r"[Fe/H] (fit)",
+        "", #r"[Fe/H] (fit)",
         r"[Fe/H] (other)",
         r"$T_{\rm eff}\,$K (fit)",
         x_lims=(-1.1,0.6),
@@ -1882,6 +1886,8 @@ def plot_cmd(
         info_cat[abs_mag], 
         zorder=1,
         c=colours,
+        label="Science",
+        alpha=0.9,
     )
 
     if plot_feh_cb:
@@ -1891,11 +1897,16 @@ def plot_cmd(
     # Plot a second set of stars behind (e.g. standards)
     if info_cat_2 is not None:
         scatter = axis.scatter(
-        info_cat_2[colour], 
-        info_cat_2[abs_mag], 
-        marker="*",
-        zorder=0,
-    )
+            info_cat_2[colour], 
+            info_cat_2[abs_mag], 
+            marker="o",
+            edgecolor="#ff7f0e",
+            facecolors="none",
+            zorder=0,
+            label="Standard"
+        )
+
+        plt.legend(loc="best")
 
     # Optional, but for diagnostic purposes plot the target TOI IDs
     if plot_toi_ids:
@@ -1914,6 +1925,9 @@ def plot_cmd(
 
     axis.set_xlabel(x_label)
     axis.set_ylabel(y_label)
+
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
     fig.tight_layout()
     plt.savefig("paper/{}_cmd.png".format(label))
@@ -2262,10 +2276,15 @@ def plot_representative_spectral_model_limitations(
         wl_f, fp = synth.load_filter_profile(filt, 3000, 7000, do_zero_pad=True)
         plt.plot(wl_f, fp*2, linewidth=1.0, label=r"${}$".format(lbl), zorder=3)
 
-    plt.xlabel(r"Wavelength (\AA)")
+    plt.xlabel(r"Wavelength ($\mathrm{\AA}$)")
     plt.ylabel(r"$f_\lambda$ (Normalised)")
     plt.xlim(3200, 7000)
-    plt.legend(loc="upper center", ncol=8)
+    leg = plt.legend(loc="upper center", ncol=8)
+
+    # Update width of legend objects
+    for legobj in leg.legendHandles:
+        legobj.set_linewidth(1.5)
+
     plt.gcf().set_size_inches(9, 2.5)
     plt.tight_layout()
     plt.savefig("paper/model_spectra_limitations.pdf")

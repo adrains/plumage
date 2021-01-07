@@ -50,8 +50,10 @@ def make_table_final_results(
 
     if label == "tess":
         id_col = "TIC"
+        caption = "Final results for TESS candidate exoplanet hosts"
     else:
         id_col = "Gaia DR2"
+        caption = "Final results for cool dwarf standards"
 
     comb_info = observations.join(info_cat, "source_id", rsuffix="_info", how="inner")
     comb_info.sort_values("teff_synth", inplace=True)
@@ -71,7 +73,12 @@ def make_table_final_results(
         (r"$\log R^{'}_{\rm HK}$", ""),
 
     ])
-                           
+    
+    # Pop activity keys if making standards
+    if label != "tess":
+        cols.pop(r"EW(H$\alpha$)")
+        cols.pop(r"$\log R^{'}_{\rm HK}$")
+
     header = []
     header_1 = []
     header_2 = []
@@ -82,7 +89,6 @@ def make_table_final_results(
     # Construct the header of the table
     header.append("\\begin{table*}")
     header.append("\\centering")
-    header.append("\\label{{tab:final_results_{}}}".format(label))
 
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
@@ -92,10 +98,11 @@ def make_table_final_results(
     
     # Now add the separate info for the two tables
     header_1 = header.copy()
-    header_1.insert(3, "\\caption{Final results}")
+    header_1.insert(2, "\\label{{tab:final_results_{}}}".format(label))
+    header_1.insert(2, "\\caption{{{}}}".format(caption))
 
     header_2 = header.copy()
-    header_2.insert(3, "\\contcaption{Final results}")
+    header_2.insert(2, "\\contcaption{{{}}}".format(caption))
 
     # Populate the table for every science target
     for star_i, star in comb_info.iterrows():
@@ -122,7 +129,7 @@ def make_table_final_results(
             table_row += r"{:0.2f} &".format(star["phot_feh"])
 
         # Mass and radius
-        table_row += r"{:0.3f} $\pm$ {:0.2f} &".format(
+        table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
             star["mass_m19"], star["e_mass_m19"])
 
         table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
@@ -142,12 +149,15 @@ def make_table_final_results(
             star["L_star"], star["e_L_star"])
 
         # H alpha and logR`HK
-        if do_activity_crossmatch:
+        if do_activity_crossmatch and label == "tess":
             table_row += r"{:0.2f} & ".format(star["EW(Ha)"])
             table_row += r"{:0.2f} ".format(star["logR'HK"])
-        else:
+        elif label == "tess":
             table_row += r"{:0.2f} & ".format(np.nan)
             table_row += r"{:0.2f} ".format(np.nan)
+        # Not writing activity columns, remove &
+        else:
+            table_row = table_row[:-2]
 
         table_rows.append(table_row + r"\\")
 
@@ -161,6 +171,11 @@ def make_table_final_results(
     low_row = 0
     
     for table_i, break_row in enumerate(break_rows):
+        if table_i == 0:
+            header = header_1
+        else:
+            header = header_2
+
         table_x = header_1 + table_rows[low_row:break_row] + footer + notes
         np.savetxt("paper/table_final_results_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
@@ -169,7 +184,7 @@ def make_table_final_results(
     # Do final part table
     if low_row < len(comb_info):
         table_i += 1
-        table_x = header_1 + table_rows[low_row:] + footer + notes
+        table_x = header_2 + table_rows[low_row:] + footer + notes
         np.savetxt("paper/table_final_results_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
 
@@ -210,7 +225,6 @@ def make_table_targets(break_row=45):
     header.append("\\begin{landscape}")
     header.append("\\begin{table}")
     header.append("\\centering")
-    header.append("\\label{tab:science_targets}")
     
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
@@ -221,6 +235,7 @@ def make_table_targets(break_row=45):
     # Now add the separate info for the two tables
     header_1 = header.copy()
     header_1.insert(3, "\\caption{Science targets}")
+    header_1.insert(4, "\\label{tab:science_targets}")
 
     header_2 = header.copy()
     header_2.insert(3, "\\contcaption{Science targets}")
@@ -271,7 +286,7 @@ def make_table_targets(break_row=45):
     notes.append("\\textbf{Notes:} $^a$TESS Input Catalogue ID "
                  "\citep{stassun_tess_2018, stassun_revised_2019},"
                  "$^b$Gaia \citet{brown_gaia_2018} - "
-                 " note that Gaia parallaxes listed here have not been "
+                 " note that Gaia parallaxes listed here have been "
                  "corrected for the zeropoint offset, "
                  "$^c$Number of candidate planets, NASA Exoplanet Follow-up "
                  "Observing Program for TESS \\\\")
@@ -304,16 +319,18 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     if label == "tess":
         id_col = "TIC"
         id_label = "TIC"
-        table_kind = ""
+        table_kind = "*"
+        caption = "Observing log for TESS candidate exoplanet host stars"
     else:
         id_col = "source_id"
         id_label = "Gaia DR2"
         table_kind = "*"
+        caption = "Observing log for cool dwarf standards"
 
     cols = OrderedDict([
         (id_label, ""),
         ("UT Date", ""), 
-        (r"$X$", ""), 
+        (r"airmass", ""), 
         ("exp", "(sec)"), 
         ("RV", r"(km$\,$s$^{-1}$)"), 
     ])      
@@ -329,7 +346,6 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     #header.append("\\begin{landscape}")
     header.append("\\begin{{table{}}}".format(table_kind))
     header.append("\\centering")
-    header.append("\\label{{tab:observing_log_{}}}".format(label))
     
     header.append("\\begin{tabular}{%s}" % ("c"*(2+len(cols))))
     header.append("\hline")
@@ -343,10 +359,11 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     
     # Now add the separate info for the two tables
     header_1 = header.copy()
-    header_1.insert(3, "\\caption{Observing log}")
+    header_1.insert(2, "\\caption{{{}}}".format(caption))
+    header_1.insert(3, "\\label{{tab:observing_log_{}}}".format(label))
 
     header_2 = header.copy()
-    header_2.insert(3, "\\contcaption{Observing log}")
+    header_2.insert(2, "\\contcaption{{{}}}".format(caption))
     
     # Populate the table for every science target
     for source_id, star in comb_info.iterrows():
@@ -380,7 +397,11 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     low_row = 0
     
     for table_i, break_row in enumerate(break_rows):
-        table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+        if table_i == 0:
+            header = header_1
+        else:
+            header = header_2
+        table_x = header + table_rows[low_row:break_row] + footer + notes
         np.savetxt("paper/table_observations_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
         low_row = break_row
@@ -388,7 +409,7 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     # Do final part table
     if low_row < len(comb_info):
         table_i += 1
-        table_x = header_1 + table_rows[low_row:] + footer + notes
+        table_x = header_2 + table_rows[low_row:] + footer + notes
         np.savetxt("paper/table_observations_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
 
@@ -421,7 +442,7 @@ def make_table_planet_params(break_row=60,):
         (r"$R_p/R_*$", r""),     # fit params
         (r"$a/R_*$", r""),       # fit params
         (r"$e$ flag", ""),       # sma/r* mismatch flag
-        (r"$i$", r"($^\circ$)"), # fit params
+        (r"$i$", r"($^{\circ}$)"), # fit params
         (r"$R_p$", r"($R_E$)"),  # physical
         #(r"$a$", "(au)"),        # physical
     ])
@@ -436,7 +457,6 @@ def make_table_planet_params(break_row=60,):
     # Construct the header of the table
     header.append("\\begin{table*}")
     header.append("\\centering")
-    header.append("\\label{tab:planet_params}")
 
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
@@ -451,10 +471,11 @@ def make_table_planet_params(break_row=60,):
     
     # Now add the separate info for the two tables
     header_1 = header.copy()
-    header_1.insert(3, "\\caption{Planet params}")
+    header_1.insert(2, "\\caption{Planet params}")
+    header_1.insert(3, "\\label{tab:planet_params}")
 
     header_2 = header.copy()
-    header_2.insert(3, "\\contcaption{Planet params}")
+    header_2.insert(2, "\\contcaption{Planet params}")
 
     # Set unreasonably high uncertainties to nans TODO
     bad_std_mask = np.logical_or(

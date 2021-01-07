@@ -113,7 +113,7 @@ pplt.plot_planet_period_vs_radius(lc_results)
 # Paper Tables
 # -----------------------------------------------------------------------------
 paper.make_table_targets()
-paper.make_table_observations(obs_tess, tic_info, "tess", break_row=64)
+paper.make_table_final_results(label="tess",info_cat=tess_info, break_row=64, do_activity_crossmatch=True)
 paper.make_table_final_results()
 paper.make_table_planet_params()
 #paper.make_table_fbol()
@@ -123,7 +123,7 @@ paper.make_table_planet_params()
 # Standards
 paper.make_table_targets()
 paper.make_table_observations(obs_std, std_info, "std")
-paper.make_table_final_results(label="std",info_cat=std_info, break_row=64)
+paper.make_table_final_results(label="std",info_cat=std_info, break_row=64, do_activity_crossmatch=False)   
 
 """
 pplt.plot_teff_comp(

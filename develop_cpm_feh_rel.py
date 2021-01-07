@@ -599,7 +599,7 @@ notes = []
 # Construct the header of the table
 header.append("\\begin{table*}")
 header.append("\\centering")
-header.append("\\label{tab:cpm_feh}")
+
 
 header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
 header.append("\hline")
@@ -609,11 +609,12 @@ header.append("\hline")
 
 # Now add the separate info for the two tables
 header_1 = header.copy()
-caption = ("Stellar pairs and primary [Fe/H] used for photometric [Fe/H] relation")
-header_1.insert(3, "\\caption{{{}}}".format(caption))
+caption = "Stellar pairs and primary [Fe/H] used for photometric [Fe/H] relation"
+header_1.insert(2, "\\caption{{{}}}".format(caption))
+header_1.insert(3, "\\label{tab:cpm_feh}")
 
-#header_2 = header.copy()
-#header_2.insert(3, "\\contcaption{Limb darkening coefficients}")
+header_2 = header.copy()
+header_2.insert(2, "\\contcaption{{{}}}".format(caption))
 
 # Populate the table for every science target
 for star_i, star in cpm_info_feh_corr.iterrows():
@@ -650,6 +651,10 @@ break_rows = np.arange(break_row, len(cpm_info_feh_corr), break_row)
 low_row = 0
 
 for table_i, break_row in enumerate(break_rows):
+    if table_i == 0:
+        header = header_1
+    else:
+        header = header_2
     table_x = header_1 + table_rows[low_row:break_row] + footer + notes
     np.savetxt("paper/table_cpm_feh_{:0.0f}.tex".format(
         table_i), table_x, fmt="%s")
@@ -658,6 +663,6 @@ for table_i, break_row in enumerate(break_rows):
 # Do final part table
 if low_row < len(cpm_info_feh_corr):
     table_i += 1
-    table_x = header_1 + table_rows[low_row:] + footer + notes
+    table_x = header_2 + table_rows[low_row:] + footer + notes
     np.savetxt("paper/table_cpm_feh_{:0.0f}.tex".format(
         table_i), table_x, fmt="%s")
