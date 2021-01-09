@@ -1344,10 +1344,13 @@ def do_synthetic_fit(
     # a colossal variance, which then results in a huge std.
     unscale_fac = np.sum(unscaled_res) / np.sum(res)
 
+    # Calculate RMS to scale uncertainties by
+    rms = np.sqrt(np.sum(res**2)/np.sum(res != 0))
+
     # Calculate uncertainties
     jac = opt_res["jac"]
     cov = np.linalg.inv(jac.T.dot(jac))
-    std = np.sqrt(np.diagonal(cov)) * np.nanvar(res) * unscale_fac
+    std = np.sqrt(np.diagonal(cov)) * rms# * unscale_fac
     opt_res["std"] = std
 
     # Teff

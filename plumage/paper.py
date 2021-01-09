@@ -159,7 +159,8 @@ def make_table_final_results(
         else:
             table_row = table_row[:-2]
 
-        table_rows.append(table_row + r"\\")
+        # Get rid of nans, append
+        table_rows.append(table_row.replace("nan", "-") + r"\\")
 
     # Finish the table
     footer.append("\hline")

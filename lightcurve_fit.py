@@ -70,6 +70,7 @@ force_window_length_to_min = True
 rasterized = True
 binsize_plot = 10
 bin_lightcurve_plot = False
+make_paper_plots = True
 
 # List of bad regions to exclude
 bad_btjds_dict = {
@@ -126,7 +127,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     elif toi in tois_to_exclude:
         print("Skipping: bad TOI\n")
         do_skip = True
-    #elif toi != 129.01:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi != 507.01:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
     # We met a skip condition, skip this planet
@@ -321,8 +322,9 @@ pplt.plot_all_lightcurve_fits(
     bin_lightcurve=bin_lightcurve_plot,
     t_min=t_min,
     force_window_length_to_min=force_window_length_to_min,
-    rasterized=rasterized,)
+    rasterized=rasterized,
+    make_paper_plots=make_paper_plots,)
 
 pplt.merge_spectra_pdfs(
-    "plots/lc_diagnostics/*.pdf", 
+    "plots/lc_diagnostics/*diagnostic.pdf", 
     "plots/lc_diagnostics.pdf",) 
