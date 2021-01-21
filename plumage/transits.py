@@ -143,6 +143,41 @@ def load_all_light_curves(tic_ids):
 
     return light_curves
 
+
+def get_sectors(tic,):
+    """Queries for the number of sectors available for a given TIC
+    """
+    # Query
+    search_res = lk.search_lightcurvefile("TIC {}".format(tic), mission="TESS")
+
+    # Grab table actually containing info
+    sectors = list(search_res.table["observation"])
+
+    # Take just the sector numbers and sort
+    sectors = list(set([int(sector.split(" ")[-1]) for sector in sectors]))
+    sectors.sort()
+
+    # Format the sectors succinctly, e.g. 1-4, 28
+    sector_str = str(sectors[0])
+    prev_sector = sectors[0]
+    holdover = False
+
+    for sector in sectors[1:]:
+        if sector == prev_sector + 1:
+            holdover = True
+        elif holdover:
+            sector_str += "-{},{}".format(prev_sector,sector)
+            holdover = False
+        else:
+            sector_str += ",{}".format(sector)
+
+        prev_sector = sector
+
+    if holdover:
+        sector_str += "-{}".format(prev_sector)
+
+    return sectors, sector_str
+
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # -----------------------------------------------------------------------------

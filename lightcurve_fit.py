@@ -96,7 +96,7 @@ result_cols = ["sma", "e_sma", "sma_rstar", "e_sma_rstar", "rp_rstar_fit",
                "e_rp_rstar_fit",  "sma_rstar_fit", "e_sma_rstar_fit", 
                "inclination_fit", "e_inclination_fit", "rp_fit", "e_rp_fit", 
                "window_length", "niters_flat", "rchi2", "period_fit", 
-               "e_period_fit", "t0_fit", "e_t0_fit",]
+               "e_period_fit", "t0_fit", "e_t0_fit", "sma_rstar_mismatch_flag"]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
@@ -127,7 +127,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     elif toi in tois_to_exclude:
         print("Skipping: bad TOI\n")
         do_skip = True
-    #elif toi != 507.01:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi != 700.01:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
     # We met a skip condition, skip this planet
@@ -271,6 +271,12 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     result_df.loc[toi]["rchi2"] = opt_res["rchi2"]
     result_df.loc[toi]["window_length"] = opt_res["window_length"]
     result_df.loc[toi]["niters_flat"] = opt_res["niters_flat"]
+
+    # Save a flag if SMA are very different
+    sma_diff = np.abs(sma_rstar-opt_res["x"][1])
+    e_sma_diff = (e_sma_rstar**2 + opt_res["std"][1]**2)**0.5
+    e_flag = sma_diff > e_sma_diff
+    result_df.loc[toi]["sma_rstar_mismatch_flag"] = int(e_flag)
 
     print("\n---Result---")
     print("Rp/R* = {:0.5f} +/- {:0.5f},".format(

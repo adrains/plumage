@@ -3,6 +3,7 @@
 import os
 import pandas as pd
 import numpy as np
+import plumage.transits as transit
 import plumage.utils as utils
 import astropy.constants as const 
 from collections import OrderedDict
@@ -59,6 +60,7 @@ def make_table_final_results(
     comb_info.sort_values("teff_synth", inplace=True)
     
     cols = OrderedDict([
+        ("TOI", ""),
         (id_col, ""),
         (r"$T_{\rm eff}$", "(K)"),
         (r"$\log g$", ""),
@@ -67,8 +69,8 @@ def make_table_final_results(
         (r"$R$", "($R_\odot$)"),
         (r"$m_{\rm bol}$", ""),
         (r"$f_{\rm bol}$", 
-         r"(10$^{%i}\,$ergs s$^{-1}$ cm $^{-2}$)" % exp_scale),
-        (r"$L$", "($L_\odot$)"),
+         r"{{\footnotesize(10$^{%i}\,$ergs s$^{-1}$ cm $^{-2}$)}}" % exp_scale),
+        #(r"$L$", "($L_\odot$)"),
         (r"EW(H$\alpha$)", r"\SI{}{\angstrom}"),
         (r"$\log R^{'}_{\rm HK}$", ""),
 
@@ -76,6 +78,7 @@ def make_table_final_results(
     
     # Pop activity keys if making standards
     if label != "tess":
+        cols.pop("TOI")
         cols.pop(r"EW(H$\alpha$)")
         cols.pop(r"$\log R^{'}_{\rm HK}$")
 
@@ -111,6 +114,7 @@ def make_table_final_results(
         
         # Step through column by column
         if label == "tess":
+            table_row += "%s & " % int(star["TOI"])
             table_row += "%s & " % star["TIC"]
         else:
             table_row += "%s & " % star.name
@@ -145,8 +149,8 @@ def make_table_final_results(
             star["e_fbol"] / 10**exp_scale)
         
         # Luminosity
-        table_row += r"{:0.3f} $\pm$ {:0.3f} & ".format(
-            star["L_star"], star["e_L_star"])
+        #table_row += r"{:0.3f} $\pm$ {:0.3f} & ".format(
+            #star["L_star"], star["e_L_star"])
 
         # H alpha and logR`HK
         if do_activity_crossmatch and label == "tess":
@@ -189,7 +193,7 @@ def make_table_final_results(
         np.savetxt("paper/table_final_results_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
 
-def make_table_targets(break_row=45):
+def make_table_targets(break_row=45, tess_info=None,):
     """Make the LaTeX table to summarise the target information.
 
     Parameters
@@ -197,22 +201,24 @@ def make_table_targets(break_row=45):
     break_row: int
         Which row to break table 1 at and start table 2.
     """
-    # Load in the TESS target info (TODO: function for this)
-    tess_info = utils.load_info_cat(remove_fp=True, only_observed=True, 
-        in_paper=True)
+    # Load in the TESS target info
+    if tess_info is None:
+        tess_info = utils.load_info_cat(remove_fp=True, only_observed=True, 
+            in_paper=True)
     tess_info.sort_values("G_mag", inplace=True)
     
     cols = OrderedDict([
-        ("TIC$^a$", ""),
-        ("2MASS", ""),
-        ("Gaia DR2$^b$", ""),
-        ("RA$^b$", "(hh mm ss.ss)"),
-        ("DEC$^b$", "(dd mm ss.ss)"),
-        ("$G^b$", "(mag)"), 
-        ("${B_p-R_p}^b$", "(mag)"),
-        ("Plx$^b$", "(mas)"),
-        ("ruwe$^b$", ""),
-        (r"N$_{\rm pc}^c$", "")
+        ("TOI$^a$", ""),
+        ("TIC$^b$", ""),
+        ("2MASS$^c$", ""),
+        ("Gaia DR2$^d$", ""),
+        ("RA$^d$", "(hh mm ss.ss)"),
+        ("DEC$^d$", "(dd mm ss.ss)"),
+        ("$G^d$", "(mag)"), 
+        ("${B_p-R_p}^d$", "(mag)"),
+        ("Plx$^d$", "(mas)"),
+        ("ruwe$^d$", ""),
+        (r"N$_{\rm pc}^e$", "")
     ])
     
     header = []
@@ -261,6 +267,7 @@ def make_table_targets(break_row=45):
         dec = "{:+02.0f} {:02.0f} {:05.2f}".format(dec_deg, dec_min, dec_sec)
         
         # Step through column by column
+        table_row += "%s & " % int(star["TOI"])
         table_row += "%s & " % star["TIC"]
         #table_row += "%s & " % star["TOI"]
         table_row += "%s & " % star["2mass"]
@@ -284,12 +291,14 @@ def make_table_targets(break_row=45):
     notes.append("\\begin{minipage}{\linewidth}")
     notes.append("\\vspace{0.1cm}")
     
-    notes.append("\\textbf{Notes:} $^a$TESS Input Catalogue ID "
+    notes.append("\\textbf{Notes:} $^a$ TESS Object of Interest ID, "
+                 "$^b$ TESS Input Catalogue ID "
                  "\citep{stassun_tess_2018, stassun_revised_2019},"
-                 "$^b$Gaia \citet{brown_gaia_2018} - "
+                 "$^c$2MASS \citep{skrutskie_two_2006}, "
+                 "$^c$Gaia \citep{brown_gaia_2018} - "
                  " note that Gaia parallaxes listed here have been "
                  "corrected for the zeropoint offset, "
-                 "$^c$Number of candidate planets, NASA Exoplanet Follow-up "
+                 "$^d$Number of candidate planets, NASA Exoplanet Follow-up "
                  "Observing Program for TESS \\\\")
     
     notes.append("\\end{minipage}")
@@ -437,7 +446,7 @@ def make_table_planet_params(break_row=60,):
     cols = OrderedDict([
         ("TOI", ""),
         ("TIC", ""),
-        (r"\# Sectors", ""),       # Number of TESS sectors
+        ("Sector/s", ""),       # TESS sectors
         ("Period", "(days)"),
         #(r" $a/R_*$ ", r""),    # prior
         (r"$R_p/R_*$", r""),     # fit params
@@ -495,8 +504,14 @@ def make_table_planet_params(break_row=60,):
         table_row += "{:0.2f} & ".format(toi)
         table_row += "{:0.0f} & ".format(star["TIC"])
 
-        # Number of sectors. TODO
-        table_row += "{:0.0f} & ".format(np.nan)
+        # Number of sectors
+        try:
+            _, sector_str = transit.get_sectors(star["TIC"],)
+            print(star["TIC"], sector_str)
+            table_row += "{} & ".format(sector_str)
+        except:
+            print("Lightcurve lookup failed for TIC {}".format(star["TIC"]))
+            table_row += "{} & ".format("-")
 
         # Use ExoFop period if we didn't fit for it
         if np.isnan(star["period_fit"]):
@@ -521,7 +536,8 @@ def make_table_planet_params(break_row=60,):
                 star["sma_rstar_fit"], star["e_sma_rstar_fit"])
 
         # Flag
-        table_row += "{:0.0f} & ".format(star["sma_rstar_mismatch_flag"])
+        table_row += "- & "
+        #table_row += "{:0.0f} & ".format(star["sma_rstar_mismatch_flag"])
 
         # Inclination
         table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
