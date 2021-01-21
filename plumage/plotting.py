@@ -1349,7 +1349,7 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
     lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
     resid_y_lims=None, plot_scatter=True, ms=2, text_labels=None, 
-    print_labels=False,):
+    print_labels=False, elinewidth=0.5):
     """
     Parameters
     ----------
@@ -1386,7 +1386,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         fmt=".",
         zorder=0,
         ecolor="black",
-        markersize=ms,)
+        markersize=ms,
+        elinewidth=elinewidth,)
 
     if plot_scatter:
         sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
@@ -1437,7 +1438,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         fmt=".",
         zorder=0,
         ecolor="black",
-        markersize=ms,)
+        markersize=ms,
+        elinewidth=elinewidth,)
 
     # Plot 0 line
     plt.setp(axis.get_xticklabels(), visible=False)
@@ -2487,16 +2489,16 @@ def plot_planet_period_vs_radius(lc_results):
 def plot_confirmed_planet_comparison(
     toi_results,
     confirmed_planet_tab="data/known_planets.tsv",
-    rp_rstar_lims=(0.01,0.25),
-    a_rstar_lims=(1,100),
-    i_lims=(82,91),
-    rp_lims=(0.2,16),
-    rp_rstar_ticks=(0.05,0.025,0.01,0.005),
+    rp_rstar_lims=(0.005,0.4),
+    a_rstar_lims=(1,45),
+    i_lims=(76.5,91),
+    rp_lims=(0.1,30),
+    rp_rstar_ticks=(0.05,0.025,0.015,0.0075),
     a_rstar_ticks=(20,10,2,1),
-    i_ticks=(1,0.5,1,0.5),
-    rp_ticks=(2,1,1,0.5),
+    i_ticks=(1,0.5,0.75,0.375),
+    rp_ticks=(2,1,0.75,0.375),
     show_offset=True,
-    ms=5,
+    ms=10,
     print_labels=False,):
     """
     """
@@ -2551,7 +2553,7 @@ def plot_confirmed_planet_comparison(
         ticks=a_rstar_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-3.5,3.5),
+        resid_y_lims=(-5,5),
         text_labels=merged_cat["name"].values,
         print_labels=print_labels)
 
@@ -2574,7 +2576,7 @@ def plot_confirmed_planet_comparison(
         ticks=i_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-2,2),
+        resid_y_lims=(-1.9,1.9),
         text_labels=merged_cat["name"].values,
         print_labels=print_labels)
 
