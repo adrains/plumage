@@ -902,7 +902,10 @@ def load_info_cat(
     in_paper=True,
     allow_alt_plx=False,
     use_mann_code_for_masses=True,
-    mann_mass_mk_bounds=(4,11)):
+    mann_mass_mk_bounds=(4,11),
+    do_extinction_correction=True,
+    do_skymapper_crossmatch=True,
+    skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -966,6 +969,25 @@ def load_info_cat(
     info_cat["dup"] = dup2
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Crossmatch SkyMapper photometry
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Currently SkyMapper photometry is in a different table, so need to
+    # crossmatch on import
+    if do_skymapper_crossmatch:
+        skymapper_phot = pd.read_csv( 
+            skymapper_phot_path,
+            sep=",",
+            dtype={"source_id":str},
+            header=0)
+        skymapper_phot.set_index("source_id", inplace=True)  
+
+        info_cat = info_cat.join(
+            skymapper_phot,
+            "source_id",
+            how="left",
+            rsuffix="_") 
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Distance, absolute magnitudes, and colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if allow_alt_plx:
@@ -987,11 +1009,45 @@ def load_info_cat(
     else:
         plx = info_cat["plx"]
         e_plx = info_cat["e_plx"]
-    
-    # Compute distance and absolute magnitudes
+
+    # Compute distance
     info_cat["dist"] = 1000 / plx
     info_cat["e_dist"] = np.abs(info_cat["dist"] * e_plx / plx)
+    
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Extinction
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if do_extinction_correction:
+        # Calculate A_G
+        A_G_all = params.calculate_A_G_all(info_cat)
+    
+        # Calculate E(B-V)
+        ebv, A_zeta = params.calculate_per_band_reddening(A_G_all)
 
+        info_cat["ebv"] = ebv
+
+        # Correct each band individually
+        info_cat["G_mag"] -= A_G_all
+        info_cat["Bp_mag"] -= A_zeta["BP"]
+        info_cat["Rp_mag"] -= A_zeta["RP"]
+
+        info_cat["u_psf"] -= A_zeta["u"]
+        info_cat["v_psf"] -= A_zeta["v"]
+        info_cat["g_psf"] -= A_zeta["g"]
+        info_cat["r_psf"] -= A_zeta["r"]
+        info_cat["i_psf"] -= A_zeta["i"]
+        info_cat["z_psf"] -= A_zeta["z"]
+
+        info_cat["J_mag"] -= A_zeta["J"]
+        info_cat["H_mag"] -= A_zeta["H"]
+        info_cat["K_mag"] -= A_zeta["K"]
+
+        # Finally, calculate a corrected Bp-Rp
+        info_cat["Bp-Rp"] = info_cat["Bp_mag"] - info_cat["Rp_mag"]
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Absolute magnitudes, and colours
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
     info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
 

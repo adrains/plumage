@@ -77,15 +77,6 @@ phot_scale_fac = 20
 info_cat_path = "data/{}_info.tsv".format(cat_label)
 info_cat = utils.load_info_cat(info_cat_path, in_paper=True, only_observed=True)
 
-skymapper_phot = pd.read_csv( 
-    "data/rains_all_gaia_ids_matchfinal.csv", 
-    sep=",", 
-    dtype={"source_id":str}, 
-    header=0)
-skymapper_phot.set_index("source_id", inplace=True)  
-
-info_cat = info_cat.join(skymapper_phot, "source_id", how="left", rsuffix="_") 
-
 only_fit_info_cat_stars = True
 
 # Initialise settings for each band

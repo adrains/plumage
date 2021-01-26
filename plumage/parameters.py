@@ -3,7 +3,9 @@
 import os
 import numpy as np
 import pandas as pd
+import astropy.units as units
 import astropy.constants as const
+from astropy.coordinates import SkyCoord
 import plumage.spectra as spec
 from astropy.io import fits
 from astropy.table import Table
@@ -11,6 +13,9 @@ from collections import OrderedDict
 from scipy.optimize import least_squares
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
+from dustmaps.leike_ensslin_2019 import LeikeEnsslin2019Query 
+
+LOCAL_BUBBLE_DIST_PC = 70
 
 def compare_to_standard_spectrum(spec_sci, spec_std):
     """
@@ -1030,6 +1035,116 @@ def compute_final_params(
     for col in result_df.columns:
         observations[col] = result_df[col]
 
+
+# -----------------------------------------------------------------------------
+# Dustmaps/Extinction
+# -----------------------------------------------------------------------------
+def calculate_A_G(ra, dec, dist, leq=None, force_local_bubble=True):
+    """
+    Uses the leike_ensslin_2019 dust map from:
+        https://dustmaps.readthedocs.io/en/latest/index.html
+    """
+    coords = SkyCoord(ra*units.deg, dec*units.deg, distance=dist*units.pc)
+
+    if leq is None:
+        leq = LeikeEnsslin2019Query()
+
+    # Calculate A_G, and change log base to 10 to convert to magnitudes
+    A_G = 2.5*np.log10(np.exp(leq.query(coords=coords)*dist))
+
+    # If enforcing the limits of the Local Bubble, don't apply reddening to 
+    # stars within it
+    if force_local_bubble and dist < LOCAL_BUBBLE_DIST_PC:
+        A_G = 0
+
+    return A_G
+    
+
+def calculate_A_G_all(info_cat):
+    """For every star in info_cat, use RA, DEC, and distance to calculate the
+    extinction A_G in the Gaia band.
+    """
+    A_G_all = []
+
+    leq = LeikeEnsslin2019Query()
+
+    for star_i, star in info_cat.iterrows():
+        A_G = calculate_A_G(
+            ra=star["ra"],
+            dec=star["dec"],
+            dist=star["dist"],
+            leq=leq,)
+
+        A_G_all.append(A_G)
+
+    A_G_all = np.asarray(A_G_all)
+
+    return A_G_all
+
+
+def calculate_per_band_reddening(A_G):
+    """Computes E(B-V) and A_zeta, the extinction in filter band zeta, given
+    a value of A_G. 
+
+    Notes on extinction coefficients:
+     - SkyMapper coefficients from Casagrande+18 (2019MNRAS.482.2770C)
+     - Gaia coefficients from Casagrande+21 (arXiv:2011.02517)
+     - 2MASS coefficients from Casagrande & VandenBerg (2014MNRAS.444..392C)
+
+    Note that while some bands show a dependence on Teff, only the nominal 
+    coefficients are implemented here.
+
+    SkyMapper coefficients (other than u) vary by < 0.1 over 3,500-10,000 K. u
+    shows a dependence on Teff.
+
+    For Gaia, all bands show a Teff dependence, but Luca doesn't go cool enough
+    for the fitted function to be valid for the coolest stars. As such, this 
+    function here adopts the mean Bp-Rp of the TESS sample of ~2.03 which sits
+    in a region where the interpolation is reliable.
+
+    2MASS coefficients have weak dependence on Teff.
+
+    Parameters
+    ----------
+    A_G: float array
+        Array of magnitudes of extinction in Gaia G band
+    
+    Returns
+    -------
+    ebv: float array
+        E(B-V) values corresponding to A_G.
+
+    A_zeta: dict
+        Dictionary with keys [u, v, g, r, i, z, BP, RP, G, K, H, K] which pair
+        to arrays of the corresponding A_zeta values.
+    """
+    # Dictionary of our extinction coefficients R_zeta
+    ext_coeff = {
+        "u":4.88,   # Note this has a strong dependence on Teff
+        "v":4.55,
+        "g":3.43,
+        "r":2.73,
+        "i":1.99,
+        "z":1.47,
+        "BP":2.98,  # Teff dependent, computed for Bp-Rp = 2.03
+        "RP":1.93,  # Teff dependent, computed for Bp-Rp = 2.03
+        "G":2.26,   # Teff dependent, computed for Bp-Rp = 2.03
+        "J":0.899,
+        "H":0.567,
+        "K":0.366,
+    }
+
+    # Calculate E(B-V)
+    ebv = A_G / ext_coeff["G"]
+
+    A_zeta = {}
+
+    # Now calculate A_zeta for each other band
+    for filt_zeta in ext_coeff.keys():
+        A_zeta[filt_zeta] = ebv * ext_coeff[filt_zeta]
+
+    return ebv, A_zeta
+        
 
 # -----------------------------------------------------------------------------
 # Photometric [Fe/H] relation

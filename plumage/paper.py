@@ -218,6 +218,7 @@ def make_table_targets(break_row=45, tess_info=None,):
         ("${B_p-R_p}^d$", "(mag)"),
         ("Plx$^d$", "(mas)"),
         ("ruwe$^d$", ""),
+        ("E($B-V$)",""),
         (r"N$_{\rm pc}^e$", "")
     ])
     
@@ -278,6 +279,7 @@ def make_table_targets(break_row=45, tess_info=None,):
         table_row += "%0.2f & " % star["Bp-Rp"]
         table_row += r"%0.2f $\pm$ %0.2f & " % (star["plx"], star["e_plx"])
         table_row += "%0.1f & " % star["ruwe"]
+        table_row += "%0.3f & " % star["ebv"]
         table_row += "%i " % star["n_pc"]
 
         # Replace any nans with '-'
@@ -314,7 +316,8 @@ def make_table_targets(break_row=45, tess_info=None,):
     np.savetxt("paper/table_targets_2.tex", table_2, fmt="%s")
 
 
-def make_table_observations(observations, info_cat, label, break_row=60):
+def make_table_observations(observations, info_cat, label, break_row=60, 
+    add_rv_systematic=True, rv_syst=4.5,):
     """Make the LaTeX table to summarise the observations.
 
     Parameters
@@ -379,6 +382,12 @@ def make_table_observations(observations, info_cat, label, break_row=60):
     for source_id, star in comb_info.iterrows():
         table_row = ""
         
+        # Add the RV systematic
+        if add_rv_systematic:
+            e_rv = np.sqrt(star["e_rv"]**2 + rv_syst**2)
+        else:
+            e_rv = star["e_rv"]
+
         # Step through column by column
         if label == "tess":
            table_row += "%s & " % star[id_col]
@@ -387,7 +396,7 @@ def make_table_observations(observations, info_cat, label, break_row=60):
         table_row += "%s & " % star["date"].split("T")[0][2:]
         table_row += "%0.1f & " % star["airmass"]
         table_row += "%0.0f & " % star["exp_time"]
-        table_row += r"%0.2f $\pm$ %0.2f & " % (star["rv"], star["e_rv"])
+        table_row += r"%0.2f $\pm$ %0.2f & " % (star["rv"], e_rv)
         table_row += "%0.0f & " % star["snr_b"]
         table_row += "%0.0f " % star["snr_r"]
 

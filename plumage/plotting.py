@@ -3031,7 +3031,35 @@ def plot_rv_comparison():
     Gaia.
     """
     # Import catalogues
-    catalogue = spec.compare_to_gaia_rvs(["tess", "std"]) 
+    tess_info = utils.load_info_cat(
+        "data/tess_info.tsv",
+        in_paper=True,
+        only_observed=True,
+        use_mann_code_for_masses=False)
+    std_info = utils.load_info_cat(
+        "data/std_info.tsv",
+        in_paper=True,
+        only_observed=True,
+        use_mann_code_for_masses=False)
+
+    # Import observed/fitted parameters tables
+    _, _, obs_tess = utils.load_fits("tess", path="spectra")
+    _, _, obs_std = utils.load_fits("std", path="spectra")
+
+    # Combine
+    comb_tess = tess_info.join(
+        obs_tess,
+        on="source_id",
+        lsuffix="_info",
+        rsuffix="",
+        how="inner")
+    comb_std = std_info.join(
+        obs_std,
+        on="source_id",
+        lsuffix="_info",
+        rsuffix="",
+        how="inner")
+    catalogue = pd.concat([comb_std, comb_tess], axis=0, sort=False)
 
     is_tess_mask = ~np.isnan(catalogue["TIC"])
     
@@ -3048,7 +3076,11 @@ def plot_rv_comparison():
     axis.plot(xx, xx, "k--") 
     plt.setp(axis.get_xticklabels(), visible=False)
     
-    plt.hlines(0, catalogue["rv_info"].min(),catalogue["rv_info"].max(), linestyles="--")
+    plt.hlines(
+        0, 
+        catalogue["rv_info"].min(),
+        catalogue["rv_info"].max(), 
+        linestyles="--")
 
     # Plot TESS
     axis.errorbar(
@@ -3112,3 +3144,18 @@ def plot_rv_comparison():
     fig.tight_layout()
     plt.savefig("paper/rv_comp.pdf")
     plt.savefig("paper/rv_comp.png")
+
+    # Also plot RV systematic
+    plt.figure()
+    rv_systs = np.arange(0,10,0.1) 
+    vals = [] 
+    for rv_syst in rv_systs: 
+        vals.append(1.4826 * np.nanmedian(
+            np.abs(catalogue["rv_info"]-catalogue["rv"])
+            /np.sqrt(
+                catalogue["e_rv_info"]**2
+                + catalogue["e_rv"]**2 + rv_syst**2)))
+
+    plt.plot(rv_systs*1000, vals)
+    plt.hlines(1,0,10000)
+    plt.xlabel("RV (m/s)") 
