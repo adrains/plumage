@@ -1034,13 +1034,13 @@ def calc_synth_fit_resid(
     if not suppress_fit_diagnostics:
         # Print stellar param update
         line = ("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}, "
-                "Mbol={:+0.05f}\t")
+                "Mbol={:+8.05f}\t")
         print(line.format(teff, logg, feh, Mbol), end="")
         
         # Print synthetic colour update
         if bc_interp is not None:
             for pband, psynth in zip(phot_bands, synth_phot):
-                print("{} = {:0.3f}, ".format(pband, psynth), end="")
+                print("{} = {:6.3f}, ".format(pband, psynth), end="")
 
         # Print whether we're using blue, red, and phot information
         print("\t[b={}, r={}, c={}]".format(
@@ -1048,7 +1048,7 @@ def calc_synth_fit_resid(
         
         # And finally the rchi^2
         rchi2 = np.sum(resid_vect**2) / (len(resid_vect)-len(params))
-        print("\t--> rchi^2 = {:0.5f}".format(rchi2))
+        print(" --> rchi^2 = {:0.5f}".format(rchi2))
 
     if return_synth_models:
         return resid_vect, spec_synth_b, spec_synth_r, synth_phot, synth_bc

@@ -905,7 +905,9 @@ def load_info_cat(
     mann_mass_mk_bounds=(4,11),
     do_extinction_correction=True,
     do_skymapper_crossmatch=True,
-    skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",):
+    skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",
+    unresolved_equal_mass_binary_list=[],
+    unresolved_equal_mass_binary_mag_diff=0.75,):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -1106,8 +1108,29 @@ def load_info_cat(
     info_cat["teff_m15_bprp_jh"] = teffs
     info_cat["e_teff_m15_bprp_jh"] = e_teffs
 
+    # Before using any of the K band relations, check if we have any unresolved
+    # binaries that we should decrease the brightness of to give more accurate
+    # mass and radii. This is only done for stars whose source_ids are in the 
+    # list unresolved_equal_mass_binary_list.
+    K_mag = info_cat["K_mag"].values.copy()
+    K_mag_abs = info_cat["K_mag_abs"].values.copy()
+
+    if len(unresolved_equal_mass_binary_list) > 0:
+        for source_id in unresolved_equal_mass_binary_list:
+            # Update the K band magnitude (for use in empirical relations only)
+            # for any unresolved binaries
+            if source_id in info_cat.index:
+                print("Treating {} as an equal mass unresolved binary".format(
+                    source_id))
+                star_i =  int(np.argwhere(info_cat.index==source_id))
+                K_mag[star_i] += unresolved_equal_mass_binary_mag_diff
+                K_mag_abs[star_i] += unresolved_equal_mass_binary_mag_diff
+
+    info_cat["K_mag_rel"] = K_mag
+    info_cat["K_mag_abs_rel"] = K_mag_abs
+
     # Mann+19 radii
-    radii, e_radii = params.compute_mann_2015_radii(info_cat["K_mag_abs"])
+    radii, e_radii = params.compute_mann_2015_radii(info_cat["K_mag_abs_rel"])
     info_cat["radii_m19"] = radii
     info_cat["e_radii_m19"] = e_radii
 
@@ -1118,13 +1141,13 @@ def load_info_cat(
 
         for star_i, (source_id, star_info) in enumerate(info_cat.iterrows()):
             # Assign defaults if outside the absolute K bounds of the relation
-            if star_info["K_mag_abs"] < 4 or star_info["K_mag_abs"] > 11:
+            if star_info["K_mag_abs_rel"] < 4 or star_info["K_mag_abs_rel"] > 11:
                 continue
 
             # Calculate masses and uncertainties from code provided at:
             # https://github.com/awmann/M_-M_K-
             mass, e_mass = mk_mass.posterior(
-                star_info["K_mag"], 
+                star_info["K_mag_rel"], 
                 star_info["dist"],
                 star_info["e_K_mag"],
                 star_info["e_dist"],
@@ -1138,12 +1161,12 @@ def load_info_cat(
     else:
         # Compute masses from relation
         masses, e_masses = params.compute_mann_2019_masses(
-            info_cat["K_mag_abs"])
+            info_cat["K_mag_abs_rel"])
 
         # Exclude those beyond the bounds of the relation
         outside_bounds = np.logical_or(
-            info_cat["K_mag_abs"].values < 4,
-            info_cat["K_mag_abs"].values > 11)
+            info_cat["K_mag_abs_rel"].values < 4,
+            info_cat["K_mag_abs_rel"].values > 11)
 
         masses[outside_bounds] = np.nan
         e_masses[outside_bounds] = np.nan

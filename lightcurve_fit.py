@@ -4,11 +4,15 @@ per values from NASA ExoFOP
 """
 import numpy as np
 import pandas as pd
+from datetime import datetime
 import plumage.utils as utils
 import plumage.transits as transit
 import plumage.parameters as params
 import plumage.plotting as pplt
 import astropy.constants as const
+
+# Timing
+start_time = datetime.now()
 
 # -----------------------------------------------------------------------------
 # Setup
@@ -43,8 +47,8 @@ comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", ho
 # Intitialise limb darkening coefficient columns
 ldc_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
 
-# Set a default period uncertainty if we don't have one
-mean_e_period = 10 / 60 / 24
+# Set a default period uncertainty of 10 sec if we don't have one
+mean_e_period = 1 / 3600 / 24 * 10
 
 # Amount of lightcurve to fit to inn units of transit duration
 n_trans_dur = 1.2
@@ -80,7 +84,17 @@ bad_btjds_dict = {
 # List of TOIs to exclude
 tois_to_exclude = [
     256.01,     # Only have one transit with TESS
+    507.01      # Actually a double-lined equal mass binary
 ]
+
+# List of ballpark periods for those planets with widely separated sectors
+toi_periods_dict = {
+    153065527.02:3.30747,   # By hand
+    178.01:6.557700,        # Leleu+2021
+    178.02:20.70950,        # Leleu+2021
+    178.03:9.961881,        # Leleu+2021
+}
+
 # -----------------------------------------------------------------------------
 # Do fitting
 # -----------------------------------------------------------------------------
@@ -127,7 +141,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     elif toi in tois_to_exclude:
         print("Skipping: bad TOI\n")
         do_skip = True
-    #elif toi != 700.01:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi !=  178.02:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
     # We met a skip condition, skip this planet
@@ -160,16 +174,24 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
     binned_lightcurves[tic] = lightcurve
 
-    # Calculate semi-major axis and scaled semimajor axis
+    
+    # Sort out period (to give us a better first guess)
+    if toi in toi_periods_dict:
+        period = toi_periods_dict[toi]
+    else:
+        period = toi_row["Period (days)"]
+
+    # And a period error if we only have nans
     if np.isnan(toi_row["Period error"]):
         e_period = mean_e_period
     else:
         e_period = toi_row["Period error"]
-
+    
+    # Calculate semi-major axis and scaled semimajor axis
     sma, e_sma, sma_rstar, e_sma_rstar = params.compute_semi_major_axis(
         toi_row["mass_m19"], 
         toi_row["e_mass_m19"],
-        toi_row["Period (days)"],
+        period,
         e_period,
         toi_row["radius"],
         toi_row["e_radius"],
@@ -194,8 +216,8 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             lightcurve, 
             toi_row["Transit Epoch (BJD)"],
             toi_row["Transit Epoch error"],
-            toi_row["Period (days)"],
-            toi_row["Period error"],
+            period,
+            e_period,
             toi_row["Duration (hours)"] / 24,  # convert to days 
             toi_row[ldc_cols].values,
             sma_rstar, 
@@ -314,6 +336,10 @@ if not bin_lightcurve_plot or binsize_fit == binsize_fit:
 else:
     all_lcs = light_curves
 
+# Conclude timing
+time_elapsed = datetime.now() - start_time
+print("Fitting duration (hh:mm:ss.ms) {}".format(time_elapsed))
+
 # Plotting
 pplt.plot_all_lightcurve_fits(
     all_lcs,
@@ -333,4 +359,4 @@ pplt.plot_all_lightcurve_fits(
 
 pplt.merge_spectra_pdfs(
     "plots/lc_diagnostics/*diagnostic.pdf", 
-    "plots/lc_diagnostics.pdf",) 
+    "plots/lc_diagnostics.pdf",)

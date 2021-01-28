@@ -11,6 +11,7 @@ from __future__ import print_function, division
 import os
 import numpy as np
 import pandas as pd
+from datetime import datetime
 import plumage.synthetic as synth
 import plumage.utils as utils
 import plumage.plotting as pplt
@@ -18,11 +19,14 @@ import plumage.parameters as params
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 
+# Timing
+start_time = datetime.now()
+
 # -----------------------------------------------------------------------------
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std"
+label = "std_3_param"
 cat_label = "std"
 
 # Where to load from and save to
@@ -43,9 +47,12 @@ use_blue_spectra = False
 # Whether to include photometry in fit
 include_photometry = True
 
-# Teff uncertainty to add in quadrature with our statistical uncertainty
-e_teff_syst = 30
-e_mbol_syst = 2.5*np.log10(1.01)    # 1% uncertainty
+# Teff systematic to correct for
+teff_syst = -30
+
+# Uncertainties to add in quadrature with our statistical uncertainties
+teff_std = 30
+mbol_std = 2.5*np.log10(1.01)    # 1% uncertainty
 
 filter_defs = np.array([
     # [filt, use, error, mag_col, e_mag_col],
@@ -73,9 +80,17 @@ e_phot_band_cols = filter_defs[:,4].astype(str)
 # Scale factor for synthetic colour residuals
 phot_scale_fac = 20
 
+# Stars to treat as equal mass binaries whose single star flux should be halved
+unresolved_equal_mass_binary_list = ["5724250571514167424"]
+unresolved_equal_mass_binary_mag_diff = 0.75,
+
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(cat_label)
-info_cat = utils.load_info_cat(info_cat_path, in_paper=True, only_observed=True)
+info_cat = utils.load_info_cat(
+    info_cat_path,
+    in_paper=True,
+    only_observed=True,
+    unresolved_equal_mass_binary_list=unresolved_equal_mass_binary_list,)
 
 only_fit_info_cat_stars = True
 
@@ -190,6 +205,8 @@ both_arm_synth_fit = np.full(len(observations), False)
 fit_used_colours = np.full(len(observations), False)
 filters_used = np.full(len(observations), "", dtype=object)
 synth_phot_all = np.full((len(observations), len(filters)), np.nan)
+synth_bc_all = np.full((len(observations), len(filters)), np.nan)
+mbol_filt_all = np.full((len(observations), len(filters)), np.nan)
 
 # initialise IDL
 idl = synth.idl_init()
@@ -215,6 +232,12 @@ for ob_i in range(0, len(observations)):
     if np.isnan(star_info[logg_init_col]):
         fit_results.append(None)
         continue
+
+    # Check if star is equal mass binary
+    if source_id in unresolved_equal_mass_binary_list:
+        is_unresolved_binary = True
+    else:
+        is_unresolved_binary = False
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Initialise colours
@@ -346,19 +369,28 @@ for ob_i in range(0, len(observations)):
         fit_for_resid_norm_fac=True,
         do_polynomial_spectra_norm=do_polynomial_spectra_norm,)
 
+    # Halve mbol if binary
+    if is_unresolved_binary:
+        opt_res["Mbol"] += unresolved_equal_mass_binary_mag_diff
+        
     # Do a second pass of fitting
     if do_iterative_fit:
+        # Correct for systematics and include known std in uncertainties
+        opt_res["teff"] += teff_syst
+        opt_res["e_teff"] = np.sqrt(opt_res["e_teff"]**2 + teff_std**2)
+        opt_res["e_Mbol"] = np.sqrt(opt_res["e_Mbol"]**2 + mbol_std**2)
+
         # Calculate radius via fbol, adding systematic uncertainty in 
         # quadrature
         fbol_prelim, e_fbol_prelim = params.calc_f_bol_from_mbol(
             opt_res["Mbol"], 
-            np.sqrt(opt_res["e_Mbol"]**2 + e_mbol_syst**2))
+            opt_res["e_Mbol"])
 
         # Calculate interim radii, making sure to add systematic Teff 
         # uncertainty in quadrature
         rad_prelim, e_rad_prelim = params.calc_radii(
             opt_res["teff"],
-            np.sqrt(opt_res["e_teff"]**2 + e_teff_syst**2),
+            opt_res["e_teff"],
             fbol_prelim,
             e_fbol_prelim, 
             star_info["dist"],
@@ -405,12 +437,16 @@ for ob_i in range(0, len(observations)):
             fit_for_resid_norm_fac=True,
             do_polynomial_spectra_norm=do_polynomial_spectra_norm,)
 
+        # Halve mbol if binary
+        if is_unresolved_binary:
+            opt_res["Mbol"] += unresolved_equal_mass_binary_mag_diff
+
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Sort out results
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Add systematic Teff uncertainty in quadrature
-    teff_synth[ob_i] = opt_res["teff"]
-    e_teff_synth[ob_i] = np.sqrt(opt_res["e_teff"]**2 + e_teff_syst**2)
+    # Add systematic Teff, and teff known std in quadrature
+    teff_synth[ob_i] = opt_res["teff"] + teff_syst
+    e_teff_synth[ob_i] = np.sqrt(opt_res["e_teff"]**2 + teff_std**2)
 
     # If we fit for logg (or didn't do an interim fit), record the initial
     # value, likely from Mann+19. Otherwise take the interim ones.
@@ -424,9 +460,9 @@ for ob_i in range(0, len(observations)):
     feh_synth[ob_i] = opt_res["feh"]
     e_feh_synth[ob_i] = opt_res["e_feh"]
 
-    # Add mbol systematic uncertainty in quadrature
+    # Add adopted mbol std uncertainty in quadrature
     mbol_synth[ob_i] = opt_res["Mbol"]
-    e_mbol_synth[ob_i] = np.sqrt(opt_res["e_Mbol"]**2 + e_mbol_syst**2)
+    e_mbol_synth[ob_i] = np.sqrt(opt_res["e_Mbol"]**2 + mbol_std**2)
 
     fit_results.append(opt_res)
     synth_fits_r[ob_i] = opt_res["spec_synth_r"]
@@ -476,9 +512,11 @@ for ob_i in range(0, len(observations)):
             print("{} = {:0.3f}, ".format(filt, psynth), end="")
         print("\n")
     
-    # Save synthetic photometry
+    # Save synthetic photometry, BCs, and mbols
     synth_phot_all[ob_i] = synth_phot
-
+    synth_bc_all[ob_i] = synth_bc
+    mbol_filt_all[ob_i] = star_info[phot_band_cols].values + synth_bc
+    
 # -----------------------------------------------------------------------------
 # Save results
 # -----------------------------------------------------------------------------
@@ -499,6 +537,12 @@ observations["filters_used"] = filters_used
 
 synth_mag_cols = ["{}_mag_synth".format(filt) for filt in filters]
 observations[synth_mag_cols] = synth_phot_all
+
+synth_bc_cols = ["bc_{}_mag_synth".format(filt) for filt in filters]
+observations[synth_bc_cols] = synth_bc_all
+
+mbol_filt_cols = ["mbol_{}_mag_synth".format(filt) for filt in filters]
+observations[mbol_filt_cols] = mbol_filt_all
 #observations["colour_resid_scale_factor"] = scale_fac
 
 # Now calculate final params
@@ -544,3 +588,7 @@ synth_fits_b = np.array(synth_fits_b)
 synth_fits_r = np.array(synth_fits_r)
 utils.save_fits_image_hdu(synth_fits_b, "synth", label, path=spec_path, arm="b")
 utils.save_fits_image_hdu(synth_fits_r, "synth", label, path=spec_path, arm="r")
+
+# Conclude timing
+time_elapsed = datetime.now() - start_time
+print("Fitting duration (hh:mm:ss.ms) {}".format(time_elapsed))

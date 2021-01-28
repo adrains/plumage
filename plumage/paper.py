@@ -490,11 +490,15 @@ def make_table_planet_params(break_row=60,):
     
     # Now add the separate info for the two tables
     header_1 = header.copy()
-    header_1.insert(2, "\\caption{Planet params}")
+    header_1.insert(
+        2, 
+        "\\caption{Final results for TESS candidate exoplanets}")
     header_1.insert(3, "\\label{tab:planet_params}")
 
     header_2 = header.copy()
-    header_2.insert(2, "\\contcaption{Planet params}")
+    header_2.insert(
+        2, 
+        "\\contcaption{Final results for TESS candidate exoplanets}")
 
     # Set unreasonably high uncertainties to nans TODO
     bad_std_mask = np.logical_or(
@@ -599,7 +603,8 @@ def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
     #table_rows.append("\\begin{landscape}")
     table_rows.append("\\begin{table*}")
     table_rows.append("\\centering")
-    table_rows.append("\\caption{Literature planet params}")
+    table_rows.append(
+        "\\caption{Summary of literature properties for already confirmed planets}")
     table_rows.append("\\label{tab:planet_lit_params}")
     
     table_rows.append("\\begin{tabular}{%s}" % ("c"*len(columns)))
