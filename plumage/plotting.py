@@ -2615,9 +2615,12 @@ def plot_confirmed_planet_comparison(
 # ----------------------------------------------------------------------------- 
 def plot_lightcurve_fit(
     lightcurve,
+    binned_lightcurve,
     folded_lc,
+    folded_binned_lc,
     flat_lc_trend,
     bm_lightcurve,
+    bm_binned_lightcurve,
     period,
     t0,
     toi,
@@ -2673,7 +2676,11 @@ def plot_lightcurve_fit(
 
     # First plot unfolded/unflattened light curve
     lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, zorder=1,
-        rasterized=rasterized, label="unflattened light curve")
+        rasterized=rasterized, alpha=0.8, label="unflattened light curve")
+
+    binned_lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, 
+        zorder=1, rasterized=rasterized, 
+        label="unflattened light curve (binned)")
 
     # Plot the trend flattening trend
     flat_lc_trend.scatter(ax=ax_lc_unfolded, linewidth=0.2, color="green", 
@@ -2717,13 +2724,20 @@ def plot_lightcurve_fit(
     # Plot entire folded lightcurve
     if not plot_in_paper_figure_format:
         folded_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, 
-            zorder=1, rasterized=rasterized, label="flattened light curve")
-        ax_lc_folded_all.plot(bm_lc_times, bm_lc_flux, zorder=2, 
+            zorder=1, rasterized=rasterized, alpha=0.8, 
+            label="flattened light curve")
+
+        folded_binned_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, 
+            zorder=1, rasterized=rasterized,
+            label="flattened light curve (binned)")
+
+        ax_lc_folded_all.plot(bm_lc_times, bm_lc_flux, zorder=2, c="red",
             label="transit model")
+
         ax_lc_folded_all.set_xlim((-0.5, 0.5))
 
         # Setup legend
-        leg_lc_folded = ax_lc_folded_all.legend(loc="best")
+        leg_lc_folded = ax_lc_folded_all.legend(loc="lower left")
 
         # Update width of legend objects
         for legobj in leg_lc_folded.legendHandles:
@@ -2731,16 +2745,28 @@ def plot_lightcurve_fit(
 
     # Now plot just the transit
     folded_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2, 
-        zorder=1, rasterized=rasterized, label="flattened light curve")
-    ax_lc_folded_transit.plot(bm_lc_times, bm_lc_flux, zorder=2,
+        zorder=1, rasterized=rasterized, alpha=0.8, 
+        label="flattened light curve")
+
+    folded_binned_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2, 
+        zorder=1, rasterized=rasterized, marker="o", markersize=2,
+        label="flattened light curve (binned)")
+
+    ax_lc_folded_transit.plot(bm_lc_times, bm_lc_flux, zorder=2, c="red",
         label="transit model")
+
+    # Plot lines at zero phase
+    ax_lc_folded_all.vlines(0, 0.90, 1.10, colors="black",
+        linestyles="dashed", linewidth=0.5, alpha=0.5, zorder=3,)
+    ax_lc_folded_transit.vlines(0, 0.90, 1.10, colors="black",
+        linestyles="dashed", linewidth=0.5, alpha=0.5, zorder=3,)
 
     trans_dur = toi_row["Duration (hours)"]/24
 
     ax_lc_folded_transit.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
 
     # Setup legend
-    leg_lc_folded_transit = ax_lc_folded_transit.legend(loc="best")
+    leg_lc_folded_transit = ax_lc_folded_transit.legend(loc="lower left")
 
     # Update width of legend objects
     for legobj in leg_lc_folded_transit.legendHandles:
@@ -2751,9 +2777,9 @@ def plot_lightcurve_fit(
         folded_lc.time < trans_dur/period/2,
         folded_lc.time > -trans_dur/period/2)
         
-    y_min = 2*(1-np.nanmean(folded_lc.flux[transit_mask]))
+    y_min = 1.5*(1-np.nanmean(folded_lc.flux[transit_mask]))
 
-    std_lim = np.nanstd(folded_lc.flux)*5.5 + np.nanmean(folded_lc.flux_err)
+    std_lim = np.nanstd(folded_lc.flux)*3.0 + np.nanmean(folded_lc.flux_err)
 
     # Use whichever is lower
     y_lim = y_min if y_min > std_lim else std_lim
@@ -2763,7 +2789,7 @@ def plot_lightcurve_fit(
     if not plot_in_paper_figure_format:
         ax_lc_folded_all.set_ylim((1-y_lim, 1+std_lim))
 
-    ax_lc_folded_transit.set_ylim((1-1.25*y_lim, 1+0.75*std_lim))
+    ax_lc_folded_transit.set_ylim((1-y_lim, 1+std_lim))
 
     # Finally plot the residuals
     divider = make_axes_locatable(ax_lc_folded_transit)
@@ -2771,6 +2797,8 @@ def plot_lightcurve_fit(
     ax_lc_folded_transit.figure.add_axes(res_ax, sharex=ax_lc_folded_transit)
 
     resid = folded_lc.flux - bm_lightcurve
+    resid_binned = folded_binned_lc.flux - bm_binned_lightcurve
+
     res_ax.errorbar(
         folded_lc.time,
         resid,
@@ -2779,7 +2807,19 @@ def plot_lightcurve_fit(
         markersize=1,
         elinewidth=0.1,
         zorder=1,
+        alpha=0.8,
         rasterized=rasterized,)
+
+    res_ax.errorbar(
+        folded_binned_lc.time,
+        resid_binned,
+        yerr=folded_binned_lc.flux_err,
+        fmt=".",
+        markersize=1,
+        elinewidth=0.1,
+        zorder=1,
+        rasterized=rasterized,)
+
     res_ax.hlines(
         0,
         -2*trans_dur/period,
@@ -2841,12 +2881,11 @@ def plot_all_lightcurve_fits(
     toi_info,
     tess_info,
     observations,
-    binsize=4,
+    binned_light_curves,
     break_tol_days=0.5,
     flat_lc_trends=None,
     bm_lc_times_unbinned=None,
     bm_lc_fluxes_unbinned=None,
-    bin_lightcurve=False,
     t_min=6/24,
     force_window_length_to_min=False,
     rasterized=False,
@@ -2921,44 +2960,27 @@ def plot_all_lightcurve_fits(
         # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         # Setup lightcurve
         # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        light_curve = light_curves[tic].remove_nans()
+        light_curve = light_curves[tic]
+        binned_light_curve = binned_light_curves[tic]
 
-        if bin_lightcurve:
-            light_curve = light_curve.bin(binsize=binsize)
+        # Clean and flatten both light curves
+        clean_lc, flat_lc_trend = transit.flatten_and_clean_lc(
+            light_curve, toi_info, toi_row, tic, break_tol_days, t0, period, 
+            t_min,force_window_length_to_min,)
 
-        # Get mask for all transits with this system
-        mask = transit.make_transit_mask_all_periods(
-            light_curve, 
-            toi_info, 
-            tic)
-
-        # Flatten
-        cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
-        break_tolerance = int(break_tol_days / cadence)
-
-        window_length = transit.determine_window_size(
-            light_curve,
-            t0,
-            period,
-            ~mask,
-            t_min,
-            force_window_length_to_min=force_window_length_to_min,)
-
-        clean_lc, flat_lc_trend = light_curve.flatten(
-            window_length=window_length,
-            return_trend=True,
-            niters=int(toi_row["niters_flat"]),
-            break_tolerance=break_tolerance,
-            mask=mask)
+        clean_binned_lc, _ = transit.flatten_and_clean_lc(
+            binned_light_curve, toi_info, toi_row, tic, break_tol_days, t0,
+            period, t_min, force_window_length_to_min,)
 
         # Use the flattened trend we've been given, otherwise the new one
         if flat_lc_trends[toi] is not None:
             flat_lc_trend = flat_lc_trends[toi]
 
-        # Phase fold the light curve
+        # Phase fold the light curves
         folded_lc = clean_lc.fold(period=period, t0=t0)
+        folded_binned_lc = clean_binned_lc.fold(period=period, t0=t0)
 
-        # Generate batman model at our binned resolution
+        # Generate batman model at our unbinned resolution
         bm_params, bm_model, bm_lightcurve = transit.initialise_bm_model(
             t0=0, 
             period=1, 
@@ -2971,12 +2993,28 @@ def plot_all_lightcurve_fits(
             ld_coeff=toi_row[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
             time=folded_lc.time,)
 
+        # And another at the binned resolution
+        _, _, bm_binned_lightcurve = transit.initialise_bm_model(
+            t0=0, 
+            period=1, 
+            rp_rstar=toi_row["rp_rstar_fit"], 
+            sma_rstar=toi_row["sma_rstar_fit"], 
+            inclination=toi_row["inclination_fit"], 
+            ecc=0, 
+            omega=0, 
+            ld_model="nonlinear", 
+            ld_coeff=toi_row[["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]].values, 
+            time=folded_binned_lc.time,)
+
         # Make diagnostic plots
         plot_lightcurve_fit(
             lightcurve=light_curve,
-            folded_lc=folded_lc, 
+            binned_lightcurve=binned_light_curve,
+            folded_lc=folded_lc,
+            folded_binned_lc=folded_binned_lc, 
             flat_lc_trend=flat_lc_trend,
-            bm_lightcurve=bm_lightcurve, 
+            bm_lightcurve=bm_lightcurve,
+            bm_binned_lightcurve=bm_binned_lightcurve,
             period=period, 
             t0=t0, 
             toi=toi,
@@ -2992,9 +3030,12 @@ def plot_all_lightcurve_fits(
         if make_paper_plots:
             plot_lightcurve_fit(
                 lightcurve=light_curve,
-                folded_lc=folded_lc, 
+                binned_lightcurve=binned_light_curve,
+                folded_lc=folded_lc,
+                folded_binned_lc=folded_binned_lc, 
                 flat_lc_trend=flat_lc_trend,
-                bm_lightcurve=bm_lightcurve, 
+                bm_lightcurve=bm_lightcurve,
+                bm_binned_lightcurve=bm_binned_lightcurve,
                 period=period, 
                 t0=t0, 
                 toi=toi,

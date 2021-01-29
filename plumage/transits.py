@@ -47,8 +47,14 @@ def download_target_px_file(tic_id):
 
     return lc
 
-def download_lc_all_sectors(tic_id, source_id, save_fits=True, 
-                            save_path="lightcurves"):
+def download_lc_all_sectors(
+    tic_id,
+    source_id,
+    save_fits=True, 
+    save_path="lightcurves",
+    do_binning=True,
+    bin_fac=2,
+    base_cadence=2/24/60,):
     """
     https://docs.lightkurve.org/tutorials/01-lightcurve-files.html
 
@@ -71,16 +77,49 @@ def download_lc_all_sectors(tic_id, source_id, save_fits=True,
     # Download all the light curves
     print("Downloading light curves for {} sectors...".format(len(search_res)))
     lcfs = search_res.download_all()
-    stitched_lc = lcfs.PDCSAP_FLUX.stitch()#corrector_func=my_custom_corrector_func)
+
+    # Before doing anything, grab the sectors
+    sectors = [lc.sector for lc in lcfs.data]
+
+    # If we're binning, do it here for each sector before stitching together
+    if do_binning:
+        binned_lc = []
+
+        for lc_i, lc in enumerate(lcfs.PDCSAP_FLUX.data):
+            total_time = lc.time[-1] - lc.time[0]
+            total_elapsed_cadences = total_time / base_cadence
+            n_bins = int(total_elapsed_cadences / bin_fac)
+            binned_lc.append(lc.bin(bins=n_bins))
+
+            suffix = "_binning_{}x".format(bin_fac)
+
+        # Now make a new lightkurve collection
+        lkc = lk.collections.LightCurveCollection(binned_lc)
+
+        # Stitch together our new collection of binned light curves
+        stitched_lc = lkc.stitch().remove_nans()
+
+    else:
+        # No binning, so no suffix
+        suffix = "_binning_0x"
+
+        # Just stitch together exisiting light curves
+        stitched_lc = lcfs.PDCSAP_FLUX.stitch().remove_nans()
 
     # Save the light curve
-    save_file = os.path.join(save_path, "tess_lc_tic_{}.fits".format(tic_id))
+    save_file = os.path.join(
+        save_path, 
+        "tess_lc_tic_{}{}.fits".format(tic_id, suffix))
     stitched_lc.to_fits(path=save_file, overwrite=True)
 
-    return stitched_lc
+    return stitched_lc, sectors
 
 
-def load_light_curve(tic_id, path="lightcurves", prefix="tess_lc_tic"):
+def load_light_curve(
+    tic_id,
+    path="lightcurves",
+    prefix="tess_lc_tic",
+    bin_fac=2,):
     """Function to load a fits light curve fits file in
 
     Parameters
@@ -106,7 +145,9 @@ def load_light_curve(tic_id, path="lightcurves", prefix="tess_lc_tic"):
         Raised if no light curve file exists for the given TIC ID.
     """
     # Load in the light curve initially as a TessLightCurveFile, then convert
-    path = os.path.join(path, prefix + "_{}.fits".format(tic_id))
+    path = os.path.join(
+        path, 
+        prefix + "_{}_binning_{}x.fits".format(tic_id, bin_fac))
     lcf = lk.lightcurvefile.TessLightCurveFile(path)
     lcf.targetid = tic_id
     lc = lcf.FLUX
@@ -114,9 +155,9 @@ def load_light_curve(tic_id, path="lightcurves", prefix="tess_lc_tic"):
     return lc
 
 
-def load_all_light_curves(tic_ids):
+def load_all_light_curves(tic_ids, bin_fac,):
     """Load in light curves, remove nans, and save to dict with TIC ID as key.
-    
+
     Parameters
     ----------
     tic_ids: int array
@@ -132,17 +173,27 @@ def load_all_light_curves(tic_ids):
 
     # Load in light curves for for the TIC IDs specified, returning Non for 
     # those IDs without corresponding files
-    for tic_id in tqdm(tic_ids, desc="Light curves loaded"):
+    desc = "Loading light curves, binning {}x".format(bin_fac)
+    for tic_id in tqdm(tic_ids, desc=desc):
         try:
-            lc = load_light_curve(tic_id)
-            light_curves[tic_id] = lc.remove_nans()
+            lc = load_light_curve(tic_id, bin_fac=bin_fac,)
+            light_curves[tic_id] = lc
         except FileNotFoundError:
             light_curves[tic_id] = None
             unsuccessful.append(tic_id)
     
     print("No light curve files found for TICs {}".format(unsuccessful))
 
-    return light_curves
+    # Also load the sectors
+    sector_list = np.loadtxt(
+        "lightcurves/tess_lc_sectors_binning_x{}.tsv".format(bin_fac),
+        delimiter="\t",
+        dtype=str)
+
+    # And convert to dict
+    sector_dict = {int(tic): sectors for tic, sectors in sector_list}
+
+    return light_curves, sector_dict
 
 
 def get_sectors(tic,):
@@ -155,15 +206,26 @@ def get_sectors(tic,):
     sectors = list(search_res.table["observation"])
 
     # Take just the sector numbers and sort
-    sectors = list(set([int(sector.split(" ")[-1]) for sector in sectors]))
-    sectors.sort()
+    sectors = [int(sector.split(" ")[-1]) for sector in sectors]
+
+    sector_str = format_sectors(sectors)
+
+    return sectors, sector_str
+
+
+def format_sectors(sector_list):
+    """Format sectors into succinct string
+    """
+    # Prepare
+    sector_list = list(set(sector_list))
+    sector_list.sort()
 
     # Format the sectors succinctly, e.g. 1-4, 28
-    sector_str = str(sectors[0])
-    prev_sector = sectors[0]
+    sector_str = str(sector_list[0])
+    prev_sector = sector_list[0]
     holdover = False
 
-    for sector in sectors[1:]:
+    for sector in sector_list[1:]:
         if sector == prev_sector + 1:
             holdover = True
         elif holdover:
@@ -177,7 +239,7 @@ def get_sectors(tic,):
     if holdover:
         sector_str += "-{}".format(prev_sector)
 
-    return sectors, sector_str
+    return sector_str
 
 # -----------------------------------------------------------------------------
 # Light curve fitting
@@ -1023,3 +1085,43 @@ def determine_window_size(light_curve, t0, period, mask, t_min=1/24,
         window_length += 1
 
     return window_length
+
+
+def flatten_and_clean_lc(
+    light_curve,
+    toi_info,
+    toi_row,
+    tic,
+    break_tol_days,
+    t0,
+    period,
+    t_min,
+    force_window_length_to_min,):
+    """Flattens and cleans the given light curve
+    """
+    # Get mask for all transits with this system
+    mask = make_transit_mask_all_periods(
+        light_curve, 
+        toi_info, 
+        tic)
+
+    # Flatten
+    cadence = np.median(light_curve.time[1:] - light_curve.time[:-1])
+    break_tolerance = int(break_tol_days / cadence)
+
+    window_length = determine_window_size(
+        light_curve,
+        t0,
+        period,
+        ~mask,
+        t_min,
+        force_window_length_to_min=force_window_length_to_min,)
+
+    clean_lc, flat_lc_trend = light_curve.flatten(
+        window_length=window_length,
+        return_trend=True,
+        niters=int(toi_row["niters_flat"]),
+        break_tolerance=break_tolerance,
+        mask=mask)
+
+    return clean_lc, flat_lc_trend

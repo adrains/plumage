@@ -33,8 +33,14 @@ toi_info = utils.load_exofop_toi_cat(do_ctoi_merge=True)
 # Load in info on observations and fitting results
 observations = utils.load_fits_table("OBS_TAB", label, path=spec_path,)
 
-# Load in lightcurves
-light_curves = transit.load_all_light_curves(tic_info.index.values)
+# Choose binning, and import light curves to fit with
+fitting_bin_fac = 2
+
+# Load in light curve for fitting. Note that these have already been binned by
+# fitting_bin_fac and have had nans removed.
+light_curves, sector_dict = transit.load_all_light_curves(
+    tic_info.index.values,
+    bin_fac=fitting_bin_fac,)
 
 logg_col = "logg_synth"
 #logg_col = "logg_m19"
@@ -50,7 +56,7 @@ ldc_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
 # Set a default period uncertainty of 10 sec if we don't have one
 mean_e_period = 1 / 3600 / 24 * 10
 
-# Amount of lightcurve to fit to inn units of transit duration
+# Amount of lightcurve to fit to in units of transit duration
 n_trans_dur = 1.2
 
 # Fit options
@@ -73,7 +79,7 @@ force_window_length_to_min = True
 
 # Plotting settings
 rasterized = True
-binsize_plot = 10
+plotting_bin_fac = 10
 bin_lightcurve_plot = False
 make_paper_plots = True
 
@@ -112,15 +118,13 @@ result_cols = ["sma", "e_sma", "sma_rstar", "e_sma_rstar", "rp_rstar_fit",
                "e_rp_rstar_fit",  "sma_rstar_fit", "e_sma_rstar_fit", 
                "inclination_fit", "e_inclination_fit", "rp_fit", "e_rp_fit", 
                "window_length", "niters_flat", "rchi2", "period_fit", 
-               "e_period_fit", "t0_fit", "e_t0_fit", "sma_rstar_mismatch_flag"]
+               "e_period_fit", "t0_fit", "e_t0_fit", "sma_rstar_mismatch_flag",
+               "sectors"]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
     index=toi_info.index, 
     columns=result_cols)
-
-# To save time when plotting, save the binned lightcurves
-binned_lightcurves = light_curves.copy()
 
 # Given stars may have multiple planets, we have to loop over TOI ID
 for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
@@ -146,6 +150,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     #elif toi !=  178.02:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
+    # Regardless, save the sectors we're using (or not using) here
+    result_df.loc[toi]["sectors"] = sector_dict[tic]
+
     # We met a skip condition, skip this planet
     if do_skip:
         all_fits[toi] = None
@@ -154,7 +161,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         bm_lc_fluxes_unbinned[toi] = None
         continue
 
-    # Otherwise, we can go ahead and import the light curve
+    # Otherwise, we can go ahead
     lightcurve = light_curves[tic]
 
     # Exclude any bad data
@@ -167,21 +174,6 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
         # Save back to dict
         light_curves[tic] = lightcurve
-
-    # Before binning, work out how many bins we need assuming even binning from
-    # the first through last cadence (even if there are large gaps)
-    if bin_lightcurve_fit:
-        print("Starting binning...")
-        binning_start_time = datetime.now()
-        total_time = lightcurve.time[-1] - lightcurve.time[0]
-        total_elapsed_cadences = total_time / base_cadence
-        n_bins = int(total_elapsed_cadences / binsize_fit)
-        lightcurve = lightcurve.bin(bins=n_bins).remove_nans()
-        binned_lightcurves[tic] = lightcurve
-
-        bin_time = datetime.now() - binning_start_time
-        binning_times.append(bin_time)
-        print("Finished binning, duration (hh:mm:ss.ms) {}".format(bin_time))
     
     # Sort out period (to give us a better first guess)
     if toi in toi_periods_dict:
@@ -337,29 +329,28 @@ print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
 toi_info.index.set_names(["TOI"], inplace=True)
 utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
 
-# If we want to bin the plots, send the unbinned lightcurves. If not binning,
-# send our light curves through with whatever binning we used for the fit
-if not bin_lightcurve_plot or binsize_fit == binsize_fit:
-    all_lcs = binned_lightcurves
-else:
-    all_lcs = light_curves
-
 # Conclude timing
 time_elapsed = datetime.now() - start_time
 print("Fitting duration (hh:mm:ss.ms) {}".format(time_elapsed))
 
+# Import the other set of light curves that have been more highly binned for
+# the purpose of plotting
+print("Importing light curves for plotting")
+binned_light_curves, _ = transit.load_all_light_curves(
+    tic_info.index.values,
+    bin_fac=plotting_bin_fac,)
+
 # Plotting
 pplt.plot_all_lightcurve_fits(
-    all_lcs,
+    light_curves,
     toi_info,
     tic_info,
     observations,
-    binsize=binsize_plot,
+    binned_light_curves=binned_light_curves,
     break_tol_days=break_tol_days,
     flat_lc_trends=flat_lc_trends,
     bm_lc_times_unbinned=bm_lc_times_unbinned,
     bm_lc_fluxes_unbinned=bm_lc_fluxes_unbinned,
-    bin_lightcurve=bin_lightcurve_plot,
     t_min=t_min,
     force_window_length_to_min=force_window_length_to_min,
     rasterized=rasterized,
