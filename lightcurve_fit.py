@@ -54,6 +54,7 @@ mean_e_period = 1 / 3600 / 24 * 10
 n_trans_dur = 1.2
 
 # Fit options
+base_cadence = 2 / 60 / 24  # Assume 2 min base cadence meaning bin 20 sec data
 binsize_fit = 2
 bin_lightcurve_fit = True
 break_tol_days = 12/24
@@ -103,6 +104,7 @@ all_fits = {}
 flat_lc_trends = {}
 bm_lc_times_unbinned = {}
 bm_lc_fluxes_unbinned = {}
+binning_times = []
 
 # Initialise new dataframe to hold results, which will be appended to 
 # toi_info and saved once we're done
@@ -166,14 +168,20 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         # Save back to dict
         light_curves[tic] = lightcurve
 
-    # Bin and remove nans
+    # Before binning, work out how many bins we need assuming even binning from
+    # the first through last cadence (even if there are large gaps)
     if bin_lightcurve_fit:
-        lightcurve = lightcurve.remove_nans().bin(binsize=binsize_fit)
-    else:
-        lightcurve = lightcurve.remove_nans()
+        print("Starting binning...")
+        binning_start_time = datetime.now()
+        total_time = lightcurve.time[-1] - lightcurve.time[0]
+        total_elapsed_cadences = total_time / base_cadence
+        n_bins = int(total_elapsed_cadences / binsize_fit)
+        lightcurve = lightcurve.bin(bins=n_bins).remove_nans()
+        binned_lightcurves[tic] = lightcurve
 
-    binned_lightcurves[tic] = lightcurve
-
+        bin_time = datetime.now() - binning_start_time
+        binning_times.append(bin_time)
+        print("Finished binning, duration (hh:mm:ss.ms) {}".format(bin_time))
     
     # Sort out period (to give us a better first guess)
     if toi in toi_periods_dict:

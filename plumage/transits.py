@@ -115,7 +115,8 @@ def load_light_curve(tic_id, path="lightcurves", prefix="tess_lc_tic"):
 
 
 def load_all_light_curves(tic_ids):
-    """
+    """Load in light curves, remove nans, and save to dict with TIC ID as key.
+    
     Parameters
     ----------
     tic_ids: int array
@@ -134,7 +135,7 @@ def load_all_light_curves(tic_ids):
     for tic_id in tqdm(tic_ids, desc="Light curves loaded"):
         try:
             lc = load_light_curve(tic_id)
-            light_curves[tic_id] = lc
+            light_curves[tic_id] = lc.remove_nans()
         except FileNotFoundError:
             light_curves[tic_id] = None
             unsuccessful.append(tic_id)
