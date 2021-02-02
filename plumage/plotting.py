@@ -2375,8 +2375,48 @@ def plot_label_comparison(
 # -----------------------------------------------------------------------------
 # Planet plots
 # ----------------------------------------------------------------------------- 
+def plot_double_planet_radii_hist(lc_results, bin_width, min_rp=0.1,
+    plot_poisson_errors=True, plot_smooth_hist=False, x_lims=(0,14), 
+    logrhk_threshold=-5,):
+    """
+    """
+    plt.close("all")
+    fig, (axis_all, axis_active) = plt.subplots(1,2)
+
+    # Import and crossmatch with activity TODO: do this properly
+    observations = utils.load_fits_table("OBS_TAB", "tess", path="spectra")
+    observations = utils.merge_activity_table_with_obs(
+        observations, "tess", fix_missing_source_id=True)
+
+    # TIC info
+    tic_info = utils.load_info_cat(
+        remove_fp=True,
+        only_observed=True,
+        use_mann_code_for_masses=False,).reset_index()
+    tic_info.set_index("TIC", inplace=True)
+
+    # Combine
+    info = lc_results.join(
+        tic_info, on="TIC", how="inner", lsuffix="", rsuffix="_2") 
+    comb_info = info.join(
+        observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
+
+    active_mask = comb_info["logR'HK"] > logrhk_threshold
+    active_tic_results = comb_info[active_mask]
+
+    # Plot standard hist
+    plot_planet_radii_hist(lc_results, bin_width, min_rp, plot_poisson_errors, 
+        plot_smooth_hist, x_lims,axis=axis_all)
+
+    # And histogram for active planets only
+    plot_planet_radii_hist(active_tic_results, bin_width, min_rp, 
+        plot_poisson_errors, plot_smooth_hist, x_lims,axis=axis_active)
+
+
+
 def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
-    plot_poisson_errors=True, plot_smooth_hist=False, x_lims=(0,14),):
+    plot_poisson_errors=True, plot_smooth_hist=False, x_lims=(0,14),
+    plot_activity_hist=False, axis=None,):
     """Plots a histogram of stellar radii.
 
     Parameters
@@ -2387,8 +2427,8 @@ def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
     bin_width: float, default: 0.4
         The width of the histogram bins in R_E
     """
-    plt.close("all")
-    fig, axis = plt.subplots()
+    if axis is None:
+        fig, axis = plt.subplots()
 
     min_rp = np.min(lc_results["rp_fit"][lc_results["rp_fit"] > min_rp])
     max_rp = np.max(lc_results["rp_fit"])
@@ -2441,18 +2481,17 @@ def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
                 barsabove=True,
                 capsize=1,)
 
-        axis.set_xlim(bins[0], 17)
+        axis.set_xlim(bins[0], x_lims[1])
         axis.set_ylabel("# Planets")
 
-        axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
-        axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
+    axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=1))
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
 
-    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=1))
-    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=2))
+    axis.set_xlabel(r"Planet radius ($R_{\oplus}$)")
 
-    axis.set_xlabel(r"Planet radius ($R_E$)")
-    
-
+    plt.gcf().set_size_inches(6, 4)
     plt.tight_layout()
     plt.savefig("paper/planet_radii_hist.pdf")
     plt.savefig("paper/planet_radii_hist.png")
@@ -2630,7 +2669,8 @@ def plot_lightcurve_fit(
     bm_lc_time_unbinned=None,
     bm_lc_flux_unbinned=None,
     rasterized=False,
-    plot_in_paper_figure_format=False,):
+    plot_in_paper_figure_format=False,
+    bin_size_mins=[2,10,]):
     """Plot PDF of TESS light curve fit.
 
     Parameters
@@ -2663,9 +2703,9 @@ def plot_lightcurve_fit(
 
     # If we're plotting in the paper figure format, don't plot the middle panel
     if plot_in_paper_figure_format:
-        gs = fig.add_gridspec(nrows=2, ncols=1)
-        ax_lc_unfolded = fig.add_subplot(gs[0, :])
-        ax_lc_folded_transit = fig.add_subplot(gs[1, :])
+        gs = fig.add_gridspec(nrows=1, ncols=1)
+        #ax_lc_unfolded = fig.add_subplot(gs[0, :])
+        ax_lc_folded_transit = fig.add_subplot(gs[0, :])
 
     # Otherwise plot as a normal diagnostic plot with all three panels
     else:
@@ -2675,43 +2715,44 @@ def plot_lightcurve_fit(
         ax_lc_folded_transit = fig.add_subplot(gs[2, :])
 
     # First plot unfolded/unflattened light curve
-    lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, zorder=1,
-        rasterized=rasterized, alpha=0.8, label="unflattened light curve")
+    if not plot_in_paper_figure_format:
+        lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, zorder=1,
+            rasterized=rasterized, alpha=0.8, label="unflattened light curve")
 
-    binned_lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, 
-        zorder=1, rasterized=rasterized, 
-        label="unflattened light curve (binned)")
+        binned_lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, 
+            zorder=1, rasterized=rasterized, 
+            label="unflattened light curve (binned)")
 
-    # Plot the trend flattening trend
-    flat_lc_trend.scatter(ax=ax_lc_unfolded, linewidth=0.2, color="green", 
-        zorder=2, rasterized=rasterized, label="fitted trend")
+        # Plot the trend flattening trend
+        flat_lc_trend.scatter(ax=ax_lc_unfolded, linewidth=0.2, color="green", 
+            zorder=2, rasterized=rasterized, label="fitted trend")
 
-    # Plot lines where transits occur (from beginning to end of our window)
-    transits = np.arange(t0-period*1000, lightcurve.time[-1], period)
-    observed_transits_mask = np.logical_and(
-        transits > lightcurve.time[0],
-        transits < lightcurve.time[-1]
-    )
-    transits = transits[observed_transits_mask]
+        # Plot lines where transits occur (from beginning to end of our window)
+        transits = np.arange(t0-period*1000, lightcurve.time[-1], period)
+        observed_transits_mask = np.logical_and(
+            transits > lightcurve.time[0],
+            transits < lightcurve.time[-1]
+        )
+        transits = transits[observed_transits_mask]
 
-    for transit_i, transit in enumerate(transits):
-        # Label only one transit
-        if transit_i == 0:
-            ax_lc_unfolded.vlines(transit, 0.90, 1.10, colors="red", 
-                linestyles="dashed", linewidth=0.25, alpha=1.0, zorder=3,
-                label="transits")
-        else:
-            ax_lc_unfolded.vlines(transit, 0.90, 1.10, colors="red", 
-                linestyles="dashed", linewidth=0.25, alpha=1.0, zorder=3,)
+        for transit_i, transit in enumerate(transits):
+            # Label only one transit
+            if transit_i == 0:
+                ax_lc_unfolded.vlines(transit, 0.90, 1.10, colors="red", 
+                    linestyles="dashed", linewidth=0.25, alpha=1.0, zorder=3,
+                    label="transits")
+            else:
+                ax_lc_unfolded.vlines(transit, 0.90, 1.10, colors="red", 
+                    linestyles="dashed", linewidth=0.25, alpha=1.0, zorder=3,)
 
-    ax_lc_unfolded.set_xlim((lightcurve.time[0], lightcurve.time[-1]))
+        ax_lc_unfolded.set_xlim((lightcurve.time[0], lightcurve.time[-1]))
     
-    # Setup legend
-    leg_lc_unfolded = ax_lc_unfolded.legend(loc="best")
+        # Setup legend
+        leg_lc_unfolded = ax_lc_unfolded.legend(loc="best")
 
-    # Update width of legend objects
-    for legobj in leg_lc_unfolded.legendHandles:
-        legobj.set_linewidth(1.5)
+        # Update width of legend objects
+        for legobj in leg_lc_unfolded.legendHandles:
+            legobj.set_linewidth(1.5)
     
     # If we've been given an unbinned batman model lightcurve, plot instead
     if bm_lc_time_unbinned is not None and bm_lc_flux_unbinned is not None:
@@ -2725,11 +2766,11 @@ def plot_lightcurve_fit(
     if not plot_in_paper_figure_format:
         folded_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, 
             zorder=1, rasterized=rasterized, alpha=0.8, 
-            label="flattened light curve")
+            label="folded light curve ({} min binning)".format(bin_size_mins[0]))
 
         folded_binned_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, 
             zorder=1, rasterized=rasterized,
-            label="flattened light curve (binned)")
+            label="folded light curve ({} min binning)".format(bin_size_mins[1]))
 
         ax_lc_folded_all.plot(bm_lc_times, bm_lc_flux, zorder=2, c="red",
             label="transit model")
@@ -2746,18 +2787,19 @@ def plot_lightcurve_fit(
     # Now plot just the transit
     folded_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2, 
         zorder=1, rasterized=rasterized, alpha=0.8, 
-        label="flattened light curve")
+        label="folded light curve ({} min binning)".format(bin_size_mins[0]))
 
     folded_binned_lc.errorbar(ax=ax_lc_folded_transit, fmt=".", elinewidth=0.2, 
         zorder=1, rasterized=rasterized, marker="o", markersize=2,
-        label="flattened light curve (binned)")
+        label="folded light curve ({} min binning)".format(bin_size_mins[1]))
 
     ax_lc_folded_transit.plot(bm_lc_times, bm_lc_flux, zorder=2, c="red",
         label="transit model")
 
     # Plot lines at zero phase
-    ax_lc_folded_all.vlines(0, 0.90, 1.10, colors="black",
-        linestyles="dashed", linewidth=0.5, alpha=0.5, zorder=3,)
+    if not plot_in_paper_figure_format:
+        ax_lc_folded_all.vlines(0, 0.90, 1.10, colors="black",
+            linestyles="dashed", linewidth=0.5, alpha=0.5, zorder=3,)
     ax_lc_folded_transit.vlines(0, 0.90, 1.10, colors="black",
         linestyles="dashed", linewidth=0.5, alpha=0.5, zorder=3,)
 
@@ -2784,9 +2826,8 @@ def plot_lightcurve_fit(
     # Use whichever is lower
     y_lim = y_min if y_min > std_lim else std_lim
 
-    ax_lc_unfolded.set_ylim((1-y_lim, 1+std_lim))
-
     if not plot_in_paper_figure_format:
+        ax_lc_unfolded.set_ylim((1-y_lim, 1+std_lim))
         ax_lc_folded_all.set_ylim((1-y_lim, 1+std_lim))
 
     ax_lc_folded_transit.set_ylim((1-y_lim, 1+std_lim))
@@ -2866,7 +2907,7 @@ def plot_lightcurve_fit(
         suffix = "paper"
 
         # Set size
-        plt.gcf().set_size_inches(16, 6)
+        plt.gcf().set_size_inches(16, 3)
 
     # Save
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
@@ -2886,7 +2927,7 @@ def plot_all_lightcurve_fits(
     flat_lc_trends=None,
     bm_lc_times_unbinned=None,
     bm_lc_fluxes_unbinned=None,
-    t_min=6/24,
+    t_min=12/24,
     force_window_length_to_min=False,
     rasterized=False,
     make_paper_plots=False,):
@@ -2965,11 +3006,11 @@ def plot_all_lightcurve_fits(
 
         # Clean and flatten both light curves
         clean_lc, flat_lc_trend = transit.flatten_and_clean_lc(
-            light_curve, toi_info, toi_row, tic, break_tol_days, t0, period, 
+            light_curve, toi_info, tic, toi, break_tol_days, t0, period, 
             t_min,force_window_length_to_min,)
 
         clean_binned_lc, _ = transit.flatten_and_clean_lc(
-            binned_light_curve, toi_info, toi_row, tic, break_tol_days, t0,
+            binned_light_curve, toi_info, tic, toi, break_tol_days, t0,
             period, t_min, force_window_length_to_min,)
 
         # Use the flattened trend we've been given, otherwise the new one
@@ -3047,6 +3088,105 @@ def plot_all_lightcurve_fits(
                 bm_lc_flux_unbinned=bm_lc_fluxes_unbinned[toi],
                 rasterized=rasterized,
                 plot_in_paper_figure_format=True)
+
+
+def plot_lightcurve_phasefolded_x2(
+    light_curve,
+    light_curve_binned,
+    tic,
+    toi,
+    delta_period,
+    toi_info,
+    t_min=12/24,
+    break_tol_days=12/24,
+    force_window_length_to_min=True,):
+    """Plot the phase folded light curve at two different binning levels. 
+    Useful for quickly iterating a better fit initial period.
+    """
+    # Grab epoch, and get new period guess
+    t0 = toi_info.loc[toi]["Transit Epoch (BJD)"] - transit.BTJD_OFFSET
+    period = toi_info.loc[toi]["Period (days)"] + delta_period
+    trans_dur = toi_info.loc[toi]["Duration (hours)"] / 24
+
+    # Clean and flatten both light curves
+    clean_lc, flat_lc_trend = transit.flatten_and_clean_lc(
+        light_curve, toi_info, tic, toi, break_tol_days, t0, period, 
+        t_min,force_window_length_to_min,)
+
+    clean_binned_lc, _ = transit.flatten_and_clean_lc(
+        light_curve_binned, toi_info, tic, toi, break_tol_days, t0,
+        period, t_min, force_window_length_to_min,)
+
+    # Phase fold the light curves
+    folded_lc = clean_lc.fold(period=period, t0=t0)
+    folded_binned_lc = clean_binned_lc.fold(period=period, t0=t0)
+
+    # Plot
+    plt.close("all")
+    fig, ax = plt.subplots()
+    folded_lc.errorbar(ax=ax, fmt=".", elinewidth=0.1, 
+        zorder=1, rasterized=True, alpha=0.8, markersize=2,
+        label="flattened light curve")
+
+    folded_binned_lc.errorbar(ax=ax, fmt=".", elinewidth=0.1, 
+        zorder=1, rasterized=True, markersize=2,
+        label="flattened light curve (binned)")
+
+    #ax.plot(bm_lc_times, bm_lc_flux, zorder=2, c="red",
+    #    label="transit model")
+
+    # Plot line at zero phase
+    ax.vlines(0, 0.90, 1.10, colors="black",
+        linestyles="dashed", linewidth=0.5, alpha=0.5, zorder=3,)
+
+    ax.set_xlim((-0.4, 0.4))
+
+    # Setup legend
+    leg_lc_folded = ax.legend(loc="lower left")
+
+    # Update width of legend objects
+    for legobj in leg_lc_folded.legendHandles:
+        legobj.set_linewidth(1.5)
+    
+    # Figure out our y limits
+    transit_mask = np.logical_and(
+        folded_lc.time < trans_dur/period/2,
+        folded_lc.time > -trans_dur/period/2)
+
+    y_min = 1.5*(1-np.nanmean(folded_lc.flux[transit_mask]))
+
+    std_lim = np.nanstd(folded_lc.flux)*3.0 + np.nanmean(folded_lc.flux_err)
+
+    # Use whichever is lower
+    y_lim = y_min if y_min > std_lim else std_lim
+
+    ax.set_ylim((1-y_lim, 1+std_lim))
+
+    # Find median at +/-0.01 phase
+    transit_mask = np.abs(folded_lc.time) < 0.001
+    med = np.median(folded_lc.flux[transit_mask])
+    ax.text(0, 1+0.9*(std_lim), "{:0.5f}".format(med), horizontalalignment="center")
+
+    plt.gcf().set_size_inches(20, 6)
+
+    if np.isnan(toi_info.loc[toi]["Period error"]):
+        e_period = 0
+    else:
+        e_period = toi_info.loc[toi]["Period error"]
+
+    # Plot title
+    title = (r"$T_O = {:.5f}$ days $(\pm{:.1f} sec)$"
+             r" --> $T_N = {:.5f}$ days $({:+.1f}$ sec)")
+    plt.title(
+        title.format(
+            toi_info.loc[toi]["Period (days)"],
+            e_period *24*3600,
+            period,
+            delta_period * 24 * 3600,
+        )
+    )
+
+    plt.suptitle("TIC {}, TOI {}".format(tic, toi))
 
 # -----------------------------------------------------------------------------
 # Radial Velocities

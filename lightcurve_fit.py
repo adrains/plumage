@@ -47,14 +47,21 @@ logg_col = "logg_synth"
 
 # Temporary join to get combined info in single datastructure
 info = toi_info.join(tic_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
-#info.reset_index(inplace=True)
-comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
+comb_info = info.join(
+    observations, 
+    on="source_id", 
+    lsuffix="", 
+    rsuffix="_2", 
+    how="inner")
 
 # Intitialise limb darkening coefficient columns
 ldc_cols = ["ldc_a1", "ldc_a2", "ldc_a3", "ldc_a4"]
 
 # Set a default period uncertainty of 10 sec if we don't have one
 mean_e_period = 1 / 3600 / 24 * 10
+
+# Default (conservative, wide) duration if we don't have one
+default_duration = 4
 
 # Amount of lightcurve to fit to in units of transit duration
 n_trans_dur = 1.2
@@ -69,7 +76,7 @@ break_tol_days = 12/24
 fitting_iterations = 3
 fit_for_period = True
 fit_for_t0 = False
-dt_step_fac = 2
+dt_step_fac = 5
 do_period_fit_plot = False
 n_trans_dur_period_fit = 4
 
@@ -85,22 +92,45 @@ make_paper_plots = True
 
 # List of bad regions to exclude
 bad_btjds_dict = {
-    261108236:(1700,2060)
+    261108236:(1700,2060),  # Bad data
+    261257684:(2000,3000),  # Exclude single transit from extended mission
+    259962054:(2000,3000),  # Exclude extended mission
+    122613513:(2000,3000),  # Exclude extended mission
+}
+
+# And associated update for which sectors we used
+force_sectors_for_bad_btjds = {
+    261257684:"12-13",  # TOI 904.01
+    259962054:"1-3",    # TOI 203.01
+    122613513:"3-4",    # TOI 279.01
 }
 
 # List of TOIs to exclude
 tois_to_exclude = [
-    256.01,     # Only have one transit with TESS
-    507.01      # Actually a double-lined equal mass binary
+    256.01,         # Only have two transits with TESS
+    507.01,         # Actually a double-lined equal mass binary
+    969.01,         # Only FFI data
+    302.01,         # Only FFI data
+    260004324.01,   # Now TOI 704.01 so is a duplicate
+    415969908.02,   # Only a single transit
+    1080.01,        # Didn't get reduced
+    # ------------------------------------------------
+    # All beyond this have been removed due to low SNR
+    1216.01,        
+    253.01,
+    260417932.02,
+    285.01,
+    696.02,
+    785.01,
+    864.01,
+    98796344.02,
 ]
 
-# List of ballpark periods for those planets with widely separated sectors
-toi_periods_dict = {
-    153065527.02:3.30747,   # By hand
-    178.01:6.557700,        # Leleu+2021
-    178.02:20.70950,        # Leleu+2021
-    178.03:9.961881,        # Leleu+2021
-}
+# Import ballpark periods dataframe
+ballpark_periods = pd.read_csv(
+    "data/ballpark_long_baseline_periods.tsv",
+    delimiter="\t",)
+ballpark_periods.set_index("TOI", inplace=True)
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -119,12 +149,16 @@ result_cols = ["sma", "e_sma", "sma_rstar", "e_sma_rstar", "rp_rstar_fit",
                "inclination_fit", "e_inclination_fit", "rp_fit", "e_rp_fit", 
                "window_length", "niters_flat", "rchi2", "period_fit", 
                "e_period_fit", "t0_fit", "e_t0_fit", "sma_rstar_mismatch_flag",
-               "sectors"]
+               "sectors", "excluded"]
 
 result_df = pd.DataFrame(
     data=np.full((len(toi_info), len(result_cols)), np.nan), 
     index=toi_info.index, 
     columns=result_cols)
+
+result_df["sma_rstar_mismatch_flag"] = np.zeros(len(toi_info)).astype(bool)
+result_df["excluded"] = np.zeros(len(toi_info)).astype(bool)
+result_df["sectors"] = np.full(len(toi_info), "").astype(str)
 
 # Given stars may have multiple planets, we have to loop over TOI ID
 for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
@@ -141,17 +175,18 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     if light_curves[tic] is None:
         print("Skipping: No light curve\n")
         do_skip = True
-    elif np.isnan(toi_row["Duration (hours)"]):
-        print("Skipping: No transit duration\n")
-        do_skip = True
+    #elif np.isnan(toi_row["Duration (hours)"]):
+    #    print("Skipping: No transit duration\n")
+    #    do_skip = True
     elif toi in tois_to_exclude:
         print("Skipping: bad TOI\n")
+        result_df.loc[toi, "excluded"] = True
         do_skip = True
-    #elif toi !=  178.02:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi not in [1080.01,415969908.02]:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
     # Regardless, save the sectors we're using (or not using) here
-    result_df.loc[toi]["sectors"] = sector_dict[tic]
+    result_df.loc[toi, "sectors"] = sector_dict[tic]
 
     # We met a skip condition, skip this planet
     if do_skip:
@@ -174,10 +209,16 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
 
         # Save back to dict
         light_curves[tic] = lightcurve
+
+        # And update the sectors we're using
+        result_df.loc[toi, "sectors"] = force_sectors_for_bad_btjds[tic]
     
     # Sort out period (to give us a better first guess)
-    if toi in toi_periods_dict:
-        period = toi_periods_dict[toi]
+    if (toi in ballpark_periods.index 
+        and ~np.isnan(ballpark_periods.loc[toi]["period_new"])):
+        # Set period to this value
+        print("Using ballpark period")
+        period = ballpark_periods.loc[toi]["period_new"]
     else:
         period = toi_row["Period (days)"]
 
@@ -187,6 +228,13 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     else:
         e_period = toi_row["Period error"]
     
+    # Add a transit duration if we don't have one, and update table
+    if np.isnan(toi_row["Duration (hours)"]):
+        duration = default_duration
+        toi_info.loc[toi, "Duration (hours)"] = default_duration
+    else:
+        duration = toi_row["Duration (hours)"]
+
     # Calculate semi-major axis and scaled semimajor axis
     sma, e_sma, sma_rstar, e_sma_rstar = params.compute_semi_major_axis(
         toi_row["mass_m19"], 
@@ -218,7 +266,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
             toi_row["Transit Epoch error"],
             period,
             e_period,
-            toi_row["Duration (hours)"] / 24,  # convert to days 
+            duration / 24,  # convert to days 
             toi_row[ldc_cols].values,
             sma_rstar, 
             e_sma_rstar,
@@ -272,33 +320,43 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
     bm_lc_fluxes_unbinned[toi] = opt_res["bm_lightcurve"]
 
     # Save calculated params + uncertainties
-    result_df.loc[toi][["sma", "e_sma"]] = [sma, e_sma]
-    result_df.loc[toi][["sma_rstar", "e_sma_rstar"]] = [sma_rstar, e_sma_rstar]
-    result_df.loc[toi][["rp_fit", "e_rp_fit"]] = [r_p, e_r_p]
+    result_df.loc[toi,["sma", "e_sma"]] = [sma, e_sma]
+    result_df.loc[toi, ["sma_rstar", "e_sma_rstar"]] = [sma_rstar, e_sma_rstar]
+    result_df.loc[toi, ["rp_fit", "e_rp_fit"]] = [r_p, e_r_p]
 
     # Save fitted parameters
     param_cols = ["rp_rstar_fit", "sma_rstar_fit", "inclination_fit"]
-    result_df.loc[toi][param_cols] = opt_res["x"]
+    result_df.loc[toi, param_cols] = opt_res["x"]
 
     e_param_cols = ["e_rp_rstar_fit", "e_sma_rstar_fit", "e_inclination_fit"]
-    result_df.loc[toi][e_param_cols] = opt_res["std"]
+    result_df.loc[toi, e_param_cols] = opt_res["std"]
 
-    result_df.loc[toi]["period_fit"] = opt_res["period_fit"]
-    result_df.loc[toi]["e_period_fit"] = opt_res["e_period_fit"]
+    # Now set the period. We prioritise the fitted period, but we also want to
+    # record a period from 'ballpark_periods' in the case where we didn't fit,
+    # but didn't use the TESS one either. Set to nan otherwise.
+    if ~np.isnan(opt_res["period_fit"]):
+        result_df.loc[toi, "period_fit"] = opt_res["period_fit"]
+        result_df.loc[toi, "e_period_fit"] = opt_res["e_period_fit"]
+    elif period != toi_row["Period (days)"]:
+        result_df.loc[toi, "period_fit"] = period
+        result_df.loc[toi, "e_period_fit"] = e_period
+    else:
+        result_df.loc[toi, "period_fit"] = np.nan
+        result_df.loc[toi, "e_period_fit"] = np.nan
 
-    result_df.loc[toi]["t0_fit"] = opt_res["t0_fit"]
-    result_df.loc[toi]["e_t0_fit"] = opt_res["e_t0_fit"] 
+    result_df.loc[toi, "t0_fit"] = opt_res["t0_fit"]
+    result_df.loc[toi, "e_t0_fit"] = opt_res["e_t0_fit"] 
 
     # Save details of flattening + fit
-    result_df.loc[toi]["rchi2"] = opt_res["rchi2"]
-    result_df.loc[toi]["window_length"] = opt_res["window_length"]
-    result_df.loc[toi]["niters_flat"] = opt_res["niters_flat"]
+    result_df.loc[toi, "rchi2"] = opt_res["rchi2"]
+    result_df.loc[toi, "window_length"] = opt_res["window_length"]
+    result_df.loc[toi, "niters_flat"] = opt_res["niters_flat"]
 
     # Save a flag if SMA are very different
     sma_diff = np.abs(sma_rstar-opt_res["x"][1])
     e_sma_diff = (e_sma_rstar**2 + opt_res["std"][1]**2)**0.5
     e_flag = sma_diff > e_sma_diff
-    result_df.loc[toi]["sma_rstar_mismatch_flag"] = int(e_flag)
+    result_df.loc[toi, "sma_rstar_mismatch_flag"] = e_flag
 
     print("\n---Result---")
     print("Rp/R* = {:0.5f} +/- {:0.5f},".format(
@@ -358,4 +416,4 @@ pplt.plot_all_lightcurve_fits(
 
 pplt.merge_spectra_pdfs(
     "plots/lc_diagnostics/*diagnostic.pdf", 
-    "plots/lc_diagnostics.pdf",)
+   "plots/lc_diagnostics.pdf",)

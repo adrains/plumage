@@ -1090,8 +1090,8 @@ def determine_window_size(light_curve, t0, period, mask, t_min=1/24,
 def flatten_and_clean_lc(
     light_curve,
     toi_info,
-    toi_row,
     tic,
+    toi,
     break_tol_days,
     t0,
     period,
@@ -1120,7 +1120,7 @@ def flatten_and_clean_lc(
     clean_lc, flat_lc_trend = light_curve.flatten(
         window_length=window_length,
         return_trend=True,
-        niters=int(toi_row["niters_flat"]),
+        niters=int(toi_info.loc[toi]["niters_flat"]),
         break_tolerance=break_tolerance,
         mask=mask)
 

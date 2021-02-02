@@ -45,7 +45,7 @@ for star_i, (source_id, star) in enumerate(tess_info.iterrows()):
 
 # Save list of sectors to disk
 np.savetxt(
-    "lightcurves/tess_lc_sectors_binning_x{}.csv".format(bin_fac),
+    "lightcurves/tess_lc_sectors_binning_x{}.tsv".format(bin_fac),
     np.asarray(sector_list).astype(str),
     fmt="%s", 
-    delimiter=",")
+    delimiter="\t")

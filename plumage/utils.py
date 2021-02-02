@@ -1209,7 +1209,9 @@ def load_info_cat(
 def load_exofop_toi_cat(
     toi_cat_path="data/exofop_tess_tois.csv",
     do_ctoi_merge=False,
-    ctoi_cat_path="data/exofop_tess_ctois.csv",):
+    ctoi_cat_path="data/exofop_tess_ctois.csv",
+    import_additional_tois=True,
+    additional_tois_path="data/additional_tois.tsv"):
     """Imports the catalogue of TOIs from NASA ExoFOP, pre-selected on the 
     website to only have TOIs for the TIC IDs we are interested in.
 
@@ -1247,6 +1249,14 @@ def load_exofop_toi_cat(
             axis=0,
             ignore_index=False, 
             sort=False)
+    
+    # Import additional targets
+    if import_additional_tois:
+        additional_targets = pd.read_csv(
+            "data/additional_tois.tsv", delimiter="\t")
+        additional_targets.set_index("TOI", inplace=True)
+
+        toi_info = pd.concat([toi_info,additional_targets], sort=False)
 
     return toi_info[np.isin(toi_info["TIC"], tic_info["TIC"])]
 

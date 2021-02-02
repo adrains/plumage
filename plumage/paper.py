@@ -288,6 +288,7 @@ def make_table_targets(break_row=45, tess_info=None,):
     # Finish the table
     footer.append("\\hline")
     footer.append("\\end{tabular}")
+    footer_2 = footer.copy()
     
     # Add notes section with references
     notes.append("\\begin{minipage}{\linewidth}")
@@ -306,10 +307,13 @@ def make_table_targets(break_row=45, tess_info=None,):
     notes.append("\\end{minipage}")
     notes.append("\\end{table}")
     notes.append("\\end{landscape}")
+
+    footer_2.append("\\end{table}")
+    footer_2.append("\\end{landscape}")
     
     # Write the tables
     table_1 = header_1 + table_rows[:break_row] + footer + notes
-    table_2 = header_2 + table_rows[break_row:] + footer + notes
+    table_2 = header_2 + table_rows[break_row:] + footer_2
 
     # Write the table
     np.savetxt("paper/table_targets_1.tex", table_1, fmt="%s")
@@ -440,7 +444,7 @@ def make_table_observations(observations, info_cat, label, break_row=60,
     #np.savetxt("paper/table_observations_{}_2.tex".format(label), table_2, fmt="%s")
 
 
-def make_table_planet_params(break_row=60,):
+def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
     """Make table of final planet parameters.
 
     Parameters
@@ -501,40 +505,43 @@ def make_table_planet_params(break_row=60,):
         "\\contcaption{Final results for TESS candidate exoplanets}")
 
     # Set unreasonably high uncertainties to nans TODO
-    bad_std_mask = np.logical_or(
-        toi_results["e_rp_rstar_fit"] > 10,
-        toi_results["e_inclination_fit"] > 10)
-    toi_results.loc[bad_std_mask, "e_sma_rstar_fit"] = np.nan
-    toi_results.loc[bad_std_mask, "e_rp_rstar_fit"] = np.nan
-    toi_results.loc[bad_std_mask, "e_inclination_fit"] = np.nan
-    toi_results.loc[bad_std_mask, "e_rp_fit"] = np.nan
+    if force_high_uncertainty_to_nan:
+        bad_std_mask = np.logical_or(
+            toi_results["e_rp_rstar_fit"] > 10,
+            toi_results["e_inclination_fit"] > 10)
+        toi_results.loc[bad_std_mask, "e_sma_rstar_fit"] = np.nan
+        toi_results.loc[bad_std_mask, "e_rp_rstar_fit"] = np.nan
+        toi_results.loc[bad_std_mask, "e_inclination_fit"] = np.nan
+        toi_results.loc[bad_std_mask, "e_rp_fit"] = np.nan
 
     # Populate the table for every science target
     for toi, star in toi_results.iterrows():
+        # Skip this TOI if it has been marked as excluded
+        if star["excluded"]:
+            continue
+
         table_row = ""
         
         # Step through column by column
-        table_row += "{:0.2f} & ".format(toi)
+        # If star has a placeholder TOI ID, use proper name
+        if star["proper_name"] != "N/A":
+            table_row += "{} & ".format(star["proper_name"].split("-")[-1])
+        else:
+            table_row += "{:0.2f} & ".format(toi)
+
         table_row += "{:0.0f} & ".format(star["TIC"])
 
         # Number of sectors
-        try:
-            _, sector_str = transit.get_sectors(star["TIC"],)
-            print(star["TIC"], sector_str)
-            table_row += "{} & ".format(sector_str)
-        except:
-            print("Lightcurve lookup failed for TIC {}".format(star["TIC"]))
-            table_row += "{} & ".format("-")
+        table_row += "{} & ".format(star["sectors"])
 
         # Use ExoFop period if we didn't fit for it
         if np.isnan(star["period_fit"]):
-            table_row += r"{:0.5f} $\pm$ {:0.5f} &".format(
-                    star["Period (days)"], star["Period error"])
-
+            #table_row += r"{:0.5f} $\pm$ {:0.5f} &".format(
+            #        star["Period (days)"], star["Period error"])
+            table_row += r"{:0.5f} &".format(star["Period (days)"])
         # Otherwise use the fitted period
         else:
-            table_row += r"{:0.5f} $\pm$ {:0.5f}$\dagger$ &".format(
-                    star["period_fit"], star["e_period_fit"])
+            table_row += r"{:0.5f} $\dagger$ &".format(star["period_fit"])
             
         # a/R* (prior)
         #table_row += r"{:0.4f} $\pm$ {:0.4f} &".format(
@@ -549,12 +556,14 @@ def make_table_planet_params(break_row=60,):
                 star["sma_rstar_fit"], star["e_sma_rstar_fit"])
 
         # Flag
-        table_row += "- & "
-        #table_row += "{:0.0f} & ".format(star["sma_rstar_mismatch_flag"])
+        table_row += "{:0.0f} & ".format(star["sma_rstar_mismatch_flag"])
 
         # Inclination
-        table_row += r"{:0.2f} $\pm$ {:0.2f} &".format(
-            star["inclination_fit"], star["e_inclination_fit"])
+        if star["e_inclination_fit"] < 10:
+            table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["inclination_fit"], star["e_inclination_fit"])
+        else:
+            table_row += r"{:0.0f} &".format(star["inclination_fit"],)
 
         # Rp (physical)
         table_row += r"{:0.2f} $\pm$ {:0.2f}".format(
@@ -570,11 +579,32 @@ def make_table_planet_params(break_row=60,):
     # Finish the table
     footer.append("\hline")
     footer.append("\end{tabular}")
-    footer.append("\\end{table*}")
+    footer_2 = footer.copy()
+    footer_2.append("\\end{table*}")
+
+    # Add notes section
+    notes.append("\\begin{minipage}{\linewidth}")
+    notes.append("\\vspace{0.1cm}")
+    
+    n_bad_i = np.sum(toi_results["e_inclination_fit"] > 10)
+
+    notes.append("\\textbf{{Notes:}} Periods denoted by $\dagger$ are not as "
+        "reported by ExoFOP, and have been refitted here. These are "
+        "overwhelmingly systems with TESS extended mission data, thus having "
+        "longer time baselines with which to constrain orbital periods. Our "
+        "fitted periods however are generally consistent within uncertainties "
+        "of their ExoFOP values, and as such we do not report new "
+        "uncertainties here. Additionally, {:0.0f} of our light curves proved "
+        "to not have enough information to properly explore non-edge-on "
+        "inclinations in our fitting, so these systems are reported as edge-on"
+        " without uncertainties. \\\\".format(n_bad_i))
+
+    notes.append("\\end{minipage}")
+    notes.append("\\end{table*}")
     
     # Write the tables
     table_1 = header_1 + table_rows[:break_row] + footer + notes
-    table_2 = header_2 + table_rows[break_row:] + footer + notes
+    table_2 = header_2 + table_rows[break_row:] + footer_2
     
     np.savetxt("paper/table_planet_params_1.tex", table_1, fmt="%s")
     np.savetxt("paper/table_planet_params_2.tex", table_2, fmt="%s")
@@ -625,7 +655,10 @@ def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
             continue
         
         # Step through column by column
-        table_row += "{:0.2f} & ".format(toi)
+        if planet_info["placeholder_toi"]:
+            table_row += "- & "
+        else:
+            table_row += "{:0.2f} & ".format(toi)
 
         table_row += "{:0.0f} & ".format(planet_info["TIC"])
 
@@ -660,7 +693,7 @@ def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
 
 
 def make_table_ld_coeff(
-    break_row=45, 
+    break_row=64, 
     label="tess",
     info_cat=None,):
     """Make the final results table to display the angular diameters and 
@@ -754,7 +787,11 @@ def make_table_ld_coeff(
     low_row = 0
     
     for table_i, break_row in enumerate(break_rows):
-        table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+        if table_i == 0:
+            header = header_1
+        else:
+            header = header_2
+        table_x = header + table_rows[low_row:break_row] + footer + notes
         np.savetxt("paper/table_ldc_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
         low_row = break_row
@@ -762,6 +799,6 @@ def make_table_ld_coeff(
     # Do final part table
     if low_row < len(comb_info):
         table_i += 1
-        table_x = header_1 + table_rows[low_row:] + footer + notes
+        table_x = header_2 + table_rows[low_row:] + footer + notes
         np.savetxt("paper/table_ldc_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
