@@ -279,7 +279,7 @@ def make_table_targets(break_row=45, tess_info=None,):
         table_row += "%0.2f & " % star["Bp-Rp"]
         table_row += r"%0.2f $\pm$ %0.2f & " % (star["plx"], star["e_plx"])
         table_row += "%0.1f & " % star["ruwe"]
-        table_row += "%0.3f & " % star["ebv"]
+        table_row += "%0.2f & " % star["ebv"]
         table_row += "%i " % star["n_pc"]
 
         # Replace any nans with '-'

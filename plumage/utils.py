@@ -907,7 +907,8 @@ def load_info_cat(
     do_skymapper_crossmatch=True,
     skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",
     unresolved_equal_mass_binary_list=[],
-    unresolved_equal_mass_binary_mag_diff=0.75,):
+    unresolved_equal_mass_binary_mag_diff=0.75,
+    dustmap="leike_glatzle_ensslin_2020",):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -1021,11 +1022,12 @@ def load_info_cat(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     if do_extinction_correction:
         # Calculate A_G
-        A_G_all = params.calculate_A_G_all(info_cat)
+        A_G_all = params.calculate_A_G_all(info_cat, dustmap=dustmap,)
     
         # Calculate E(B-V)
         ebv, A_zeta = params.calculate_per_band_reddening(A_G_all)
 
+        info_cat["A_G"] = A_G_all
         info_cat["ebv"] = ebv
 
         # Correct each band individually

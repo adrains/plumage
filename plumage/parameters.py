@@ -7,13 +7,16 @@ import astropy.units as units
 import astropy.constants as const
 from astropy.coordinates import SkyCoord
 import plumage.spectra as spec
+from tqdm import tqdm
 from astropy.io import fits
 from astropy.table import Table
+from scipy.integrate import simps
 from collections import OrderedDict
 from scipy.optimize import least_squares
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
-from dustmaps.leike_ensslin_2019 import LeikeEnsslin2019Query 
+from dustmaps.leike_ensslin_2019 import LeikeEnsslin2019Query
+from dustmaps.leike2020 import Leike2020Query
 
 LOCAL_BUBBLE_DIST_PC = 70
 
@@ -1039,43 +1042,162 @@ def compute_final_params(
 # -----------------------------------------------------------------------------
 # Dustmaps/Extinction
 # -----------------------------------------------------------------------------
-def calculate_A_G(ra, dec, dist, leq=None, force_local_bubble=True):
+def calculate_A_G(
+    ra,
+    dec,
+    dist_pc,
+    dm_query=None,
+    force_local_bubble=True,
+    local_bubble_real_a_g_threshold=0.01,
+    n_pc_step=2,
+    dustmap="leike_glatzle_ensslin_2020",
+    verbose=False,
+    do_plot=False,):
     """
-    Uses the leike_ensslin_2019 dust map from:
-        https://dustmaps.readthedocs.io/en/latest/index.html
-    """
-    coords = SkyCoord(ra*units.deg, dec*units.deg, distance=dist*units.pc)
+    Computes the extinction in the Gaia G band, A_G, using the dustmaps python 
+    package: https://dustmaps.readthedocs.io/en/latest/index.html
 
-    if leq is None:
-        leq = LeikeEnsslin2019Query()
+    Implemented dustmaps are currently the 3D dust maps from:
+    a) Leike & Enßlin 2019
+        https://ui.adsabs.harvard.edu/abs/2019A%26A...631A..32L/abstract
+    b) Leike, Glatzle, & Enßlin 2020
+        https://ui.adsabs.harvard.edu/abs/2020A%26A...639A.138L/abstract
+
+    Note that the 2020 predicts more dust than the 2019 paper, with the paper
+    describing the 2019 paper as underpredicting dust, and the 2020 paper 
+    perhaps overpredicting dust. The default here is the 2020 paper.
+
+    Parameters
+    ----------
+    ra, dec: float
+        Right ascension and declination in degrees.
+
+    dist_pc: float
+        Distance of star in pc.
+
+    dm_query: DustMap object, default None
+        DustMap object, either LeikeEnsslin2019Query or Leike2020Query. If not
+        passed in, is initialised here.
+
+    force_local_bubble: boolean, default True
+        Whether to set A_G of stars with non-significant extinction inside the
+        local bubble to zero.
+
+    local_bubble_real_a_g_threshold: float, default 0.01
+        Level below which we consider local bubble stars to be unreddened.
+
+    dustmap: str
+        Dustmap to import, either leike_ensslin_2019 or 
+        leike_glatzle_ensslin_2020.
+
+    verbose, do_plot: boolean, default: False
+        Whether to print summary and plot
+
+    Returns
+    -------
+    A_G: float array
+        Vector of calculcated extinctions in Gaia G band, A_G.
+    """
+    if dm_query is None:
+        if dustmap == "leike_ensslin_2019":
+            dm_query = LeikeEnsslin2019Query()
+        elif dustmap == "leike_glatzle_ensslin_2020":
+            dm_query = Leike2020Query()
+        else:
+            raise ValueError("Invalid dustmap provided, must be in".format(
+                valid_dustmaps))
+
+    # Have to integrate, so query the grid in n_pc_step pc steps, then add on
+    # the actual distance
+    dists = np.arange(0, dist_pc, n_pc_step)
+
+    if dist_pc not in dists:
+        dists = np.concatenate([dists, [dist_pc]])
+    
+    # Initialise array to hold extinctions
+    ext_e_folds = []
+
+    # Get extinction density for every distance step, then integrate
+    for dist in dists:
+        coords = SkyCoord(ra*units.deg, dec*units.deg, distance=dist*units.pc)
+        ext_e_folds.append(dm_query.query(coords=coords))
+
+    ext_e_folds = np.array(ext_e_folds)
+
+    # Integrate
+    total_ext_e_folds = simps(ext_e_folds, x=dists)
+
+    # Convert to fraction of light getting through
+    total_ext_frac = np.exp(-total_ext_e_folds)
 
     # Calculate A_G, and change log base to 10 to convert to magnitudes
-    A_G = 2.5*np.log10(np.exp(leq.query(coords=coords)*dist))
+    A_G = -2.5*np.log10(np.exp(-total_ext_e_folds))
 
     # If enforcing the limits of the Local Bubble, don't apply reddening to 
-    # stars within it
-    if force_local_bubble and dist < LOCAL_BUBBLE_DIST_PC:
+    # stars within it *unless* they exceed local_bubble_real_a_g_threshold,
+    # which is set to 0.01 by default - i.e. anything below this we consider
+    # to be noise.
+    if (force_local_bubble and dist < LOCAL_BUBBLE_DIST_PC 
+        and A_G < local_bubble_real_a_g_threshold):
+        # Set A_G to 0
         A_G = 0
+
+    # Do printing and plotting if requested
+    if verbose:
+        print(
+            "{:6.2f} pc -->".format(dist_pc),
+            total_ext_e_folds,
+            total_ext_frac,
+            "A_G = {:0.4f}".format(A_G))
+
+    if do_plot:
+        import matplotlib.pyplot as plt
+        plt.plot(dists, np.array(np.exp(-ext_e_folds)))
 
     return A_G
     
 
-def calculate_A_G_all(info_cat):
+def calculate_A_G_all(
+    info_cat,
+    dustmap="leike_glatzle_ensslin_2020",
+    verbose=False,
+    do_plot=False,):
     """For every star in info_cat, use RA, DEC, and distance to calculate the
     extinction A_G in the Gaia band.
     """
     A_G_all = []
 
-    leq = LeikeEnsslin2019Query()
+    valid_dustmaps = ["leike_ensslin_2019", "leike_glatzle_ensslin_2020"]
 
-    for star_i, star in info_cat.iterrows():
-        A_G = calculate_A_G(
-            ra=star["ra"],
-            dec=star["dec"],
-            dist=star["dist"],
-            leq=leq,)
+    # Select which dust map to load in
+    if dustmap == "leike_ensslin_2019":
+        dm_query = LeikeEnsslin2019Query()
+    elif dustmap == "leike_glatzle_ensslin_2020":
+        dm_query = Leike2020Query()
+    else:
+        raise ValueError("Invalid dustmap provided, must be in".format(
+            valid_dustmaps))
 
-        A_G_all.append(A_G)
+    # For each star, integrate extinction densities for A_G
+    if not verbose:
+        for star_i, star in tqdm(info_cat.iterrows(), desc="Calculating A_G",
+            total=len(info_cat)):
+            A_G_all.append(calculate_A_G(
+                ra=star["ra"],
+                dec=star["dec"],
+                dist_pc=star["dist"],
+                dm_query=dm_query,
+                verbose=verbose,
+                do_plot=do_plot,))
+    else:
+        for star_i, star in info_cat.iterrows():
+            A_G_all.append(calculate_A_G(
+                ra=star["ra"],
+                dec=star["dec"],
+                dist_pc=star["dist"],
+                dm_query=dm_query,
+                verbose=verbose,
+                do_plot=do_plot,))
 
     A_G_all = np.asarray(A_G_all)
 
