@@ -55,7 +55,8 @@ cpm_info = utils.load_info_cat(
     "data/cpm_info.tsv",
     clean=False,
     allow_alt_plx=True,
-    use_mann_code_for_masses=False) 
+    use_mann_code_for_masses=False,
+    do_extinction_correction=False,)
 
 # Only keep reliable pairs
 cpm_info = cpm_info[cpm_info["included"] == "yes"]
@@ -80,7 +81,8 @@ cpm_info = cpm_info[bp_rp_mask]
 m15_data = utils.load_info_cat(
     "data/mann15_all.tsv",
     clean=False,
-    use_mann_code_for_masses=False)
+    use_mann_code_for_masses=False,
+    do_extinction_correction=False,)
 
 # Remove any entries without gaia photometry or parallaxes
 nan_mask = np.logical_and(~np.isnan(m15_data["Bp_mag"]), ~np.isnan(m15_data["plx"]))
@@ -326,6 +328,12 @@ feh_offset_m15_std = np.std(feh_m15_resid)
 np.savetxt("data/phot_feh_rel_ms_coeff.csv", ms_coeff)
 np.savetxt("data/phot_feh_rel_offset_coeff.csv", offset_coeff)
 
+# Format for paper
+print("MS Coeff:",
+    "$a_3={:0.5f}$, $a_2={:0.5f}$, $a_1={:0.5f}$, and $a_0={:0.5f}$".format(
+    *ms_coeff[::-1]))
+print("Offset Coeff:", 
+    "$b_1={:0.5f}$, and $b_0={:0.5f}$".format(*offset_coeff[::-1]))
 
 # -----------------------------------------------------------------------------
 # Plotting

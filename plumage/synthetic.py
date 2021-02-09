@@ -51,7 +51,7 @@ def idl_init(drive="home"):
 def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
                      resolution=None, norm="abs", do_resample=True, 
                      wl_per_px=None, rv_bcor=0, wave_pad=50, abund_alpha=None,
-                     abund_CFe=None,):
+                     abund_CFe=None, ebv=0,):
     """Calls Thomas Nordlander's IDL routines to generate a synthetic MARCS
     model spectrum at the requested parameters.
 
@@ -125,6 +125,9 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
         Alpha element and [C/Fe] abundance respectively, uses Nordlander IDL
         defaults when set to None.
 
+    ebv: float, default: 0
+        E(B-V) - stellar reddening.
+
     Returns
     -------
     wave: 1D float array
@@ -182,27 +185,29 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
         # been provided for resolution
         if resolution is None:
             cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, "
-                "ipres=%f, norm=%i, grid=grid, wave=wave, vrad=%f%s)"
+                "ipres=%f, norm=%i, grid=grid, wave=wave, vrad=%f%s, ebmv=%f)"
                 % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
-                    wout))
+                    wout, ebv))
         # Otherwise do constant-wavelength broadening
         else:
             cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, "
-                "norm=%i, resolution=%f, grid=grid, wave=wave, vrad=%f%s)" 
+                "norm=%i, resolution=%f, grid=grid, wave=wave, vrad=%f%s, ebmv=%f)" 
                 % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
-                    rv_bcor, wout))
+                    rv_bcor, wout, ebv))
 
     # Generating WiFeS B3000 spectra. Grid has already been broadened.
     elif grid == "B3000":
         cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
-                "grid=grid_b, wave=wave, vrad=%f%s)" 
-                % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout))
+                "grid=grid_b, wave=wave, vrad=%f%s, ebmv=%f)" 
+                % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout,
+                   ebv))
     
     # Generating WiFeS R7000 spectra. Grid has already been broadened.
     elif grid == "R7000":
         cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
-                "grid=grid_r, wave=wave, vrad=%f%s)" 
-                % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout))
+                "grid=grid_r, wave=wave, vrad=%f%s, ebmv=%f)" 
+                % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout,
+                   ebv))
     
     else:
         raise ValueError("Invalid grid")
@@ -656,6 +661,7 @@ def calc_synth_fit_resid_one_arm(
     spec_sci, 
     e_spec_sci, 
     bad_px_mask,
+    ebv,
     rv, 
     bcor, 
     idl,
@@ -715,6 +721,7 @@ def calc_synth_fit_resid_one_arm(
         do_resample=True, 
         wl_per_px=band_settings["wl_broadening"],
         rv_bcor=(rv-bcor),
+        ebv=bcor,
         )
 
     # If we don't trust our flux calibration, normalise spectra by low order
@@ -836,7 +843,8 @@ def calc_synth_fit_resid(
     rv, 
     bcor, 
     idl,
-    band_settings_r, 
+    band_settings_r,
+    ebv,
     params_fit_keys,
     params_fixed,
     band_settings_b,
@@ -977,8 +985,8 @@ def calc_synth_fit_resid(
         and (e_spec_r is not None) and (bad_px_mask_r is not None)):
         # Determine red residuals
         resid_vect_r, spec_synth_r = calc_synth_fit_resid_one_arm(
-            teff, logg, feh, wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor, 
-            idl, band_settings_r, do_polynomial_spectra_norm)
+            teff, logg, feh, wave_r, spec_r, e_spec_r, bad_px_mask_r, ebv, rv,
+            bcor, idl, band_settings_r, do_polynomial_spectra_norm)
 
         # Normalise residuals by minimum rchi^2
         resid_vect_r /= resid_norm_fac["red"]
@@ -993,8 +1001,8 @@ def calc_synth_fit_resid(
         and (e_spec_b is not None) and (bad_px_mask_b is not None)):
         # Determine blue residuals
         resid_vect_b, spec_synth_b = calc_synth_fit_resid_one_arm(
-            teff, logg, feh, wave_b, spec_b, e_spec_b, bad_px_mask_b, rv, bcor, 
-            idl, band_settings_b, do_polynomial_spectra_norm)
+            teff, logg, feh, wave_b, spec_b, e_spec_b, bad_px_mask_b, ebv, rv, 
+            bcor, idl, band_settings_b, do_polynomial_spectra_norm)
         
         # Normalise residuals by minimum rchi^2
         resid_vect_b /= resid_norm_fac["blue"]
@@ -1034,7 +1042,7 @@ def calc_synth_fit_resid(
     if not suppress_fit_diagnostics:
         # Print stellar param update
         line = ("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}, "
-                "Mbol={:+8.05f}\t")
+                "mbol={:+9.05f}\t")
         print(line.format(teff, logg, feh, Mbol), end="")
         
         # Print synthetic colour update
@@ -1066,6 +1074,7 @@ def do_synthetic_fit(
     bcor,
     idl,
     band_settings_r,
+    ebv=0,
     fit_for_params={"teff":True, "logg":True, "feh":True,},
     band_settings_b=None,
     wave_b=None, 
@@ -1217,8 +1226,8 @@ def do_synthetic_fit(
         
         # Setup fit settings
         args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-                band_settings_r, params_init_keys, params_fixed, band_settings_b, 
-                None, None, None,  None, None, 
+                band_settings_r, ebv, params_init_keys, params_fixed, 
+                band_settings_b, None, None, None,  None, None, 
                 None, None, None, feh_offset, 
                 resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
                 False, do_polynomial_spectra_norm,)
@@ -1255,8 +1264,8 @@ def do_synthetic_fit(
         
         # Setup fit settings
         args = (None, None, None, None, rv, bcor , idl, 
-                band_settings_r, params_init_keys, params_fixed, band_settings_b, 
-                None, None, None,  None, stellar_phot, 
+                band_settings_r, ebv, params_init_keys, params_fixed, 
+                band_settings_b, None, None, None,  None, stellar_phot, 
                 e_stellar_phot, phot_bands, bc_interp, feh_offset, 
                 resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
                 False, do_polynomial_spectra_norm,)
@@ -1302,7 +1311,7 @@ def do_synthetic_fit(
     
     # Setup fit settings
     args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-            band_settings_r, params_init_keys, params_fixed, band_settings_b, 
+            band_settings_r, ebv, params_init_keys, params_fixed, band_settings_b, 
             wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_phot, 
             e_stellar_phot, phot_bands, bc_interp, feh_offset, 
             resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,

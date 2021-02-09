@@ -26,7 +26,7 @@ start_time = datetime.now()
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std_3_param"
+label = "std"
 cat_label = "std"
 
 # Where to load from and save to
@@ -82,7 +82,7 @@ phot_scale_fac = 20
 
 # Stars to treat as equal mass binaries whose single star flux should be halved
 unresolved_equal_mass_binary_list = ["5724250571514167424"]
-unresolved_equal_mass_binary_mag_diff = 0.75,
+unresolved_equal_mass_binary_mag_diff = 0.75
 
 # Literature information (including photometry)
 info_cat_path = "data/{}_info.tsv".format(cat_label)
@@ -355,6 +355,7 @@ for ob_i in range(0, len(observations)):
         observations.iloc[ob_i]["bcor"],
         idl,
         band_settings_r,
+        ebv=star_info["ebv"],
         fit_for_params=fit_for_params,
         band_settings_b=band_settings_b,
         wave_b=wave_b, 
@@ -423,6 +424,7 @@ for ob_i in range(0, len(observations)):
             observations.iloc[ob_i]["bcor"],
             idl,
             band_settings_r,
+            ebv=star_info["ebv"],
             fit_for_params=fit_for_params,
             band_settings_b=band_settings_b,
             wave_b=wave_b, 
