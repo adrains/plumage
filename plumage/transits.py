@@ -813,7 +813,7 @@ def fit_light_curve(
 
                 # Print update
                 delta_period = (period - new_period) * 24 * 3600
-                print("Period: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
+                print("Period: {:0.6f} --> {:0.6f} days [{:+0.4f} sec]".format(
                     period, new_period, delta_period))
 
                 # Save
@@ -832,7 +832,7 @@ def fit_light_curve(
                 
                 # Print update
                 delta_t0 = (t0 - new_t0) * 24 * 3600
-                print("t0: {:0.6f} --> {:0.6f} days [{:+0.2f} sec]".format(
+                print("t0: {:0.6f} --> {:0.6f} days [{:+0.4f} sec]".format(
                     t0, new_t0, delta_t0))
 
                 t0 = new_t0
@@ -865,7 +865,7 @@ def fit_light_curve(
                 sma_rstar, e_sma_rstar, verbose, n_trans_dur,)
 
         #scale = (1, 1, 1)
-        step = (0.01, 0.01, 0.000001)
+        step = (0.005, 0.005, 0.000001)
 
         # Do fit
         print("\n Running lightcurve fit:")
@@ -881,7 +881,7 @@ def fit_light_curve(
 
         # Extract params from fit so we can either iterate or continue
         rp_r_star = opt_res["x"][0]
-        sma_rstar = opt_res["x"][1]
+        #sma_rstar = opt_res["x"][1]
         
         # Convert inclination back to angle
         sin_inc = opt_res["x"][2]

@@ -61,12 +61,12 @@ plot_fit(opt_res_bp["x"], bp_rp, mag_offsets["BP"], "B_P", ".", "k--")
 plot_fit(opt_res_g["x"], bp_rp, mag_offsets["g"], "g", "+", "k--")
 #plot_fit(opt_res_v["x"], bp_rp, mag_offsets["v"], "v")
 
-plt.legend(fontsize="small")
+plt.legend(fontsize="medium")
 plt.ylim(-0.05,0.5)
-plt.xlabel(r"$B_P-R_P$")
-plt.ylabel(r"$\Delta$m$_\zeta$")
+plt.xlabel(r"$B_P-R_P$", fontsize="large",)
+plt.ylabel(r"$\Delta$m$_\zeta$", fontsize="large",)
 plt.tight_layout()
 
 plt.savefig("paper/mag_offsets.pdf", bbox_innches="tight")
-plt.savefig("paper/mag_offsets.png", bbox_innches="tight")
+plt.savefig("paper/mag_offsets.png", bbox_innches="tight", dpi=500)
 

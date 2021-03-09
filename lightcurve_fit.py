@@ -90,18 +90,23 @@ plotting_bin_fac = 10
 bin_lightcurve_plot = False
 make_paper_plots = True
 
+# List of stars to do a period fit for if we suspect the ExoFOP one
+periods_to_fit = [
+    73649615
+]
+
 # List of bad regions to exclude
 bad_btjds_dict = {
     261108236:(1700,2060),  # Bad data
     261257684:(2000,3000),  # Exclude single transit from extended mission
-    259962054:(2000,3000),  # Exclude extended mission
+    #259962054:(2000,3000),  # Exclude extended mission
     122613513:(2000,3000),  # Exclude extended mission
 }
 
 # And associated update for which sectors we used
 force_sectors_for_bad_btjds = {
     261257684:"12-13",  # TOI 904.01
-    259962054:"1-3",    # TOI 203.01
+    #259962054:"1-3",    # TOI 203.01
     122613513:"3-4",    # TOI 279.01
 }
 
@@ -114,6 +119,7 @@ tois_to_exclude = [
     260004324.01,   # Now TOI 704.01 so is a duplicate
     415969908.02,   # Only a single transit
     1080.01,        # Didn't get reduced
+    203.01,         # Few transits
     # ------------------------------------------------
     # All beyond this have been removed due to low SNR
     1216.01,        
@@ -131,6 +137,9 @@ ballpark_periods = pd.read_csv(
     "data/ballpark_long_baseline_periods.tsv",
     delimiter="\t",)
 ballpark_periods.set_index("TOI", inplace=True)
+
+# For testing
+do_save_and_merge = True
 
 # -----------------------------------------------------------------------------
 # Do fitting
@@ -182,7 +191,7 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         print("Skipping: bad TOI\n")
         result_df.loc[toi, "excluded"] = True
         do_skip = True
-    #elif toi not in [1080.01,415969908.02]:#elif toi != 468.01:#270.02: #406.01:#
+    #elif toi not in [1067.01]:#elif toi != 468.01:#270.02: #406.01:#
     #   do_skip = True
 
     # Regardless, save the sectors we're using (or not using) here
@@ -210,8 +219,9 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         # Save back to dict
         light_curves[tic] = lightcurve
 
-        # And update the sectors we're using
-        result_df.loc[toi, "sectors"] = force_sectors_for_bad_btjds[tic]
+        # And update the sectors we're using (if we've excluded whole sectors)
+        if tic in force_sectors_for_bad_btjds.keys():
+            result_df.loc[toi, "sectors"] = force_sectors_for_bad_btjds[tic]
     
     # Sort out period (to give us a better first guess)
     if (toi in ballpark_periods.index 
@@ -252,8 +262,10 @@ for toi_i, (toi, toi_row) in enumerate(comb_info.iterrows()):
         tic)
 
     # Determine if we need to fit for the period - only do if time baseline is
-    # > 1 yr
-    if (lightcurve.time[-1] - lightcurve.time[0]) > 365:
+    # > 1 yr *or* we request it
+    total_time = lightcurve.time[-1] - lightcurve.time[0]
+
+    if total_time > 365 or tic in periods_to_fit:
         do_period_and_t0_ls_fit = True
     else:
         do_period_and_t0_ls_fit = False
@@ -384,8 +396,9 @@ print("{} TOI fits unfeasibly small".format(len(toi_info[small_mask])))
 print("TOIs: {}\n".format(str(list(toi_info.index[small_mask]))))
 
 # Save results
-toi_info.index.set_names(["TOI"], inplace=True)
-utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
+if do_save_and_merge:
+    toi_info.index.set_names(["TOI"], inplace=True)
+    utils.save_fits_table("TRANSIT_FITS", toi_info, "tess")
 
 # Conclude timing
 time_elapsed = datetime.now() - start_time
@@ -414,6 +427,7 @@ pplt.plot_all_lightcurve_fits(
     rasterized=rasterized,
     make_paper_plots=make_paper_plots,)
 
-pplt.merge_spectra_pdfs(
-    "plots/lc_diagnostics/*diagnostic.pdf", 
-   "plots/lc_diagnostics.pdf",)
+if do_save_and_merge:
+    pplt.merge_spectra_pdfs(
+        "plots/lc_diagnostics/*diagnostic.pdf", 
+    "plots/lc_diagnostics.pdf",)

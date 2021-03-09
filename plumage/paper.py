@@ -110,6 +110,11 @@ def make_table_final_results(
     # Populate the table for every science target
     for star_i, star in comb_info.iterrows():
         
+        # Check to make sure this star has results
+        if np.isnan(star["teff_synth"]):
+            print("Skipping", star_i)
+            continue
+
         table_row = ""
         
         # Step through column by column
@@ -181,7 +186,7 @@ def make_table_final_results(
         else:
             header = header_2
 
-        table_x = header_1 + table_rows[low_row:break_row] + footer + notes
+        table_x = header + table_rows[low_row:break_row] + footer + notes
         np.savetxt("paper/table_final_results_{}_{:0.0f}.tex".format(
             label, table_i), table_x, fmt="%s")
         low_row = break_row
@@ -444,7 +449,10 @@ def make_table_observations(observations, info_cat, label, break_row=60,
     #np.savetxt("paper/table_observations_{}_2.tex".format(label), table_2, fmt="%s")
 
 
-def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
+def make_table_planet_params(
+    break_row=60, 
+    force_high_uncertainty_to_nan=False,
+    default_i_uncertainty=5,):
     """Make table of final planet parameters.
 
     Parameters
@@ -462,11 +470,11 @@ def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
         ("Sector/s", ""),       # TESS sectors
         ("Period", "(days)"),
         #(r" $a/R_*$ ", r""),    # prior
-        (r"$R_p/R_*$", r""),     # fit params
-        (r"$a/R_*$", r""),       # fit params
+        (r"$R_p/R_{\star}$", r""),     # fit params
+        (r"$a/R_{\star}$", r""),       # fit params
         (r"$e$ flag", ""),       # sma/r* mismatch flag
         (r"$i$", r"($^{\circ}$)"), # fit params
-        (r"$R_p$", r"($R_E$)"),  # physical
+        (r"$R_p$", r"($R_{\oplus}$)"),  # physical
         #(r"$a$", "(au)"),        # physical
     ])
 
@@ -517,7 +525,7 @@ def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
     # Populate the table for every science target
     for toi, star in toi_results.iterrows():
         # Skip this TOI if it has been marked as excluded
-        if star["excluded"]:
+        if star["excluded"] or star["sectors"] == "NA":
             continue
 
         table_row = ""
@@ -538,7 +546,7 @@ def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
         if np.isnan(star["period_fit"]):
             #table_row += r"{:0.5f} $\pm$ {:0.5f} &".format(
             #        star["Period (days)"], star["Period error"])
-            table_row += r"{:0.5f} &".format(star["Period (days)"])
+            table_row += r"{:0.6f} &".format(star["Period (days)"])
         # Otherwise use the fitted period
         else:
             table_row += r"{:0.5f} $\dagger$ &".format(star["period_fit"])
@@ -563,7 +571,8 @@ def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
             table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
                 star["inclination_fit"], star["e_inclination_fit"])
         else:
-            table_row += r"{:0.0f} &".format(star["inclination_fit"],)
+            table_row += r"{:0.3f} $\pm$ {:0.3f} &".format(
+                star["inclination_fit"], default_i_uncertainty)
 
         # Rp (physical)
         table_row += r"{:0.2f} $\pm$ {:0.2f}".format(
@@ -594,10 +603,10 @@ def make_table_planet_params(break_row=60, force_high_uncertainty_to_nan=False):
         "longer time baselines with which to constrain orbital periods. Our "
         "fitted periods however are generally consistent within uncertainties "
         "of their ExoFOP values, and as such we do not report new "
-        "uncertainties here. Additionally, {:0.0f} of our light curves proved "
-        "to not have enough information to properly explore non-edge-on "
-        "inclinations in our fitting, so these systems are reported as edge-on"
-        " without uncertainties. \\\\".format(n_bad_i))
+        "uncertainties here. Additionally, our least squares fits to {:0.0f}"
+        " of our light curves proved insenstive to non-edge-on inclinations."
+        " As such, we report conservative uncertanties of $\pm{:0.0f}$\degree~"
+        " for these planets.\\\\".format(n_bad_i, default_i_uncertainty))
 
     notes.append("\\end{minipage}")
     notes.append("\\end{table*}")
@@ -617,6 +626,8 @@ def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
     cp_cat = pd.read_csv(confirmed_planet_tab, delimiter="\t", index_col="TOI")
     cp_cat.sort_values("TOI", inplace=True)
 
+    cp_cat = cp_cat[cp_cat["in_paper"]]
+
     # Column names and associated units
     columns = OrderedDict([("TOI", ""), 
                            ("TIC", ""),
@@ -624,7 +635,7 @@ def make_table_planet_lit_comp(confirmed_planet_tab="data/known_planets.tsv",):
                            ("$R_P/R_*$", ""),
                            ("$a/R_*$", ""),
                            ("i", "\degree"), 
-                           ("$R_P$", "$R_E$"), 
+                           ("$R_P$", "$R_\oplus$"), 
                            ("Reference", ""),])
     
     table_rows = []
@@ -741,7 +752,7 @@ def make_table_ld_coeff(
     # Construct the header of the table
     header.append("\\begin{table}")
     header.append("\\centering")
-    header.append("\\label{tab:ld_coeff}")
+    #header.append("\\label{tab:ld_coeff}")
 
     header.append("\\begin{tabular}{%s}" % ("c"*len(cols)))
     header.append("\hline")
@@ -753,10 +764,12 @@ def make_table_ld_coeff(
     header_1 = header.copy()
     caption = ("Nonlinear limb darkening coefficients from "
                "\citet{claret_limb_2017}")
-    header_1.insert(3, "\\caption{{{}}}".format(caption))
+    
+    header_1.insert(2, "\\caption{{{}}}".format(caption))
+    header_1.insert(3, "\\label{tab:ld_coeff}")
 
     header_2 = header.copy()
-    header_2.insert(3, "\\contcaption{Limb darkening coefficients}")
+    header_2.insert(2, "\\contcaption{Limb darkening coefficients}")
 
     # Populate the table for every science target
     for star_i, star in comb_info.iterrows():

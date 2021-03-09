@@ -1349,7 +1349,7 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
     lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
     resid_y_lims=None, plot_scatter=True, ms=2, text_labels=None, 
-    print_labels=False, elinewidth=0.5):
+    print_labels=False, elinewidth=0.5, offset_sig_fig=2,):
     """
     Parameters
     ----------
@@ -1459,18 +1459,21 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     # Print labels if we've been given them (mostly diagnostic)
     if print_labels and text_labels is not None:
-        for planet_i in range(len(text_labels)):
+        for obj_i in range(len(text_labels)):
+            if np.isnan(np.sum([lit[obj_i], fit[obj_i]])):
+                continue
+                
             axis.text(
-                lit[planet_i],
-                fit[planet_i], 
-                text_labels[planet_i],
+                lit[obj_i],
+                fit[obj_i], 
+                text_labels[obj_i],
                 fontsize=5,
                 horizontalalignment="center",)
             
             resid_ax.text(
-                lit[planet_i],
-                resid[planet_i], 
-                text_labels[planet_i],
+                lit[obj_i],
+                resid[obj_i], 
+                text_labels[obj_i],
                 fontsize=5,
                 horizontalalignment="center",)
 
@@ -1493,10 +1496,14 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     if show_offset:
         mean_offset = np.nanmedian(fit - lit)
         std = np.nanstd(fit - lit)
+
+        offset_lbl = (r"${:0." + str(int(offset_sig_fig)) + r"f}\pm {:0." 
+                      + str(int(offset_sig_fig)) + r"f}$")
+
         axis.text(
             x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
             y=0.05*(y_lims[1]-y_lims[0])+y_lims[0], 
-            s=r"${:0.2f}\pm {:0.2f}$".format(mean_offset, std),
+            s=offset_lbl.format(mean_offset, std),
             horizontalalignment="center")
 
 
@@ -1509,7 +1516,9 @@ def plot_std_comp(
     teff_ticks=(500,250,150,75),
     feh_ticks=(0.5,0.25,0.6,0.3),
     feh_resid_y_lims=(-0.8,1.5),
-    feh_cb_label="[Fe/H] (phot)",):
+    feh_cb_label="[Fe/H] (phot)",
+    teff_syst=-30,
+    undo_teff_syst=False,):
     """Plot 2x3 grid of Teff and [Fe/H] literature comparisons.
         1 - Mann+15 Teffs
         2 - Rojas-Ayala+12 Teffs
@@ -1549,6 +1558,9 @@ def plot_std_comp(
     # Table join
     #observations.rename(columns={"uid":"source_id"}, inplace=True)
     obs_join = observations.join(std_info, "source_id", rsuffix="_info")
+
+    if undo_teff_syst:
+        obs_join["teff_synth"] -= teff_syst
 
     plt.close("all")
 
@@ -1835,6 +1847,92 @@ def plot_teff_comp(
 
     plt.savefig("paper/teff_comp{}.pdf".format(fn_suffix))
     plt.savefig("paper/teff_comp{}.png".format(fn_suffix))
+
+
+def plot_tic_stellar_param_comp(
+    show_offset=True,
+    teff_ticks=(400,200,250,125),
+    rad_ticks=(0.1,0.05,0.1,0.05),
+    ms=5,):
+    """
+    """
+    # Import
+    # Load in literature info for our stars
+    tic_info = utils.load_info_cat(
+        remove_fp=True,
+        only_observed=True,
+        use_mann_code_for_masses=False,
+        do_extinction_correction=False,).reset_index()
+    tic_info.set_index("TIC", inplace=True)
+
+    # Load NASA ExoFOP info on TOIs
+    toi_info = utils.load_exofop_toi_cat(do_ctoi_merge=True)
+
+    # Load in info on observations and fitting results
+    observations = utils.load_fits_table("OBS_TAB", "tess", path="spectra",)
+
+    # Temporary join to get combined info in single datastructure
+    info = toi_info.join(tic_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
+    comb_info = info.join(
+        observations, 
+        on="source_id", 
+        lsuffix="", 
+        rsuffix="_2", 
+        how="inner")
+
+    # Remove those with radii set to solar
+    comb_info = comb_info[comb_info["Stellar Radius (R_Sun)"] != 1.0]
+
+    plt.close("all")
+
+    fig, (ax_teff, ax_rad) = plt.subplots(1,2)
+    fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
+
+    # Temperatures
+    plot_std_comp_generic(
+        fig,
+        ax_teff, 
+        comb_info["teff_synth"],
+        comb_info["e_teff_synth"],
+        comb_info["Stellar Teff (K)"],
+        comb_info["Stellar Teff error"],
+        None,
+        r"$T_{\rm eff}$ (K, fit)",
+        r"$T_{\rm eff}$ (K, TIC)",
+        "", #"[Fe/H] (phot)",
+        x_lims=(2900,4800),
+        y_lims=(2900,4800),
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=teff_ticks,
+        plot_scatter=False,
+        ms=ms,)
+
+    # Radii
+    plot_std_comp_generic(
+        fig,
+        ax_rad, 
+        comb_info["radius"],
+        comb_info["e_radius"],
+        comb_info["Stellar Radius (R_Sun)"],
+        comb_info["Stellar Radius error"],
+        None,
+        r"$R_{\star}$ ($R_{\odot}$, fit)",
+        r"$R_{\star}$ ($R_{\odot}$, TIC)",
+        "",
+        x_lims=(0.15,0.85),
+        y_lims=(0.15,0.85),
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=rad_ticks,
+        plot_scatter=False,
+        ms=ms,)
+
+    # Save Teff plot
+    #fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    fig.savefig("paper/tic_comp.pdf")
+    fig.savefig("paper/tic_comp.png")
 
 
 def plot_cmd(
@@ -2228,11 +2326,14 @@ def plot_representative_spectral_model_limitations(
     btsettl_path="phoenix",
     btsettl_grid_point=(3200,5.0),
     blue_conv_res=0.77*10,
-    red_conv_res=0.44*10,):
+    red_conv_res=0.44*10,
+    plot_size=(9,2.5),
+    plot_suffix="",
+    lw=0.3,):
     """Plots the observed, MARCS literature, and closest BT-Settl spectra with
     overplotted filters to compare. Some sample stars:
 
-        ~3000 K --> Gl 447 (Gaia DR2 3796072592206250624)
+        ~3200 K --> Gl 447 (Gaia DR2 3796072592206250624)
         ~3500 K --> Gl 876 (Gaia DR2 2603090003484152064 )
         ~4000 K --> PM I12507-0046 (Gaia DR2 3689602277083844480)
         ~4500 K --> HD 131977 (Gaia DR2 6232511606838403968)
@@ -2268,9 +2369,9 @@ def plot_representative_spectral_model_limitations(
 
     # Plot
     plt.close("all")
-    plt.plot(wl_br, spec_br, linewidth=0.3, label="Observed", alpha=0.7, zorder=2)
-    plt.plot(wl_br, spec_lit, "--", linewidth=0.3,  label="MARCS", alpha=0.7, zorder=1)
-    plt.plot(wl_bts, spec_bts, ":", linewidth=0.3, label="BT-Settl", alpha=0.7, zorder=0)
+    plt.plot(wl_br, spec_br, linewidth=lw, label="Observed", alpha=0.7, zorder=2)
+    plt.plot(wl_br, spec_lit, "--", linewidth=lw,  label="MARCS", alpha=0.7, zorder=1)
+    plt.plot(wl_bts, spec_bts, ":", linewidth=lw, label="BT-Settl", alpha=0.7, zorder=0)
 
     # Filter profiles
     filters = ["v", "g", "r", "BP", "RP"]
@@ -2289,10 +2390,12 @@ def plot_representative_spectral_model_limitations(
     for legobj in leg.legendHandles:
         legobj.set_linewidth(1.5)
 
-    plt.gcf().set_size_inches(9, 2.5)
+    plt.gcf().set_size_inches(plot_size[0], plot_size[1])
     plt.tight_layout()
-    plt.savefig("paper/model_spectra_limitations.pdf")
-    plt.savefig("paper/model_spectra_limitations.png")
+    plt.savefig("paper/model_spectra_limitations{}.pdf".format(plot_suffix))
+    plt.savefig(
+        "paper/model_spectra_limitations{}.png".format(plot_suffix),
+        dpi=500,)
 
 
 def plot_label_comparison(
@@ -2414,7 +2517,7 @@ def plot_double_planet_radii_hist(lc_results, bin_width, min_rp=0.1,
 
 
 
-def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.1,
+def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.4,
     plot_poisson_errors=True, plot_smooth_hist=False, x_lims=(0,14),
     plot_activity_hist=False, axis=None,):
     """Plots a histogram of stellar radii.
@@ -2528,17 +2631,20 @@ def plot_planet_period_vs_radius(lc_results):
 def plot_confirmed_planet_comparison(
     toi_results,
     confirmed_planet_tab="data/known_planets.tsv",
-    rp_rstar_lims=(0.005,0.4),
-    a_rstar_lims=(1,45),
-    i_lims=(76.5,91),
-    rp_lims=(0.1,30),
-    rp_rstar_ticks=(0.05,0.025,0.015,0.0075),
+    rp_rstar_lims=(0.005,0.2),
+    a_rstar_lims=(1,90),
+    i_lims=(80.5,91),
+    rp_lims=(0.1,14),
+    rp_rstar_ticks=(0.05,0.025,0.005,0.0025),
     a_rstar_ticks=(20,10,2,1),
     i_ticks=(1,0.5,0.75,0.375),
-    rp_ticks=(2,1,0.75,0.375),
+    rp_ticks=(2,1,0.5,0.25),
     show_offset=True,
     ms=10,
-    print_labels=False,):
+    print_labels=False,
+    max_rp_rstar=0.2,
+    max_rp=14,
+    use_conservative_e_i=True):
     """
     """
     # Import literature data of confirmed planets
@@ -2546,6 +2652,18 @@ def plot_confirmed_planet_comparison(
 
     # Merge
     merged_cat = toi_results.join(cp_cat, on="TOI", how="inner", rsuffix="_lit")
+
+    # If we've been given maximums for rp_rstar and rp, make cuts
+    if max_rp_rstar is not None:
+        merged_cat = merged_cat[merged_cat["rp_rstar_fit"] < max_rp_rstar]
+    
+    if max_rp is not None:
+        merged_cat = merged_cat[merged_cat["rp_fit"] < max_rp]
+
+    # Set conservative inclinations for those where it is high
+    if use_conservative_e_i:
+        high_e_i_mask = merged_cat["e_inclination_fit"] > 10
+        merged_cat.loc[high_e_i_mask,"e_inclination_fit"] = 5
 
     plt.close("all")
     fig, (rp_rstar_ax, a_rstar_ax, i_ax, rp_ax) = plt.subplots(1,4)
@@ -2569,9 +2687,10 @@ def plot_confirmed_planet_comparison(
         ticks=rp_rstar_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-0.035,0.035),
+        resid_y_lims=(-0.011,0.011),
         text_labels=merged_cat["name"].values,
-        print_labels=print_labels)
+        print_labels=print_labels,
+        offset_sig_fig=4,)
 
     # a/R*
     plot_std_comp_generic(
@@ -2638,7 +2757,7 @@ def plot_confirmed_planet_comparison(
         ticks=rp_ticks,
         plot_scatter=False,
         ms=ms,
-        resid_y_lims=(-1.6,1.6),
+        resid_y_lims=(-1.1,1.1),
         text_labels=merged_cat["name"].values,
         print_labels=print_labels)
 
@@ -2728,7 +2847,7 @@ def plot_lightcurve_fit(
             zorder=2, rasterized=rasterized, label="fitted trend")
 
         # Plot lines where transits occur (from beginning to end of our window)
-        transits = np.arange(t0-period*1000, lightcurve.time[-1], period)
+        transits = np.arange(t0-period*10000, lightcurve.time[-1], period)
         observed_transits_mask = np.logical_and(
             transits > lightcurve.time[0],
             transits < lightcurve.time[-1]
@@ -2880,7 +2999,7 @@ def plot_lightcurve_fit(
     if not plot_in_paper_figure_format:
         # Only set title for diagnostic plots
         title = (r"TIC {}, TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,"
-                r"R_\odot$, T = {:0.5f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
+                r"R_\odot$, T = {:0.6f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
                 r"$R_P$ = {:0.2f} $R_E$, "
                 r"$\frac{{a}}{{R_*}} = {:0.2f}$, $i = {:0.2f}]$")
 
@@ -3175,8 +3294,8 @@ def plot_lightcurve_phasefolded_x2(
         e_period = toi_info.loc[toi]["Period error"]
 
     # Plot title
-    title = (r"$T_O = {:.5f}$ days $(\pm{:.1f} sec)$"
-             r" --> $T_N = {:.5f}$ days $({:+.1f}$ sec)")
+    title = (r"$T_O = {:.6f}$ days $(\pm{:.2f} sec)$"
+             r" --> $T_N = {:.6f}$ days $({:+.2f}$ sec)")
     plt.title(
         title.format(
             toi_info.loc[toi]["Period (days)"],

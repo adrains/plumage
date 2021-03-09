@@ -624,7 +624,7 @@ m15_resid_ax.set_ylabel("[Fe/H] Resid")
 fig.set_size_inches(9, 4.5)
 fig.tight_layout() 
 fig.savefig("paper/phot_feh_rel.pdf")
-fig.savefig("paper/phot_feh_rel.png")
+fig.savefig("paper/phot_feh_rel.png", dpi=500)
 
 # -----------------------------------------------------------------------------
 # Table

@@ -85,19 +85,25 @@ pplt.plot_radius_comp(observations, tic_info)
 pplt.plot_hr_diagram(observations, tic_info,)
 
 # Standard comparison (fit to lit, and fit teff vs phot teff)
-pplt.plot_std_comp(obs_std, std_info, show_median_offset=True)
-pplt.plot_teff_comp(
-    obs_std, 
-    std_info, 
-    x_col="teff_synth", 
-    phot_teff_col="teff_m15_bprp_jh")
+teff_syst = -30
+
+pplt.plot_std_comp(
+    obs_std,
+    std_info,
+    show_offset=True,
+    fn_suffix="_2_param"
+    teff_syst=teff_syst,
+    undo_teff_syst=True,)
+
+pplt.plot_std_comp(
+    obs_std_3_param,
+    std_info,
+    show_offset=True,
+    fn_suffix="_3_param",
+    teff_syst=teff_syst,
+    undo_teff_syst=True,)
 
 # TESS comparison (fit teff vs phot teff)
-pplt.plot_teff_comp(
-    observations, 
-    std_info, 
-    x_col="teff_synth", 
-    phot_teff_col="teff_m15_bprp_jh")
 
 # Plot spectra summary (standard)
 
@@ -106,38 +112,40 @@ pplt.plot_teff_comp(
 # Plot light curve summary
 
 # Plot planet results
-pplt.plot_planet_radii_hist(lc_results, bin_width=0.4)
-pplt.plot_planet_period_vs_radius(lc_results)
+pplt.plot_planet_radii_hist(
+    toi_results,
+    bin_width=0.35,
+    plot_smooth_hist=False,
+    x_lims=(0,14))
 
 # -----------------------------------------------------------------------------
 # Paper Tables
 # -----------------------------------------------------------------------------
-paper.make_table_targets()
-paper.make_table_final_results(label="tess",info_cat=tess_info, break_row=64, do_activity_crossmatch=True)
-paper.make_table_final_results()
-paper.make_table_planet_params()
-#paper.make_table_fbol()
-#paper.make_table_ldc()
-#paper.make_table_lc_fit_params()
+# TESS
+paper.make_table_targets(tess_info=tess_info)
+paper.make_table_final_results(
+    label="tess",
+    info_cat=tess_info,
+    break_row=64,
+    do_activity_crossmatch=True)
+paper.make_table_planet_params(60)
+paper.make_table_ld_coeff(info_cat=tess_info)
+paper.make_table_planet_lit_comp()
 
 # Standards
 paper.make_table_targets()
 paper.make_table_observations(obs_std, std_info, "std")
-paper.make_table_final_results(label="std",info_cat=std_info, break_row=64, do_activity_crossmatch=False)   
+paper.make_table_final_results(
+    label="std",
+    info_cat=std_info,
+    break_row=64,
+    do_activity_crossmatch=False)   
 
-"""
-pplt.plot_teff_comp(
-    observations,
-    std_info,
-    x_col="teff_synth",
-    phot_teff_col="teff_m15_bprp",
-    fn_suffix="_phot_x{}".format(scale_fac),
-    title_text=scale_fac,)
 
-pplt.plot_std_comp(
-    observations,
-    std_info,
-    show_median_offset=True,
-    fn_suffix="_phot_x{}".format(scale_fac),
-    title_text=scale_fac,)
-"""
+
+# Cool stars figure
+pplt.plot_representative_spectral_model_limitations(
+    "3796072592206250624",
+    label="std_dec",
+    plot_size=(9,4.5),
+    plot_suffix="_cs")

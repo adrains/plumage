@@ -6,10 +6,14 @@ import plumage.transits as transit
 
 # Binning factor. Note that we're assuming a minimum cadence of 2 mins, so 
 # extended mission data will get binned to at least that level
-bin_fac = 2
+bin_fac = 4
 
 # Import catalogue of TESS info
-tess_info = utils.load_info_cat(remove_fp=True, only_observed=True)
+tess_info = utils.load_info_cat(
+    remove_fp=True,
+    only_observed=True,
+    use_mann_code_for_masses=False,
+    do_extinction_correction=False,)
 
 # Load ExoFOP info
 efi = utils.load_exofop_toi_cat()

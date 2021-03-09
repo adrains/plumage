@@ -1228,7 +1228,11 @@ def load_exofop_toi_cat(
     ...
     """
     # Load in tess info cat and use to clean efi
-    tic_info = load_info_cat(remove_fp=True, only_observed=True)
+    tic_info = load_info_cat(
+        remove_fp=True,
+        only_observed=True,
+        do_extinction_correction=False,
+        use_mann_code_for_masses=False,)
     toi_info = pd.read_csv(
         toi_cat_path, 
         quoting=1, 
