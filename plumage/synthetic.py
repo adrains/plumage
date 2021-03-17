@@ -23,7 +23,19 @@ import astropy.convolution as conv
 # Setup IDL
 #------------------------------------------------------------------------------
 def idl_init(drive="home"):
-    """Initialise IDL by setting paths and compiling relevant files.
+    """Initialise IDL by setting paths and compiling relevant files. Also 
+    initialises paths to various IDL grids.
+
+    Parameters
+    ----------
+    drive: string, default: 'home'
+        Keyword for how to reference grids, either 'home' for alias, or 'priv'
+        for longer path on avatar.
+
+    Returns
+    -------
+    idl: pidly.IDL()
+        pidly IDL object to pass IDL commands to.
     """
     # Do initial compilation
     idl = pidly.IDL()
@@ -52,13 +64,13 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
                      resolution=None, norm="abs", do_resample=True, 
                      wl_per_px=None, rv_bcor=0, wave_pad=50, abund_alpha=None,
                      abund_CFe=None, ebv=0,):
-    """Calls Thomas Nordlander's IDL routines to generate a synthetic MARCS
-    model spectrum at the requested parameters.
+    """Calls Thomas Nordlander's IDL routines (specifically get_spec) to 
+    generate a synthetic MARCS model spectrum at the requested parameters. 
 
     Parameters
     ----------
     idl: pidly.IDL
-        IDL wrapper
+        pidly IDL wrapper
 
     teff: int
         Temperature of the star in K
@@ -313,9 +325,9 @@ def make_synth_mask_for_bad_wl_regions(
     low_cutoff=None,
     high_cutoff=None,):
     """Makes a bad pixel mask corresponding to where Thomas Nordlander's 
-    synthetic MARCS models are inconsistent with observational data at cooler
-    temperatures. The wavelength is corrected to the rest frame before 
-    excluding.
+    synthetic MARCS models are inconsistent with observational data for cool
+    (<~4,500 K) dwarf stars. The wavelength is corrected to the rest frame 
+    before excluding.
 
     Parameters
     ----------
@@ -333,7 +345,27 @@ def make_synth_mask_for_bad_wl_regions(
 
     cutoff_temp: float
         The temperature in Kelvin below which we exlclude ill-fitting synthetic
-        spectral regions
+        spectral regions. Setting this warmer than any stars is the same as
+        assuming all synthetic pixels are reliable for the purpose of 
+        generating a bad pixel mask.
+
+    mask_blue: boolean, default: True
+        Whether to bulk mask everything below 4,500 A.
+
+    mask_missing_opacities: boolean, default: True
+        Whether to mask out 5411-5424 A (from Mann+2013), 5498-5585 A (unknown
+        feature), and 6029-6159 A (suspected Ca/Fe molecular line or 
+        photodissociation opacity)
+
+    mask_tio: boolean, default: True
+        Whether to mask out suspected bad TiO regions 5615-5759 and 5809-5840 A
+
+    mask_sodium_wings: boolean, default: True
+        Whether to mask out the wings of the soudium doublet, 5847-5886 and
+        5898-5987 A.
+
+    low_cutoff, high_cutoff: float or None, default: None
+        Low and high wavelength cutoff in A if required.
 
     Returns
     -------
@@ -682,6 +714,9 @@ def calc_synth_fit_resid_one_arm(
         Array of bad pixels (i.e. bad pixels are True) for red arm
         corresponding to wave_r.
 
+    ebv: float
+        Reddening of star
+
     rv: float
         Radial velocity in km/s
 
@@ -697,6 +732,10 @@ def calc_synth_fit_resid_one_arm(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
+    do_polynomial_spectra_norm: boolean
+        Whether to use a polynomial to normalise out spectra prior to fitting.
+        Main use case is for unfluxed spectra or testing.
+
     Returns
     -------
     resid_vect: float array
@@ -704,7 +743,8 @@ def calc_synth_fit_resid_one_arm(
         spectra.
 
     spec_synth: float array
-        Best fitting synthetic spectrum.
+        Unnormalised synthetic spectrum at provided stellar parameters and 
+        instrument settings.
     """
     # Get the template spectrum
     wave_synth, spec_synth = get_idl_spectrum(
@@ -785,26 +825,26 @@ def calc_bc_resid(
     e_stellar_phot,
     phot_bands,
     bc_interp,):
-    """Calculates the residuals between observed and synthetic colours.
+    """Calculates the residuals between observed and synthetic photometry as
+    determined from a bolometric correction.
 
     Parameters
     ----------
     teff, logg, feh, Mbol: float
         Stellar parameters for star.
     
-    stellar_colours: float array, default: None
-        Array of observed stellar colour corresponding to colour_bands. If None
-        photometry is not used in the fit.
+    stellar_phot, e_stellar_phot: float array
+        Arrays of observed stellar photometry and photometric uncertainties
+        corresponding to phot_bands. 
 
-    e_stellar_colours: float array, default: None
-        Array of observed stellar colour uncertainties. If None photometry is 
-        not used in the fit.
+    phot_bands: string array
+        Photometric filters to be used in the fit, valid filters are:
+        ["Bp", "Rp", "J", "H", "K", "v", "g", "r", "i", "z"]
 
-    colour_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
-        Colour bands to use in the fit.
-
-    bc_interp: SyntheticColourInterpolator
-        SyntheticColourInterpolator object able to interpolate synth colours.
+    bc_interp: SyntheticBCInterpolator
+        SyntheticBCInterpolator object able to interpolate bolometric 
+        corrections for the given filters using the grid from:
+        https://github.com/casaluca/bolometric-corrections
 
     Returns
     -------
@@ -812,8 +852,11 @@ def calc_bc_resid(
         Uncertainty weighted residual vector between observed and synthetic
         colours.
     
-    synth_colours: float array
-        Array of synthetic stellar colour corresponding to colour_bands.
+    synth_phot: float array
+        Array of synthetic photometry corresponding to phot_bands.
+
+    synth_bc: float array
+        Array of synthetic bolometric corrections corresponding to phot_bands.
     """
     # Input checking
     if (len(stellar_phot) != len(e_stellar_phot) 
@@ -862,17 +905,41 @@ def calc_synth_fit_resid(
     suppress_fit_diagnostics=False,
     return_synth_models=False,
     do_polynomial_spectra_norm=False,):
-    """Calculates the uncertainty weighted residuals between a science spectrum
-    and a generated template spectrum with parameters per 'params'. If blue
-    band spectrum related arrays are None, will just fit for red spectra. This
-    is to account for potentially poor SNR in the blue.
+    """Calculates the uncertainty weighted residuals between the combined
+    and rescaled residual vectors of:
+        a) Observed vs synthetic spectrum (red arm)
+        b) Observed vs synthetic spectrum (blue arm)
+        c) Observed vs synthetic photometry
+    
+    Note that in order to be combined, the residuals must be rescaled so that
+    no one vector or kind of information dominates the fit (e.g. given that 
+    a given spectral pixel does not contain an equivalent amount of information
+    to a given photometric filter). This rescaling is done by doing a separate
+    fit for each of a), b) and c) to find the global minimum chi^2. These 
+    minima are passed in as the dictionary resid_norm_fac, but the separate 
+    fits require this function to be run multiple times.
+
+    If any of the associated vectors are None, they will not be included in 
+    the fitting process.
+
+    The two spectral fits (red and blue) require Teff, logg, and [Fe/H] for 
+    their fits (any of which can be fixed). The photometric fit on the other
+    hand requires mbol too, which is used as a (physically meaningful) scaling
+    parameter to allow comparison between the observed and synthetic
+    photometry, the latter of which would otherwise remain in the 'model 
+    frame'. This mbol parameter can then later be used to determine fbol, the
+    apparent bolometric flux, which in turn can be used to determine the 
+    stellar radius.
+
+    Note that currently photometry must be corrected for reddening ahead of
+    time, while spectra is corrected here.
 
     Parameters
     ----------
     params: float array
         Initial parameter guess of form (teff, logg, [Fe/H])
 
-    wave_r, spec_r, e_spec_r: float array
+    wave_r, spec_r, e_spec_r: float array or None
         The red wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_r: boolean array
@@ -894,56 +961,81 @@ def calc_synth_fit_resid(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
+    ebv: float
+        Reddening of form E(B-V).
+
     params_fit_keys: string list
         List of parameters that are to be fitted for, either:
          - 'teff'
          - 'logg'
          - 'feh'
+         - 'mbol'
 
     params_fixed: dict
-        Dictionary pairing of parameter ('teff', 'logg', 'feh') for those
-        parameters that are fixed during fitting. Will contain those parameters
-        not in params_fit_keys.
+        Dictionary pairing of parameter ('teff', 'logg', 'feh', 'mbol') for
+        those parameters that are fixed during fitting. Will contain those
+        parameters not in params_fit_keys.
 
     band_settings_b: dict
         Dictionary with settings for WiFeS blue band, used when generating 
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    wave_r, spec_b, e_spec_b: float array
+    wave_r, spec_b, e_spec_b: float array or None
         The blue wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_b: boolean, optional
-        Array of bad pixels (i.e. bad pixels are True) for red arm
-        corresponding to wave_r.
+        Array of bad pixels (i.e. bad pixels are True) for blue arm
+        corresponding to wave_b.
 
-    stellar_phot, e_stellar_phot: float array, default: None
-        Array of observed stellar colour corresponding to colour_bands. If None
-        photometry is not used in the fit.
+    stellar_phot, e_stellar_phot: float array or None
+        Array of observed stellar photometry and photometric uncertainties
+        corresponding to colour_bands.
 
-    phot_bands: string array, default: TODO
-        Colour bands to use in the fit.
+    phot_bands: string array or None
+        Photometric filters to use in fit.
 
-    bc_interp: SyntheticBCInterpolator
-        SyntheticBCInterpolator object able to interpolate synth bc.
+    bc_interp: SyntheticBCInterpolator or None
+        SyntheticBCInterpolator object able to interpolate synthetic bolometric
+        corrections. If None, will not do photometric fit.
 
     feh_offset: float
-        Arbitrary offset to add to [Fe/H] so that it never goes below zero to
-        improve compatability with diff_step.
+        Arbitrary offset added to [Fe/H] so that it never goes below zero to
+        improve compatability with diff_step in least_squares. As we're inside
+        the least squares fitting here, we need to unscale [Fe/H].
 
-    resid_norm_fac: int
-        ..
+    resid_norm_fac: dict
+        Dictionary with keys ['red', 'blue', 'phot'] corresponding to the 
+        minimum chi^2 for that specific residual vector to rescale it with.
+        Set these all to 1 for the first pass of any fit.
 
-    phot_scale_fac,
+    phot_scale_fac: float
+        Scaling factor to better put photometry and spectroscopy on the same
+        scale, taken to mean that every phot_scale_fac spectroscopic pixels 
+        are correlated. Ballpark value to set this to, at least for cool 
+        dwarfs, is ~20.
 
     suppress_fit_diagnostics: bool, default: False
         Whether to suppress printed diagnostics. 
+
+    return_synth_models: bool, default: False
+        Whether to return just the residual vector, or that in addition to the
+        synthetic spectra and photometry at the given stellar parameters:
+            spec_synth_b, spec_synth_r, synth_phot, synth_bc
+
+    do_polynomial_spectra_norm: bool, default: False
+        Whether to normalise spectra by a polynomial, mostly for testing
+        purposes.
 
     Returns
     -------
     resid_vect: float array
         Uncertainty weighted residual vector between science and synthetic
         spectra.
+
+    spec_synth_b, spec_synth_r, synth_phot, synth_bc: float arrays
+        Synthetic spectra and photometry at the given stellar parameters. Only
+        returned if return_synth_models is true.
     """
     # Unpack params, first teff
     ti = np.argwhere(params_fit_keys=="teff")
@@ -1075,7 +1167,7 @@ def do_synthetic_fit(
     idl,
     band_settings_r,
     ebv=0,
-    fit_for_params={"teff":True, "logg":True, "feh":True,},
+    fit_for_params={"teff":True, "logg":True, "feh":True, "Mbol":True},
     band_settings_b=None,
     wave_b=None, 
     spec_b=None, 
@@ -1086,18 +1178,26 @@ def do_synthetic_fit(
     phot_bands=None,
     phot_bands_all=None,
     feh_offset=10,
-    resid_norm_fac={'blue':1, 'red':1, 'phot':1,},
     scale_threshold={"blue":1,"red":1,"phot":1},
     fit_for_resid_norm_fac=False,
     phot_scale_fac=1,
     suppress_fit_diagnostics=False,
     do_polynomial_spectra_norm=False,):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
-    science spectra given an initial stellar parameter guess. By default only
-    fits red arm spectra (to account for poor SNR blue spectra), but will fit 
-    blue spectra if provided.
+    the combined residual vectors of:
+        a) Observed vs synthetic spectrum (red arm)
+        b) Observed vs synthetic spectrum (blue arm)
+        c) Observed vs synthetic photometry
+    
+    Where any of
+    This rescaling is done by doing a separate
+    fit for each of a), b) and c) to find the global minimum chi^2. After this,
+    a final simultaneous fit is done.
 
     Note: currently do not rescale blue residuals.
+
+    TODO: use parameters as a dictionary, rather than individually as we 
+    currently do.
 
     Parameters
     ----------
@@ -1108,10 +1208,11 @@ def do_synthetic_fit(
         Array of bad pixels (i.e. bad pixels are True) for red arm
         corresponding to wave_r.
 
-    params: float array
-        Initial parameter guess, either of form:
-         1) (teff, logg, [Fe/H])
-         2) (teff, [Fe/H]) if logg is provided
+    params: dict
+        Dictionary containing values for the parameters involved in the fit,
+        can be either initial guesses or fixed values, with the interpretation
+        set by the dictionary fit_for_params. Currently supported keys are:
+        ['teff', 'logg', 'feh',  'Mbol']
 
     rv: float
         Radial velocity in km/s
@@ -1128,7 +1229,11 @@ def do_synthetic_fit(
         synthetic spectra. Has keys: ["inst_res_pow", "wl_min", "wl_max",
         "n_px", "wl_per_px", "wl_broadening", "arm"]
 
-    fit_for_params: dict, default: {"teff":True, "logg":True, "feh":True}
+    ebv: float
+        Reddening of form E(B-V).
+
+    fit_for_params: dict, 
+        default: {'teff':True, 'logg':True, 'feh':True, 'Mbol':True}
         Dictionary mapping stellar parameters to a boolean, where a True
         indicates the parameter will be fitted for as part of the least sqaures
         fit, and False indicates the parameter will be fixed.
@@ -1142,32 +1247,41 @@ def do_synthetic_fit(
         The blue wavelength scale, spectrum, and uncertainties vectors.
 
     bad_px_mask_b: boolean, optional
-        Array of bad pixels (i.e. bad pixels are True) for red arm
-        corresponding to wave_r.
+        Array of bad pixels (i.e. bad pixels are True) for blue arm
+        corresponding to wave_b.
 
-    stellar_phot: float array, default: None
-        Array of observed stellar colour corresponding to colour_bands. If None
-        photometry is not used in the fit.
+    stellar_phot, e_stellar_phot: float array or None
+        Array of observed stellar photometry and photometric uncertainties
+        corresponding to colour_bands.
 
-    e_stellar_phot: float array, default: None
-        Array of observed stellar colour uncertainties. If None photometry is 
-        not used in the fit.
+    phot_bands: string array or None
+        Photometric filters to use in fit, which we *must* have observed
+        equivalents for.
 
-    phot_bands: string array, default: ['Rp-J', 'J-H', 'H-K']
-        Colour bands to use in the fit.
+    phot_bands_all: string array or None
+        Photometric filters we want to generate synethetic magnitudes for at
+        the conclusion of the fit, which we don't need observed equivalents.
+    
+    feh_offset: float
+        Arbitrary offset added to [Fe/H] so that it never goes below zero to
+        improve compatability with diff_step in least_squares. 
 
-    phot_bands_all: ...
+    scale_threshold: dict, default: {'blue':1,'red':1,'phot':1}
+        Dictionary with keys ['red', 'blue', 'phot'] corresponding to the 
+        minimum chi^2 for which we rescale that specific residual vector.
 
-    feh_offset: float, default: 10
-        Arbitrary offset to add to [Fe/H] so that it never goes below zero to
-        improve compatability with diff_step.
-
-    resid_norm_fac: dict, default: {'blue':1, 'red':1, 'colour':1,} or None
-        Multiplicative scaling factor for the photometric colour residuals to
-        scale them relative to their spectroscopic counterparts.
+    phot_scale_fac: float, default: 1
+        Scaling factor to better put photometry and spectroscopy on the same
+        scale, taken to mean that every phot_scale_fac spectroscopic pixels 
+        are correlated. Ballpark value to set this to, at least for cool 
+        dwarfs, is ~20.
 
     suppress_fit_diagnostics: bool, default: False
         Whether to suppress printed diagnostics. 
+
+    do_polynomial_spectra_norm: bool, default: False
+        Whether to normalise spectra by a polynomial, mostly for testing
+        purposes.
 
     Returns
     -------
@@ -1501,6 +1615,9 @@ def make_chi2_map(
     scale_threshold={"blue":0,"red":0,"phot":1}):
     """Samples the chi^2 space in Teff and [Fe/H] in a box around central 
     literature values of Teff and [Fe/H].
+
+    Note: This function predates the new implementation of do_synthetic_fit,
+    and hasn't been refactored yet to suit and this likely doesn't work.
 
     Parameters
     ----------
