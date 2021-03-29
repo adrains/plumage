@@ -26,8 +26,8 @@ start_time = datetime.now()
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "std"
-cat_label = "std"
+label = "test"
+cat_label = "tess"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -121,13 +121,17 @@ fit_for_params = OrderedDict([
     ("teff",True),
     ("logg",False),
     ("feh",False),
-    ("Mbol",True),])
+    ("Mbol",True),
+    ("rv",False),
+    ("ebv",False),])
 
 n_params = np.sum(list(fit_for_params.values()))
 
 teff_init_col = "teff_fit_rv"
 logg_init_col = "logg_m19"
 feh_init_col = "phot_feh"
+rv_init_col = "rv"
+ebv_init_col = "ebv"
 
 # Use the mean solar neighbourhood [Fe/H] for those stars not appropriate for
 # the photometric [Fe/H] relation. From Schlaufman & Laughlin 2010.
@@ -197,6 +201,10 @@ feh_synth = np.full(len(observations), np.nan)
 e_feh_synth = np.full(len(observations), np.nan)
 mbol_synth = np.full(len(observations), np.nan)
 e_mbol_synth = np.full(len(observations), np.nan)
+rv_synth = np.full(len(observations), np.nan)
+e_rv_synth = np.full(len(observations), np.nan)
+ebv_synth = np.full(len(observations), np.nan)
+e_ebv_synth = np.full(len(observations), np.nan)
 fit_results = []
 synth_fits_b = np.full(spectra_b[:,0,:].shape, np.nan)  
 synth_fits_r = np.full(spectra_r[:,0,:].shape, np.nan)  
@@ -272,6 +280,8 @@ for ob_i in range(0, len(observations)):
         "logg":star_info[logg_init_col],
         "feh":star_info[feh_init_col],
         "Mbol":0,
+        "rv":observations.iloc[ob_i][rv_init_col],
+        "ebv":star_info[ebv_init_col],
     }
 
     # Check if our [Fe/H] is undefined, and if so set to the SL10 value
@@ -289,7 +299,7 @@ for ob_i in range(0, len(observations)):
     # synthetic spectra are bad (e.g. missing opacities) at cool teffs
     bad_synth_px_mask_r = synth.make_synth_mask_for_bad_wl_regions(
         spectra_r[ob_i, 0], 
-        observations.iloc[ob_i]["rv"], 
+        observations.iloc[ob_i][rv_init_col], 
         observations.iloc[ob_i]["bcor"], 
         observations.iloc[ob_i][teff_init_col],
         cutoff_temp=cutoff_temp,
@@ -318,7 +328,7 @@ for ob_i in range(0, len(observations)):
 
         bad_synth_px_mask_b = synth.make_synth_mask_for_bad_wl_regions(
             spectra_b[ob_i, 0], 
-            observations.iloc[ob_i]["rv"], 
+            observations.iloc[ob_i][rv_init_col], 
             observations.iloc[ob_i]["bcor"], 
             observations.iloc[ob_i][teff_init_col],
             cutoff_temp=cutoff_temp,
@@ -351,11 +361,9 @@ for ob_i in range(0, len(observations)):
         spectra_r[ob_i, 2], # Red uncertainties
         bad_px_mask_r,
         params_init.copy(), 
-        observations.iloc[ob_i]["rv"], 
         observations.iloc[ob_i]["bcor"],
         idl,
         band_settings_r,
-        ebv=star_info["ebv"],
         fit_for_params=fit_for_params,
         band_settings_b=band_settings_b,
         wave_b=wave_b, 
@@ -420,11 +428,9 @@ for ob_i in range(0, len(observations)):
             spectra_r[ob_i, 2], # Red uncertainties
             bad_px_mask_r,
             params_init.copy(), 
-            observations.iloc[ob_i]["rv"], 
             observations.iloc[ob_i]["bcor"],
             idl,
             band_settings_r,
-            ebv=star_info["ebv"],
             fit_for_params=fit_for_params,
             band_settings_b=band_settings_b,
             wave_b=wave_b, 
@@ -466,6 +472,13 @@ for ob_i in range(0, len(observations)):
     mbol_synth[ob_i] = opt_res["Mbol"]
     e_mbol_synth[ob_i] = np.sqrt(opt_res["e_Mbol"]**2 + mbol_std**2)
 
+    # RV and E(B-V)
+    rv_synth[ob_i] = opt_res["rv"]
+    e_rv_synth[ob_i] = opt_res["e_rv"]
+
+    ebv_synth[ob_i] = opt_res["ebv"]
+    e_ebv_synth[ob_i] = opt_res["e_ebv"]
+
     fit_results.append(opt_res)
     synth_fits_r[ob_i] = opt_res["spec_synth_r"]
     rchi2[ob_i] = opt_res["rchi2"]
@@ -482,7 +495,11 @@ for ob_i in range(0, len(observations)):
           "[Fe/H] = {:+0.2f} +/- {:0.2f},".format(
               feh_synth[ob_i], e_feh_synth[ob_i]),
           "m_bol = {:0.3f} +/- {:0.3f}\n".format(
-              mbol_synth[ob_i], e_mbol_synth[ob_i]),)
+              mbol_synth[ob_i], e_mbol_synth[ob_i]),
+          "rv = {:0.3f} +/- {:0.3f}\n".format(
+              rv_synth[ob_i], e_rv_synth[ob_i]),
+          "ebv = {:0.3f} +/- {:0.3f}\n".format(
+              ebv_synth[ob_i], e_ebv_synth[ob_i]),)
 
     # Grab synthetic photometry
     synth_phot = opt_res["synth_phot"]
@@ -531,6 +548,10 @@ observations["feh_synth"] = feh_synth
 observations["e_feh_synth"] = e_feh_synth
 observations["mbol_synth"] = mbol_synth
 observations["e_mbol_synth"] = e_mbol_synth
+observations["rv_synth"] = rv_synth
+observations["e_rv_synth"] = e_rv_synth
+observations["ebv_synth"] = ebv_synth
+observations["e_ebv_synth"] = e_ebv_synth
 
 observations["rchi2_synth"] = rchi2
 observations["both_arm_synth_fit"] = both_arm_synth_fit

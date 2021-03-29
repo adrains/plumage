@@ -883,11 +883,9 @@ def calc_synth_fit_resid(
     spec_r, 
     e_spec_r, 
     bad_px_mask_r,
-    rv, 
     bcor, 
     idl,
     band_settings_r,
-    ebv,
     params_fit_keys,
     params_fixed,
     band_settings_b,
@@ -1053,6 +1051,14 @@ def calc_synth_fit_resid(
     mi = np.argwhere(params_fit_keys=="Mbol")
     Mbol = params[int(mi)] if len(mi) > 0 else params_fixed["Mbol"]
 
+    # RV
+    ri = np.argwhere(params_fit_keys=="rv")
+    rv = params[int(ri)] if len(ri) > 0 else params_fixed["rv"]
+
+    # E(B-V)
+    ei = np.argwhere(params_fit_keys=="ebv")
+    ebv = params[int(ei)] if len(ei) > 0 else params_fixed["ebv"]
+
     # Initialise boolean flags to indicate which residuals are included in the
     # fit - blue spectra, red spectra, and photometry
     used_blue = False
@@ -1134,8 +1140,8 @@ def calc_synth_fit_resid(
     if not suppress_fit_diagnostics:
         # Print stellar param update
         line = ("Teff = {:0.5f} K, logg = {:0.05f}, [Fe/H] = {:+0.05f}, "
-                "mbol={:+9.05f}\t")
-        print(line.format(teff, logg, feh, Mbol), end="")
+                "mbol={:+9.05f}, RV={:+7.2f} km/s, E(B-V)={:0.5f}\t")
+        print(line.format(teff, logg, feh, Mbol, rv, ebv), end="")
         
         # Print synthetic colour update
         if bc_interp is not None:
@@ -1162,12 +1168,16 @@ def do_synthetic_fit(
     e_spec_r, 
     bad_px_mask_r, 
     params, 
-    rv, 
     bcor,
     idl,
     band_settings_r,
-    ebv=0,
-    fit_for_params={"teff":True, "logg":True, "feh":True, "Mbol":True},
+    fit_for_params={
+        "teff":True,
+        "logg":True,
+        "feh":True,
+        "Mbol":True,
+        "rv":False,
+        "ebv":False,},
     band_settings_b=None,
     wave_b=None, 
     spec_b=None, 
@@ -1182,7 +1192,15 @@ def do_synthetic_fit(
     fit_for_resid_norm_fac=False,
     phot_scale_fac=1,
     suppress_fit_diagnostics=False,
-    do_polynomial_spectra_norm=False,):
+    do_polynomial_spectra_norm=False,
+    teff_bounds=(2800,8000),
+    logg_bounds=(4,5.5),
+    feh_bounds=(-2,0.5),
+    mbol_bounds=(-10,100),
+    rv_bounds=(-500,500),
+    ebv_bounds=(0,10),
+    ls_scale=np.array([1,1,1,1,1,1]),
+    ls_step=np.array([0.1,0.1,0.1,0.1,0.01,0.01]),):
     """Performs least squares fitting (using scipy.optimize.least_squares) on
     the combined residual vectors of:
         a) Observed vs synthetic spectrum (red arm)
@@ -1283,18 +1301,46 @@ def do_synthetic_fit(
         Whether to normalise spectra by a polynomial, mostly for testing
         purposes.
 
+    teff_bounds: float array, default:(2800,8000)
+        Lower and upper limits on Teff when performing least squares fitting.
+
+    logg_bounds: float array, default:(4,5.5)
+        Lower and upper limits on logg when performing least squares fitting.
+
+    feh_bounds: float array, default:(-2,0.5)
+        Lower and upper limits on [Fe/H] when performing least squares fitting.
+    
+    mbol_bounds: float array, default:(-10,100)
+        Lower and upper limits on mbol when performing least squares fitting.
+    
+    rv_bounds: float array, default:(-500,500)
+        Lower and upper limits on RV when performing least squares fitting.
+    
+    ebv_bounds: float array, default:(0,10)
+        Lower and upper limits on E(B-V) when performing least squares fitting.
+    
+    ls_scale: float array, default:(1,1,1,1,1,1)
+        Scaling factor to use for each parameter when doing least squares fit.
+
+    ls_step: float array, default:(0.1,0.1,0.1,0.1,0.01,0.01)
+        Fractional step size to use for each parameter when doing least squares 
+        fit.
+
     Returns
     -------
     optimize_result: dict
         Dictionary of best fit results returned from 
         scipy.optimize.least_squares.
     """
-    # Initalise boundary conditions on fit
-    bounds = np.array(
-        [(2800, 4, -2+feh_offset, -10), 
-        (6000, 5.5, 0.5+feh_offset, 100)])
-    scale = np.array([1, 1, 1, 1])
-    step = np.array([0.1, 0.1, 0.1, 0.1])
+    # Initalise boundary conditions for each parameter, applying [Fe/H] offset
+    bounds = np.array([
+        # lower bounds
+        (teff_bounds[0], logg_bounds[0], feh_bounds[0]+feh_offset,
+          mbol_bounds[0], rv_bounds[0], ebv_bounds[0],),
+        # upper bounds
+        (teff_bounds[1], logg_bounds[1], feh_bounds[1]+feh_offset,
+          mbol_bounds[1], rv_bounds[1], ebv_bounds[1],)
+    ])
 
     # Scale [Fe/H] if fitting for
     if fit_for_params["feh"]:
@@ -1339,8 +1385,8 @@ def do_synthetic_fit(
         params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
         
         # Setup fit settings
-        args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-                band_settings_r, ebv, params_init_keys, params_fixed, 
+        args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, bcor , idl, 
+                band_settings_r, params_init_keys, params_fixed, 
                 band_settings_b, None, None, None,  None, None, 
                 None, None, None, feh_offset, 
                 resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
@@ -1352,8 +1398,8 @@ def do_synthetic_fit(
             params_init, 
             jac="3-point",
             bounds=bounds[:,param_mask],
-            x_scale=scale[param_mask],
-            diff_step=step[param_mask],
+            x_scale=ls_scale[param_mask],
+            diff_step=ls_step[param_mask],
             args=args, 
         )
 
@@ -1377,8 +1423,8 @@ def do_synthetic_fit(
         params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
         
         # Setup fit settings
-        args = (None, None, None, None, rv, bcor , idl, 
-                band_settings_r, ebv, params_init_keys, params_fixed, 
+        args = (None, None, None, None, bcor , idl, 
+                band_settings_r, params_init_keys, params_fixed, 
                 band_settings_b, None, None, None,  None, stellar_phot, 
                 e_stellar_phot, phot_bands, bc_interp, feh_offset, 
                 resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
@@ -1390,8 +1436,8 @@ def do_synthetic_fit(
             params_init, 
             jac="3-point",
             bounds=bounds[:,param_mask],
-            x_scale=scale[param_mask],
-            diff_step=step[param_mask],
+            x_scale=ls_scale[param_mask],
+            diff_step=ls_step[param_mask],
             args=args, 
         )
 
@@ -1424,8 +1470,8 @@ def do_synthetic_fit(
     params_fixed = {pp:params[pp] for pp in params if not fit_for_params[pp]}
     
     # Setup fit settings
-    args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, rv, bcor , idl, 
-            band_settings_r, ebv, params_init_keys, params_fixed, band_settings_b, 
+    args = (wave_r, spec_r, e_spec_r, bad_px_mask_r, bcor , idl, 
+            band_settings_r, params_init_keys, params_fixed, band_settings_b, 
             wave_b, spec_b, e_spec_b,  bad_px_mask_b, stellar_phot, 
             e_stellar_phot, phot_bands, bc_interp, feh_offset, 
             resid_norm_fac, phot_scale_fac, suppress_fit_diagnostics,
@@ -1437,8 +1483,8 @@ def do_synthetic_fit(
         params_init, 
         jac="3-point",
         bounds=bounds[:,param_mask],
-        x_scale=scale[param_mask],
-        diff_step=step[param_mask],
+        x_scale=ls_scale[param_mask],
+        diff_step=ls_step[param_mask],
         args=args, 
     )
 
@@ -1492,9 +1538,19 @@ def do_synthetic_fit(
     opt_res["e_feh"] = opt_res["std"][int(fi)] if len(fi) > 0 else np.nan
 
     # Mbol
-    fi = np.argwhere(params_init_keys=="Mbol")
-    opt_res["Mbol"] = opt_res["x"][int(fi)] if len(fi) > 0 else params["Mbol"]
-    opt_res["e_Mbol"] = opt_res["std"][int(fi)] if len(fi) > 0 else np.nan
+    mi = np.argwhere(params_init_keys=="Mbol")
+    opt_res["Mbol"] = opt_res["x"][int(mi)] if len(mi) > 0 else params["Mbol"]
+    opt_res["e_Mbol"] = opt_res["std"][int(mi)] if len(mi) > 0 else np.nan
+
+    # RV
+    ri = np.argwhere(params_init_keys=="rv")
+    opt_res["rv"] = opt_res["x"][int(ri)] if len(ri) > 0 else params["rv"]
+    opt_res["e_rv"] = opt_res["std"][int(ri)] if len(ri) > 0 else np.nan
+
+    # E(B-V)
+    ei = np.argwhere(params_init_keys=="Mbol")
+    opt_res["ebv"] = opt_res["x"][int(ei)] if len(ei) > 0 else params["ebv"]
+    opt_res["e_ebv"] = opt_res["std"][int(ei)] if len(ei) > 0 else np.nan
 
     # Unscale [Fe/H] if fitted for
     if fit_for_params["feh"]:
@@ -1522,7 +1578,7 @@ def do_synthetic_fit(
             norm="abs",
             do_resample=True, 
             wl_per_px=band_settings_b["wl_per_px"],
-            rv_bcor=(rv-bcor),
+            rv_bcor=(opt_res["rv"]-bcor),
             )
 
         spec_synth_b_norm = spec.norm_spec_by_wl_region(
@@ -1546,7 +1602,7 @@ def do_synthetic_fit(
             norm="abs",
             do_resample=True, 
             wl_per_px=band_settings_r["wl_per_px"],
-            rv_bcor=(rv-bcor),
+            rv_bcor=(opt_res["rv"]-bcor),
             )
 
         spec_synth_r_norm = spec.norm_spec_by_wl_region(
