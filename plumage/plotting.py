@@ -1393,8 +1393,10 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
 
         cb = fig.colorbar(sc, ax=axis)
+        cb.ax.tick_params(labelsize="large")
+
         if cb_label != "":
-            cb.set_label(cb_label)
+            cb.set_label(cb_label, fontsize="x-large")
 
     # Split lims if we've been given different x and y limits
     lim_min = np.min([x_lims[0], y_lims[0]])
@@ -1445,11 +1447,11 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     plt.setp(axis.get_xticklabels(), visible=False)
     resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0)
     
-    resid_ax.set_xlabel(lit_label)
+    resid_ax.set_xlabel(lit_label, fontsize="x-large")
 
     if fit_label != "":
-        axis.set_ylabel(fit_label)
-        resid_ax.set_ylabel("resid")
+        axis.set_ylabel(fit_label, fontsize="x-large")
+        resid_ax.set_ylabel("resid", fontsize="x-large")
 
     axis.set_xlim(x_lims)
     resid_ax.set_xlim(x_lims)
@@ -1487,6 +1489,9 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
     axis.yaxis.set_major_locator(plticker.MultipleLocator(base=ticks[0]))
+    
+    axis.tick_params(axis='both', which='major', labelsize="large")
+    resid_ax.tick_params(axis='x', which='major', labelsize="large")
 
     # Set limits on y residuals if given
     if resid_y_lims is not None:
@@ -1504,7 +1509,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
             x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
             y=0.05*(y_lims[1]-y_lims[0])+y_lims[0], 
             s=offset_lbl.format(mean_offset, std),
-            horizontalalignment="center")
+            horizontalalignment="center",
+            fontsize="x-large")
 
 
 def plot_std_comp(
@@ -1610,7 +1616,7 @@ def plot_std_comp(
         y_lims=(2800,4300),
         cmap="viridis",
         show_offset=show_offset,
-        ticks=teff_ticks,)
+        ticks=(500,250,200,100),)
     
     # Interferometric temperatures
     plot_std_comp_generic(
@@ -1642,8 +1648,8 @@ def plot_std_comp(
         "", #r"$T_{\rm eff}$ (K, fit)",
         r"$T_{\rm eff}$ (K, other)",
         feh_cb_label,
-        x_lims=(3500,5100),
-        y_lims=(3500,5100),
+        x_lims=(3400,5100),
+        y_lims=(3400,5100),
         cmap="viridis",
         show_offset=show_offset,
         ticks=teff_ticks,)
@@ -2008,7 +2014,7 @@ def plot_cmd(
             label="Standard"
         )
 
-        plt.legend(loc="best")
+        plt.legend(loc="best", fontsize="large")
 
     # Optional, but for diagnostic purposes plot the target TOI IDs
     if plot_toi_ids:
@@ -2025,8 +2031,10 @@ def plot_cmd(
     ymin, ymax = axis.get_ylim()
     axis.set_ylim((ymax, ymin))
 
-    axis.set_xlabel(x_label)
-    axis.set_ylabel(y_label)
+    axis.set_xlabel(x_label, fontsize="large")
+    axis.set_ylabel(y_label, fontsize="large")
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
 
     axis.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
     axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
@@ -2205,7 +2213,8 @@ def plot_radius_comp(
         zorder=0,)
 
     cb = plt.colorbar(sc, ax=axis)
-    cb.set_label(r"$K_S$")
+    cb.set_label(r"$K_S$", fontsize="x-large")
+    cb.ax.tick_params(labelsize="x-large")
 
     # Plot 1:1 line
     axis.plot(
@@ -2215,8 +2224,13 @@ def plot_radius_comp(
         color="black",
         zorder=0,)
 
-    axis.set_ylabel(r"Radius ($R_\odot$, fit)")
-    res_ax.set_xlabel(r"Radius ($R_\odot$, {})".format(label))
+    axis.set_ylabel(r"Radius ($R_\odot$, fit)", fontsize="x-large")
+    res_ax.set_ylabel(r"resid", fontsize="x-large")
+    res_ax.set_xlabel(r"Radius ($R_\odot$, {})".format(label), 
+        fontsize="x-large")
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
+    res_ax.tick_params(axis='both', which='major', labelsize="large")
 
     axis.set_xlim(lims)
     axis.set_ylim(lims)
@@ -2230,8 +2244,8 @@ def plot_radius_comp(
 
     res_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
     res_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
-    res_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.025))
-    res_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
+    res_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.02))
+    res_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.04))
 
     plt.tight_layout()
 
@@ -2585,14 +2599,16 @@ def plot_planet_radii_hist(lc_results, bin_width=0.4, min_rp=0.4,
                 capsize=1,)
 
         axis.set_xlim(bins[0], x_lims[1])
-        axis.set_ylabel("# Planets")
+        axis.set_ylabel("# Planets", fontsize="large")
 
     axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
     axis.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
     axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=1))
     axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
 
-    axis.set_xlabel(r"Planet radius ($R_{\oplus}$)")
+    axis.set_xlabel(r"Planet radius ($R_{\oplus}$)", fontsize="large")
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
 
     plt.gcf().set_size_inches(6, 4)
     plt.tight_layout()
@@ -2927,7 +2943,8 @@ def plot_lightcurve_fit(
     ax_lc_folded_transit.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
 
     # Setup legend
-    leg_lc_folded_transit = ax_lc_folded_transit.legend(loc="lower left")
+    leg_lc_folded_transit = ax_lc_folded_transit.legend(
+        loc="lower left", fontsize="large")
 
     # Update width of legend objects
     for legobj in leg_lc_folded_transit.legendHandles:
@@ -2987,13 +3004,19 @@ def plot_lightcurve_fit(
         colors="black",
         linestyles="dashed",
         zorder=0,)
-    res_ax.set_ylabel("residuals")
-    res_ax.set_xlabel("Phase")
+    ax_lc_folded_transit.set_ylabel("Normalised\nFlux", fontsize="large")
+    res_ax.set_ylabel("residuals", fontsize="large")
+    res_ax.set_xlabel("Phase", fontsize="large")
 
     plt.setp(ax_lc_folded_transit.get_xticklabels(), visible=False)
     res_ax.set_xlim((-2*trans_dur/period, 2*trans_dur/period))
     resid_std = np.nanstd(resid)
     res_ax.set_ylim(-4*resid_std, 4*resid_std)
+
+    # Tick size
+    ax_lc_folded_transit.tick_params(
+        axis='both', which='major', labelsize="large")
+    res_ax.tick_params(axis='both', which='major', labelsize="large")
 
     # Do remaining plot setup depending on whether diagnostic or paper
     if not plot_in_paper_figure_format:
@@ -3335,12 +3358,14 @@ def plot_rv_comparison():
         "data/tess_info.tsv",
         in_paper=True,
         only_observed=True,
-        use_mann_code_for_masses=False)
+        use_mann_code_for_masses=False,
+        do_extinction_correction=False,)
     std_info = utils.load_info_cat(
         "data/std_info.tsv",
         in_paper=True,
         only_observed=True,
-        use_mann_code_for_masses=False)
+        use_mann_code_for_masses=False,
+        do_extinction_correction=False,)
 
     # Import observed/fitted parameters tables
     _, _, obs_tess = utils.load_fits("tess", path="spectra")
@@ -3434,11 +3459,14 @@ def plot_rv_comparison():
         ecolor="black",
         alpha=0.9,)
 
-    axis.legend()
+    axis.legend(fontsize="large")
     #axis.set_aspect(1./axis.get_data_ratio())
-    res_ax.set_xlabel(r"RV, Gaia DR2 (km$\,$s$^{-1}$)")
-    res_ax.set_ylabel(r"Residuals")
-    axis.set_ylabel(r"RV, WiFeS (km$\,$s$^{-1}$)")
+    res_ax.set_xlabel(r"RV, Gaia DR2 (km$\,$s$^{-1}$)", fontsize="large")
+    res_ax.set_ylabel(r"Residuals", fontsize="large")
+    axis.set_ylabel(r"RV, WiFeS (km$\,$s$^{-1}$)", fontsize="large")
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
+    res_ax.tick_params(axis='both', which='major', labelsize="large")
 
     plt.gcf().set_size_inches(6, 6)
     fig.tight_layout()

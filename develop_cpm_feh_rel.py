@@ -387,10 +387,10 @@ cpm_ax.errorbar(
     zorder=1,)
 
 cb = fig.colorbar(sc, ax=cpm_ax)
-cb.set_label(r"[Fe/H]")
+cb.set_label(r"[Fe/H]", fontsize="large")
 #cpm_ax.set_title("CPM Sample")
-cpm_ax.set_xlabel(r"$({})$".format(c_label))
-cpm_ax.set_ylabel(r"$M_{K_S}$")
+cpm_ax.set_xlabel(r"$({})$".format(c_label), fontsize="large")
+cpm_ax.set_ylabel(r"$M_{K_S}$", fontsize="large")
 
 cpm_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=1))
 cpm_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
@@ -476,8 +476,8 @@ offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="Fit (uncorrected)")
 offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", 
     label="Fit (adopted)")
 cb = fig.colorbar(sc, ax=offset_fit_ax)
-cb.set_label(r"$(B_P-R_P)$")
-offset_fit_ax.set_ylabel("[Fe/H]")
+cb.set_label(r"$(B_P-R_P)$", fontsize="large")
+offset_fit_ax.set_ylabel("[Fe/H] (Primary)", fontsize="large")
 offset_fit_ax.legend(fontsize="x-small")
 
 offset_fit_ax.set_ylim([-1.5,0.75])
@@ -510,16 +510,17 @@ cpm_feh_ax.errorbar(
 xx = np.arange(-1.5,0.5,0.01)
 cpm_feh_ax.plot(xx,xx,"k--")
 cb = fig.colorbar(sc, ax=cpm_feh_ax)
-cb.set_label(r"$(B_P-R_P)$")
+cb.set_label(r"$(B_P-R_P)$", fontsize="large")
 #cpm_feh_ax.set_xlabel("[Fe/H] (CPM)")
-cpm_feh_ax.set_ylabel("[Fe/H] (fit)")
+cpm_feh_ax.set_ylabel("[Fe/H] (fit)", fontsize="large")
 
 cpm_feh_ax.text(
     x=-0.6, 
     y=0.9, 
-    s=r"$\Delta[Fe/H]={:0.2f}\pm {:0.2f}$".format(feh_offset_cpm_mean, feh_offset_cpm_std),
+    s=r"$\Delta[Fe/H]={:0.2f}\pm {:0.2f}$".format(
+        feh_offset_cpm_mean, feh_offset_cpm_std),
     horizontalalignment="center",
-    fontsize="small")
+    fontsize="large")
 
 # Residuals
 divider = make_axes_locatable(cpm_feh_ax)
@@ -549,8 +550,8 @@ if plot_resid_trend:
 cpm_resid_ax.hlines(0, -1.5, 0.5, colors="k", linestyles="--")
 #cb = fig.colorbar(sc, ax=cpm_resid_ax)
 #cb.set_label(r"$(B_P-R_P)$")
-cpm_resid_ax.set_xlabel("[Fe/H] (Primary)")
-cpm_resid_ax.set_ylabel("[Fe/H] Resid")
+cpm_resid_ax.set_xlabel("[Fe/H] (Primary)", fontsize="large")
+cpm_resid_ax.set_ylabel("[Fe/H] Resid", fontsize="large")
 
 cpm_feh_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
 cpm_feh_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))

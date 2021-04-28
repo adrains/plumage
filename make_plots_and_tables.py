@@ -73,13 +73,13 @@ pplt.plot_all_synthetic_fits(
 # Paper Plots
 # -----------------------------------------------------------------------------
 # TESS CMD
-pplt.plot_cmd(tic_info)
+pplt.plot_cmd(tic_info, std_info[~np.isnan(std_info["mass_m19"])])
 
 # Fluxes
-pplt.plot_fbol_comp(observations, tic_info, ncols=9)
+#pplt.plot_fbol_comp(observations, tic_info, ncols=9)
 
 # Radii comparison
-pplt.plot_radius_comp(observations, tic_info)
+pplt.plot_radius_comp(obs_std, std_info)
 
 # HR Diagram
 pplt.plot_hr_diagram(observations, tic_info,)
@@ -91,7 +91,7 @@ pplt.plot_std_comp(
     obs_std,
     std_info,
     show_offset=True,
-    fn_suffix="_2_param"
+    fn_suffix="_2_param",
     teff_syst=teff_syst,
     undo_teff_syst=True,)
 
