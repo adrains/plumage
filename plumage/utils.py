@@ -790,6 +790,11 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
         "bad_px":("BAD_PX_MASK_", bool),
         "synth":("SYNTH_FIT_", float),
         "synth_lit":("SYNTH_LIT_", float),
+        "rest_frame_wave":("REST_FRAME_WAVE_", float),
+        "rest_frame_spec":("REST_FRAME_SPEC_", float),
+        "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
+        "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
+        "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
     }
 
     if extension not in valid_ext.keys():
@@ -855,6 +860,11 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
         "bad_px":("BAD_PX_MASK_", int),
         "synth":("SYNTH_FIT_", float),
         "synth_lit":("SYNTH_LIT_", float),
+        "rest_frame_wave":("REST_FRAME_WAVE_", float),
+        "rest_frame_spec":("REST_FRAME_SPEC_", float),
+        "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
+        "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
+        "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
     }
 
     if extension not in valid_ext.keys():
@@ -1052,9 +1062,33 @@ def load_info_cat(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Absolute magnitudes, and colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Absolute mags for Gaia and 2MASS photometry
     info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
-    info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_G_mag_abs"] = np.sqrt(
+        info_cat["e_G_mag"]**2
+        + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
 
+    info_cat["Bp_mag_abs"] = info_cat["Bp_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_Bp_mag_abs"] = np.sqrt(
+        info_cat["e_Bp_mag"]**2
+        + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
+
+    info_cat["Rp_mag_abs"] = info_cat["Rp_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_Rp_mag_abs"] = np.sqrt(
+        info_cat["e_Rp_mag"]**2
+        + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
+
+    info_cat["J_mag_abs"] = info_cat["J_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_J_mag_abs"] = np.sqrt(
+        info_cat["e_J_mag"]**2
+        + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
+
+    info_cat["H_mag_abs"] = info_cat["H_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_H_mag_abs"] = np.sqrt(
+        info_cat["e_H_mag"]**2
+        + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
+    
+    info_cat["K_mag_abs"] = info_cat["K_mag"] - 5*np.log10(info_cat["dist"]/10)
     info_cat["e_K_mag_abs"] = np.sqrt(
         info_cat["e_K_mag"]**2
         + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)

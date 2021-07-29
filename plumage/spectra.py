@@ -829,33 +829,52 @@ def make_wl_scale(wl_min, wl_max, n_px):
     return wl_scale
 
 
-def prepare_spectra(spec_b, spec_r, use_both_arms, remove_blue_overlap=False):
+def prepare_spectra(
+    wl_b,
+    spec_b,
+    e_spec_b,
+    wl_r,
+    spec_r,
+    e_spec_r,
+    use_both_arms,
+    remove_blue_overlap=False):
     """
     """
-    # Mask wavelengths
-    wl_mask = make_wavelength_mask(spec_b[0,0], mask_blue_edges=True,
-                                   mask_emission=True, mask_sky_emission=True)
+    # Mask blue wavelengths
+    wl_mask_b = make_wavelength_mask(
+        wl_b,
+        mask_blue_edges=True,
+        mask_emission=True,
+        mask_sky_emission=True)
 
     if remove_blue_overlap:
-        wl_mask = np.logical_and(wl_mask, spec_b[0,0] < 5400)
+        wl_mask_b = np.logical_and(wl_mask_b, wl_b < 5400)
     
-    spec_b_m = spec_b[:, :, wl_mask]
+    wl_b_m = wl_b[wl_mask_b]
+    spec_b_m = spec_b[:, wl_mask_b]
+    e_spec_b_m = e_spec_b[:, wl_mask_b]
 
-    wl_mask = make_wavelength_mask(spec_r[0,0], mask_emission=True, mask_sky_emission=True)
-    spec_r_m = spec_r[:, :, wl_mask]
+    # Mask red wavelengths
+    wl_mask_r = make_wavelength_mask(
+        wl_r,
+        mask_emission=True,
+        mask_sky_emission=True)
+    
+    wl_r_m = wl_r[wl_mask_r]
+    spec_r_m = spec_r[:, wl_mask_r]
+    e_spec_r_m = e_spec_r[:, wl_mask_r]
     
     # Separate out the spectra
     if use_both_arms:
-        wls = np.concatenate((spec_b_m[0,0,:], spec_r_m[0,0,:]))
+        wls = np.concatenate((wl_b_m, wl_r_m))
 
-        training_set_flux = np.concatenate((spec_b_m[:,1,:], spec_r_m[:,1,:]), 
-                                        axis=1)
-        training_set_ivar = np.concatenate((1/spec_b_m[:,2,:]**2, 
-                                        1/spec_r_m[:,2,:]**2), axis=1)
+        training_set_flux = np.concatenate((spec_b_m, spec_r_m), axis=1)
+        training_set_ivar = np.concatenate(
+            (1/e_spec_b_m**2, 1/e_spec_r_m**2), axis=1)
     else:
-        wls = spec_r_m[0,0,:]
-        training_set_flux = spec_r_m[:,1,:]
-        training_set_ivar = 1/spec_r_m[:,2,:]**2
+        wls = wl_r_m
+        training_set_flux = spec_r_m
+        training_set_ivar = 1/spec_r_m**2
     #training_set_ivar = 1e5 * np.ones_like(std_spectra_r[:,2,:]) # TEMPORARY
 
     # If flux is nan, set to 1 and give high variance (inverse variance of 0)
