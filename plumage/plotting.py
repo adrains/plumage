@@ -2381,11 +2381,39 @@ def plot_representative_spectral_model_limitations(
     wl_bts, spec_bts = spec.merge_wifes_arms(
         wl_bts_b, spec_bts_b, wl_bts_r, spec_bts_r)
 
-    # Plot
+    def setup_plot(plot_index=""):
+        """Initialises legend and saves plot
+        """
+        leg = plt.legend(loc="upper center", ncol=8)
+
+        # Update width of legend objects
+        for legobj in leg.legendHandles:
+            legobj.set_linewidth(1.5)
+
+        plt.savefig("paper/model_spectra_limitations{}{}.pdf".format(
+            plot_suffix, plot_index))
+        plt.savefig("paper/model_spectra_limitations{}{}.png".format(
+            plot_suffix, plot_index), dpi=500,)
+
+
+    # Plot observed data
     plt.close("all")
     plt.plot(wl_br, spec_br, linewidth=lw, label="Observed", alpha=0.7, zorder=2)
+
+    # Setup plot and save for each new addition
+    plt.xlabel(r"Wavelength ($\mathrm{\AA}$)")
+    plt.ylabel(r"$f_\lambda$ (Normalised)")
+    plt.xlim(3200, 7000)
+    plt.ylim(-0.1, 2.6)
+    plt.gcf().set_size_inches(plot_size[0], plot_size[1])
+    plt.tight_layout()
+    setup_plot(plot_index="_0")
+
     plt.plot(wl_br, spec_lit, "--", linewidth=lw,  label="MARCS", alpha=0.7, zorder=1)
+    setup_plot(plot_index="_1")
+
     plt.plot(wl_bts, spec_bts, ":", linewidth=lw, label="BT-Settl", alpha=0.7, zorder=0)
+    setup_plot(plot_index="_2")
 
     # Filter profiles
     filters = ["v", "g", "r", "BP", "RP"]
@@ -2395,21 +2423,8 @@ def plot_representative_spectral_model_limitations(
         wl_f, fp = synth.load_filter_profile(filt, 3000, 7000, do_zero_pad=True)
         plt.plot(wl_f, fp*2, linewidth=1.0, label=r"${}$".format(lbl), zorder=3)
 
-    plt.xlabel(r"Wavelength ($\mathrm{\AA}$)")
-    plt.ylabel(r"$f_\lambda$ (Normalised)")
-    plt.xlim(3200, 7000)
-    leg = plt.legend(loc="upper center", ncol=8)
-
-    # Update width of legend objects
-    for legobj in leg.legendHandles:
-        legobj.set_linewidth(1.5)
-
-    plt.gcf().set_size_inches(plot_size[0], plot_size[1])
-    plt.tight_layout()
-    plt.savefig("paper/model_spectra_limitations{}.pdf".format(plot_suffix))
-    plt.savefig(
-        "paper/model_spectra_limitations{}.png".format(plot_suffix),
-        dpi=500,)
+    setup_plot(plot_index="")
+    
 
 
 def plot_label_comparison(

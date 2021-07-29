@@ -5,6 +5,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 
+# Boolean to plot fit or not
+do_plot_fit = False
+
 # Load in magnitude offsets
 mag_offsets = pd.read_csv("data/mag_offset_results.csv", index_col="Bp-Rp")
 
@@ -32,7 +35,7 @@ def fit_linear_offset_model(bp_rp, bp_rp_offset):
 
     return opt_res
 
-def plot_fit(params, bp_rp, bp_rp_offset, filter, fmt_1, fmt_2):
+def plot_fit(params, bp_rp, bp_rp_offset, filter, fmt_1, fmt_2, do_plot_fit):
     """
     """
     offset_label = "$\Delta {}$ integrated".format(filter)
@@ -46,7 +49,8 @@ def plot_fit(params, bp_rp, bp_rp_offset, filter, fmt_1, fmt_2):
     fit_label = r"$\Delta {} = {:0.3f} (B_P-R_P) {:0.3f}, [\sigma \Delta {} = {:0.2f}]$".format(
         filter, params[0], params[1], filter, std)
 
-    plt.plot(bp_rp, fit, fmt_2, label=fit_label, zorder=1)
+    if do_plot_fit:
+        plt.plot(bp_rp, fit, fmt_2, label=fit_label, zorder=1)
 
 bp_rp = mag_offsets.index
 
@@ -56,9 +60,9 @@ opt_res_g = fit_linear_offset_model(bp_rp, mag_offsets["g"])
 #opt_res_v = fit_linear_offset_model(bp_rp, mag_offsets["v"])
 
 plt.close("all")
-plot_fit(opt_res_r["x"], bp_rp, mag_offsets["r"], "r", "x", "k--")
-plot_fit(opt_res_bp["x"], bp_rp, mag_offsets["BP"], "B_P", ".", "k--")
-plot_fit(opt_res_g["x"], bp_rp, mag_offsets["g"], "g", "+", "k--")
+plot_fit(opt_res_r["x"], bp_rp, mag_offsets["r"], "r", "x", "k--", do_plot_fit)
+plot_fit(opt_res_bp["x"], bp_rp, mag_offsets["BP"], "B_P", ".", "k--", do_plot_fit)
+plot_fit(opt_res_g["x"], bp_rp, mag_offsets["g"], "g", "+", "k--", do_plot_fit)
 #plot_fit(opt_res_v["x"], bp_rp, mag_offsets["v"], "v")
 
 plt.xticks(fontsize="large")
@@ -70,6 +74,11 @@ plt.xlabel(r"$B_P-R_P$", fontsize="x-large",)
 plt.ylabel(r"$\Delta$m$_\zeta$", fontsize="x-large",)
 plt.tight_layout()
 
-plt.savefig("paper/mag_offsets.pdf", bbox_innches="tight")
-plt.savefig("paper/mag_offsets.png", bbox_innches="tight", dpi=500)
+if do_plot_fit:
+    suffix = ""
+else:
+    suffix = "_0"
+
+plt.savefig("paper/mag_offsets{}.pdf".format(suffix), bbox_innches="tight")
+plt.savefig("paper/mag_offsets{}.png".format(suffix), bbox_innches="tight", dpi=500)
 
