@@ -802,8 +802,8 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
             valid_ext.keys()))
 
     # Ensure correct value of arm is passed
-    arm = arm.capitalize()
-    valid_arms = ("B", "R")
+    arm = arm.upper()
+    valid_arms = ("B", "R", "BR")
     
     if arm not in valid_arms:
         raise ValueError("Arm must be in {}".format())
@@ -872,8 +872,8 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
             valid_ext.keys()))
 
     # Ensure correct value of arm is passed
-    arm = arm.capitalize()
-    valid_arms = ("B", "R")
+    arm = arm.upper()
+    valid_arms = ("B", "R", "BR")
     
     if arm not in valid_arms:
         raise ValueError("Arm must be in {}".format())

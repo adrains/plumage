@@ -285,109 +285,6 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
     return observations, spectra_b, spectra_r
 
 
-def save_pkl_spectra(observations, spectra_b, spectra_r, label="", 
-                     rv_corr=False):
-    """Save the imported spectra and observation info into respective pickle
-    files in spectra/.
-
-    Parameters
-    ----------
-    observations: pandas dataframe
-        Dataframe containing information about each observation.
-
-    spectra_b: float array
-        3D numpy array containing blue arm spectra of form 
-        [N_ob, wl/spec/sigma, flux].
-
-    spectra_r: float array
-        3D numpy array containing red arm spectra of form 
-        [N_ob, wl/spec/sigma, flux].
-
-    label: string
-        Unique component of the pickle filename.
-
-    rv_corr: boolean
-        Boolean flag for whether spectra have been RV corrected
-    """
-    # Distinguish whether these spectra are post normalisation and RV corr
-    if rv_corr:
-        ext = "_rv_corr"
-    else:
-        ext = ""
-
-    # Save observation log
-    ob_out = os.path.join("spectra", "saved_observations_%s%s.pkl" 
-                          % (label, ext))
-    pkl_obs = open(ob_out, "wb")
-    pickle.dump(observations, pkl_obs)
-    pkl_obs.close()
-
-    # Save blue arm spectra
-    sb_out = os.path.join("spectra", "saved_spectra_b_%s%s.pkl" % (label, ext))
-    pkl_sb = open(sb_out, "wb")
-    pickle.dump(spectra_b, pkl_sb)
-    pkl_sb.close()
-
-    # Save red arm 
-    sr_out = os.path.join("spectra", "saved_spectra_r_%s%s.pkl" % (label, ext))
-    pkl_sr = open(sr_out, "wb")
-    pickle.dump(spectra_r, pkl_sr)
-    pkl_sr.close()
-
-
-def load_pkl_spectra(label, rv_corr=False):
-    """Load the save spectra and observations from pickle files stored in
-    spectra/.
-
-    Parameters
-    ----------
-    label: string
-        Unique component of the pickle filename.
-
-    rv_corr: boolean
-        Boolean flag for whether spectra have been RV corrected.
-
-    Returns
-    -------
-    observations: pandas dataframe
-        Dataframe containing information about each observation.
-
-    spectra_b: float array
-        3D numpy array containing blue arm spectra of form 
-        [N_ob, wl/spec/sigma, value].
-
-    spectra_r: float array
-        3D numpy array containing red arm spectra of form 
-        [N_ob, wl/spec/sigma, value].
-    """
-    # Distinguish whether these spectra are post normalisation and RV corr
-    if rv_corr:
-        ext = "_rv_corr"
-    else:
-        ext = ""
-
-    # Load observation log
-    ob_out = os.path.join("spectra", "saved_observations_%s%s.pkl" 
-                          % (label, ext))
-    pkl_obs = open(ob_out, "rb")
-    observations = pickle.load(pkl_obs)
-    pkl_obs.close()
-
-    # Load blue arm spectra
-    sb_out = os.path.join("spectra", "saved_spectra_b_%s%s.pkl" % (label, ext))
-    pkl_sb = open(sb_out, "rb")
-    spectra_b = pickle.load(pkl_sb)
-    pkl_sb.close()
-
-    # Load red arm spectra
-    sr_out = os.path.join("spectra", "saved_spectra_r_%s%s.pkl" % (label, ext))
-    pkl_sr = open(sr_out, "rb")
-    spectra_r = pickle.load(pkl_sr)
-    pkl_sr.close()
-
-    return observations, spectra_b, spectra_r
-
-
 # -----------------------------------------------------------------------------
 # Processing spectra
 # -----------------------------------------------------------------------------
@@ -472,7 +369,7 @@ def clean_spectra(spectra):
 
 
 def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False, 
-                       plot_norm=False, mask=None,):
+                       plot_norm=False, mask=None, poly_order=2):
     """Normalise a single spectrum by a 2nd order polynomial in log space. 
     Automatically detects which WiFeS arm and grating is being used and masks 
     out regions accordingly. Currently only implemented for B3000 and R7000.
@@ -535,8 +432,8 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
     # Normalise wavelength scale (pivot about 0)
     wl_norm = (1/wl - 1/lambda_0)*(wl[0]-lambda_0)
 
-    # Fit 2nd order polynomial to get coefficients
-    poly = Polynomial.fit(wl_norm[mask], spectrum_fit[mask], 2)
+    # Fit polynomial to get coefficients
+    poly = Polynomial.fit(wl_norm[mask], spectrum_fit[mask], poly_order)
 
     # Calculate the normalising function and normalise
     norm = poly(wl_norm)
@@ -573,35 +470,53 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
         return spectrum_norm.astype(float)
 
 
-def normalise_spectra(spectra, normalise_uncertainties=False):
+def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2):
     """Normalises all spectra
 
     Parameters
     ----------
+    wl: TODO
+
     spectra: float array
         3D numpy array containing red arm spectra of form 
         [N_ob, wl/spec/sigma, value].
 
+    e_spectra: TODO
+
     normalise_uncertainties: boolean
         Whether to normalise uncertainties (use False if no uncertainties).
     """
+    # Initialise
     spectra_norm = spectra.copy()
 
+    if e_spectra is not None:
+        e_spectra_norm = e_spectra.copy()
+
     for spec_i in tqdm(range(len(spectra_norm)), desc="Normalising spectra"):
-        if normalise_uncertainties:
-            spec_norm, e_spec_norm = normalise_spectrum(spectra[spec_i][0,:],
-                                       spectra[spec_i][1,:],
-                                       spectra[spec_i][2,:]) 
+        # If uncertainties are provided
+        if e_spectra is not None:
+            spec_norm, e_spec_norm = normalise_spectrum(
+                wl,
+                spectra[spec_i],
+                e_spectra[spec_i],
+                poly_order=poly_order,)
 
-            spectra_norm[spec_i][1,:] = spec_norm
-            spectra_norm[spec_i][2,:] = e_spec_norm
+            spectra_norm[spec_i] = spec_norm
+            e_spectra_norm[spec_i] = e_spec_norm
 
+        # No uncertainties provided (e.g. for template spectra)
         else:
-            spec_norm = normalise_spectrum(spectra[spec_i][0,:],
-                                       spectra[spec_i][1,:])
-            spectra_norm[spec_i][1,:] = spec_norm
-    
-    return spectra_norm
+            spec_norm = normalise_spectrum(
+                wl,
+                spectra[spec_i],
+                poly_order=poly_order,)
+
+            spectra_norm[spec_i] = spec_norm
+
+    if e_spectra is not None:
+        return spectra_norm, e_spectra_norm
+    else:
+        return spectra_norm
 
 
 def norm_spec_by_wl_region(wave, spectrum, arm, e_spec=None):
@@ -643,7 +558,7 @@ def merge_wifes_arms(wl_b, spec_b, wl_r, spec_r):
 
     # Normalise blue by overlap
     norm_mask_b = np.logical_and(wl_b > 5400, wl_b < 5445)
-    norm_spec_b = spec_b / np.nanmean(spec_b[norm_mask_b]) * norm_fac_overlap
+    norm_spec_b = spec_b / np.nanmean(spec_b[norm_mask_b]) / norm_fac_overlap
 
     # Now get rid of overlap region
     overlap_mask = wl_b < 5400
@@ -655,6 +570,46 @@ def merge_wifes_arms(wl_b, spec_b, wl_r, spec_r):
     spec_br = np.concatenate((norm_spec_b, norm_spec_r))
 
     return wl_br, spec_br
+
+
+def merge_wifes_arms_all(
+    wl_b,
+    spec_b,
+    e_spec_b,
+    wl_r,
+    spec_r,
+    e_spec_r,):
+    """Merge WiFeS arms with proper normalisation, then remove overlap region.
+    """
+    # Normalise red
+    med_mask = wl_r > 6200
+    med_1d_r = np.nanmedian(spec_r[:,med_mask], axis=1)
+    med_2d_r = np.repeat(med_1d_r, len(wl_r)).reshape(spec_r.shape)
+    norm_spec_r = spec_r / med_2d_r
+    e_norm_spec_r = e_spec_r / med_2d_r
+
+    # Get a normalisation factor from the overlap region
+    norm_fac_overlap = np.nanmean(norm_spec_r[:, wl_r < 5445], axis=1)
+
+    # Normalise blue by overlap
+    norm_mask_b = np.logical_and(wl_b > 5400, wl_b < 5445)
+    med_1d_b = np.nanmean(spec_b[:, norm_mask_b], axis=1) / norm_fac_overlap
+    med_2d_b = np.repeat(med_1d_b, len(wl_b)).reshape(spec_b.shape)
+    norm_spec_b = spec_b / med_2d_b
+    e_norm_spec_b = e_spec_b / med_2d_b
+
+    # Now get rid of overlap region
+    overlap_mask = wl_b < 5400
+    wl_b = wl_b[overlap_mask]
+    norm_spec_b = norm_spec_b[:,overlap_mask]
+    e_norm_spec_b = e_norm_spec_b[:,overlap_mask]
+
+    # Combine
+    wl_br = np.concatenate((wl_b, wl_r))
+    spec_br = np.hstack((norm_spec_b, norm_spec_r))
+    e_spec_br = np.hstack((e_norm_spec_b, e_norm_spec_r))
+
+    return wl_br, spec_br, e_spec_br
 
 
 def make_wavelength_mask(wave_array, mask_emission=True, 
@@ -829,54 +784,30 @@ def make_wl_scale(wl_min, wl_max, n_px):
     return wl_scale
 
 
-def prepare_spectra(
-    wl_b,
-    spec_b,
-    e_spec_b,
-    wl_r,
-    spec_r,
-    e_spec_r,
-    use_both_arms,
-    remove_blue_overlap=False):
+def prepare_cannon_spectra(
+    wl_br,
+    spec_br,
+    e_spec_br,
+    wl_min=0):
+    """Prepare spectra for use in Cannon model. Assume that we are receiving 
+    previously combined blue and red arms.
+
+    TODO: move this function
     """
-    """
-    # Mask blue wavelengths
-    wl_mask_b = make_wavelength_mask(
-        wl_b,
-        mask_blue_edges=True,
+    # Mask emission regions
+    wl_mask = make_wavelength_mask(
+        wl_br,
         mask_emission=True,
-        mask_sky_emission=True)
+        mask_sky_emission=False,
+        mask_edges=True,)
 
-    if remove_blue_overlap:
-        wl_mask_b = np.logical_and(wl_mask_b, wl_b < 5400)
+    # Enforce minimum wavelength
+    wl_mask = np.logical_and(wl_mask, wl_br > wl_min)
     
-    wl_b_m = wl_b[wl_mask_b]
-    spec_b_m = spec_b[:, wl_mask_b]
-    e_spec_b_m = e_spec_b[:, wl_mask_b]
-
-    # Mask red wavelengths
-    wl_mask_r = make_wavelength_mask(
-        wl_r,
-        mask_emission=True,
-        mask_sky_emission=True)
+    wls = wl_br[wl_mask]
+    training_set_flux = spec_br[:, wl_mask]
+    training_set_ivar = 1/e_spec_br[:, wl_mask]**2
     
-    wl_r_m = wl_r[wl_mask_r]
-    spec_r_m = spec_r[:, wl_mask_r]
-    e_spec_r_m = e_spec_r[:, wl_mask_r]
-    
-    # Separate out the spectra
-    if use_both_arms:
-        wls = np.concatenate((wl_b_m, wl_r_m))
-
-        training_set_flux = np.concatenate((spec_b_m, spec_r_m), axis=1)
-        training_set_ivar = np.concatenate(
-            (1/e_spec_b_m**2, 1/e_spec_r_m**2), axis=1)
-    else:
-        wls = wl_r_m
-        training_set_flux = spec_r_m
-        training_set_ivar = 1/spec_r_m**2
-    #training_set_ivar = 1e5 * np.ones_like(std_spectra_r[:,2,:]) # TEMPORARY
-
     # If flux is nan, set to 1 and give high variance (inverse variance of 0)
     training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
     training_set_flux[~np.isfinite(training_set_flux)] = 1
@@ -1067,8 +998,18 @@ def calc_rv_shift(ref_wl, ref_spec, sci_wl, sci_spec, e_sci_spec, bad_px_mask,
     return float(rv_fit), float(e_rv), rchi2, infodict
 
 
-def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
-                      print_diagnostics=False, n_std=3, mask_blue_edges=True):
+def do_template_match(
+    sci_wave,
+    sci_spec,
+    e_sci_spec,
+    bcor,
+    ref_params,
+    ref_wave,
+    ref_spectra,
+    arm,
+    print_diagnostics=False,
+    n_std=3,
+    mask_blue_edges=True):
     """Find the best fitting template to determine the RV and temperature of
     the star.
 
@@ -1130,15 +1071,15 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
             mask_blue_edges = False
 
         bad_px_mask = ~make_wavelength_mask(
-            sci_spectra[0],
+            sci_wave,
             mask_emission=False,
             mask_blue_edges=mask_blue_edges)
 
         # Now that we have our initial mask, OR this with the array of any nan
         # fluxes or uncertainties
         nan_px_mask = np.logical_or(
-            ~np.isfinite(sci_spectra[1]), 
-            ~np.isfinite(sci_spectra[2]))
+            ~np.isfinite(sci_spec), 
+            ~np.isfinite(e_sci_spec))
 
         bad_px_mask = np.logical_or(bad_px_mask, nan_px_mask)
         
@@ -1148,11 +1089,11 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
 
         # Do first fit without any masking beyond tellurics
         rv, e_rv, rchi2, infodict = calc_rv_shift(
-            ref_spec[0,:], 
-            ref_spec[1,:], 
-            sci_spectra[0,:], 
-            sci_spectra[1,:], 
-            sci_spectra[2,:],
+            ref_wave,
+            ref_spec,
+            sci_wave,
+            sci_spec,
+            e_sci_spec,
             bad_px_mask,
             bcor)
 
@@ -1162,7 +1103,7 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
         # TODO: rearrange functions so we don't have circular import
         import plumage.synthetic as synth
         bad_synth_px_mask = synth.make_synth_mask_for_bad_wl_regions(
-            sci_spectra[0], rv, bcor, params[0])
+            sci_wave, rv, bcor, params[0])
 
         temp_bad_px_mask = np.logical_or(bad_px_mask, bad_synth_px_mask)
 
@@ -1175,11 +1116,11 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
 
         # Do second fit, now with masking
         rv, e_rv, rchi2, infodict = calc_rv_shift(
-            ref_spec[0,:], 
-            ref_spec[1,:], 
-            sci_spectra[0,:], 
-            sci_spectra[1,:], 
-            sci_spectra[2,:],
+            ref_wave,
+            ref_spec,
+            sci_wave,
+            sci_spec,
+            e_sci_spec,
             bad_px_mask,
             bcor)
 
@@ -1208,8 +1149,17 @@ def do_template_match(sci_spectra, bcor, ref_params, ref_spectra, arm,
     return rv, e_rv, rchi2, nres, params, rchi2_grid, info_dict
 
 
-def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
-                            arm, print_diagnostics=False, save_column_ext=""):
+def do_all_template_matches(
+    sci_wave,
+    sci_spectra,
+    e_sci_spectra,
+    observations,
+    ref_params,
+    ref_wave,
+    ref_spectra,
+    arm,
+    print_diagnostics=False,
+    save_column_ext=""):
     """Do template fitting on all stars for radial velocity and temperature, 
     and save the results to observations.
 
@@ -1218,6 +1168,10 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     sci_spectra: float array
         3D numpy array containing spectra of form [N_ob, wl/spec/sigma, flux].
     
+    TODO
+
+    TODO
+
     observations: pandas dataframe
         Dataframe containing information about each observation.
 
@@ -1227,6 +1181,10 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     ref_spectra: float array
         Array of imported template spectra of form [star, wl/spec, flux]
     
+    TODO
+
+    TODO
+
     arm: string
         Which WiFeS arm we're using (either b or r).
 
@@ -1255,7 +1213,7 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     desc = "Fitting RVs to {} arm".format(arm)
 
     # For every star, do template fitting
-    for star_i, sci_spec in enumerate(tqdm(sci_spectra, desc=desc)):
+    for star_i in tqdm(range(len(sci_spectra)), desc=desc):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
                  % (star_i+1, len(sci_spectra), 
@@ -1263,10 +1221,13 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
 
         bcor = observations.iloc[star_i]["bcor"]
         rv, e_rv, rchi2, nres, params, rchi2_grid, idict = do_template_match(
-            sci_spec, 
-            bcor, 
-            ref_params, 
-            ref_spectra, 
+            sci_wave,
+            sci_spectra[star_i],
+            e_sci_spectra[star_i],
+            bcor,
+            ref_params,
+            ref_wave,
+            ref_spectra,
             arm,
             print_diagnostics)
         
@@ -1300,7 +1261,13 @@ def do_all_template_matches(sci_spectra, observations, ref_params, ref_spectra,
     return all_nres, all_rchi2_grid, bad_px_masks, info_dicts
 
 
-def correct_rv(sci_spectra, bcor, rv, wl_new):
+def correct_rv(
+    wl_old,
+    spectrum,
+    e_spectrum,
+    bcor,
+    rv,
+    wl_new):
     """Interpolate science spectrum onto new wavelength scale in the rest
     frame. This uses the opposite sign convention of calc_rv_shift_residual.
 
@@ -1309,6 +1276,8 @@ def correct_rv(sci_spectra, bcor, rv, wl_new):
     sci_spectra: float array
         2D numpy array containing spectra of form [wl/spec/sigma, flux].
     
+    TODO
+
     bcor: float
         Barycentric velocity in km/s
 
@@ -1325,30 +1294,39 @@ def correct_rv(sci_spectra, bcor, rv, wl_new):
         in the rest frame
     """
     # Setup the interpolation
-    calc_spec = interp1d(sci_spectra[0,:], sci_spectra[1,:], kind="linear",
+    calc_spec = interp1d(wl_old, spectrum, kind="linear",
                          bounds_error=False, assume_sorted=True)
     
-    calc_sigma = interp1d(sci_spectra[0,:], sci_spectra[2,:], kind="linear",
+    calc_sigma = interp1d(wl_old, e_spectrum, kind="linear",
                          bounds_error=False, assume_sorted=True)
 
     # We're *undoing* the shift imparted by barycentric motion and radial
     # velocity, so this relation will have an opposite sign to the one in
     # calc_rv_shift_residual.
-    rest_frame_spec = calc_spec(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
-    rest_frame_sigma = calc_sigma(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
+    spec_rf = calc_spec(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
+    e_spec_rf = calc_sigma(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
 
-    rest_frame_spec = np.stack([wl_new, rest_frame_spec, rest_frame_sigma])
+    #rest_frame_spec = np.stack([wl_new, rest_frame_spec, rest_frame_sigma])
 
-    return rest_frame_spec
+    return spec_rf, e_spec_rf
 
 
-def correct_all_rvs(sci_spectra, observations, wl_new):
+def correct_all_rvs(
+    wl_old,
+    spectra,
+    e_spectra,
+    observations,
+    wl_new):
     """
     Parameters
     ----------
     sci_spectra: float array
         3D numpy array containing spectra of form [N_ob, wl/spec/sigma, flux].
     
+    TODO
+
+    TODO
+
     observations: pandas dataframe
         Dataframe containing information about each observation.
 
@@ -1360,16 +1338,26 @@ def correct_all_rvs(sci_spectra, observations, wl_new):
     rest_frame_spectra: float array
         3D numpy array containing spectra of form [star, wl/spec/sigma, flux] 
         now in the rest frame
+
+    TODO
     """
     #Initialise
-    rest_frame_spectra = []
+    spectra_rf = []
+    e_spectra_rf = []
 
-    for star_i, sci_spec in enumerate(sci_spectra):
+    for star_i, (spectrum, e_spectrum) in enumerate(zip(spectra, e_spectra)):
         bcor = observations.iloc[star_i]["bcor"]
         rv = observations.iloc[star_i]["rv"]
         
-        rest_frame_spectra.append(correct_rv(sci_spec, bcor, rv, wl_new))
+        # Perform RV correction
+        spec_rf, e_spec_rf = correct_rv(
+            wl_old, spectrum, e_spectrum, bcor, rv, wl_new)
+        
+        # Save results
+        spectra_rf.append(spec_rf)
+        e_spectra_rf.append(e_spec_rf)
 
-    rest_frame_spectra = np.stack(rest_frame_spectra)
+    spectra_rf = np.stack(spectra_rf)
+    e_spectra_rf = np.stack(e_spectra_rf)
 
-    return rest_frame_spectra
+    return spectra_rf, e_spectra_rf

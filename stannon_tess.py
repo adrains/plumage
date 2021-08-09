@@ -14,6 +14,8 @@ normalise_spectra = True
 px_min = 0
 px_max = None
 
+poly_order = 6
+
 # Import literature info for both standards and TESS targets
 std_info = utils.load_info_cat(
     "data/std_info.tsv",
@@ -33,22 +35,26 @@ obs_std = utils.load_fits_table("OBS_TAB", "std", path="spectra")
 obs_tess = utils.load_fits_table("OBS_TAB", "tess", path="spectra")
 
 # Load in RV corrected standard spectra
-wave_b = utils.load_fits_image_hdu("rest_frame_wave", "std", arm="b")
-spec_norm_b = utils.load_fits_image_hdu("rest_frame_spec_norm", "std", arm="b")
-e_spec_norm_b = utils.load_fits_image_hdu("rest_frame_sigma_norm", "std", arm="b")
+wave_std_br = utils.load_fits_image_hdu("rest_frame_wave", "std", arm="br")
+spec_std_br = utils.load_fits_image_hdu("rest_frame_spec", "std", arm="br")
+e_spec_std_br = utils.load_fits_image_hdu("rest_frame_sigma", "std", arm="br")
 
-wave_r = utils.load_fits_image_hdu("rest_frame_wave", "std", arm="r")
-spec_norm_r = utils.load_fits_image_hdu("rest_frame_spec_norm", "std", arm="r")
-e_spec_norm_r = utils.load_fits_image_hdu("rest_frame_sigma_norm", "std", arm="r")
+spec_std_br, e_spec_std_br = spec.normalise_spectra(
+    wave_std_br,
+    spec_std_br,
+    e_spec_std_br,
+    poly_order=poly_order)
 
 # Load in RV corrected TESS spectra
-tess_wave_b = utils.load_fits_image_hdu("rest_frame_wave", "tess", arm="b")
-tess_spec_norm_b = utils.load_fits_image_hdu("rest_frame_spec_norm", "tess", arm="b")
-e_tess_spec_norm_b = utils.load_fits_image_hdu("rest_frame_sigma_norm", "tess", arm="b")
+wave_tess_br = utils.load_fits_image_hdu("rest_frame_wave", "tess", arm="br")
+spec_tess_br = utils.load_fits_image_hdu("rest_frame_spec", "tess", arm="br")
+e_spec_tess_br = utils.load_fits_image_hdu("rest_frame_sigma", "tess", arm="br")
 
-tess_wave_r = utils.load_fits_image_hdu("rest_frame_wave", "tess", arm="r")
-tess_spec_norm_r = utils.load_fits_image_hdu("rest_frame_spec_norm", "tess", arm="r")
-e_tess_spec_norm_r = utils.load_fits_image_hdu("rest_frame_sigma_norm", "tess", arm="r")
+spec_tess_br, e_spec_tess_br = spec.normalise_spectra(
+    wave_tess_br,
+    spec_tess_br,
+    e_spec_tess_br,
+    poly_order=poly_order,)
 
 # Table joins
 obs_join = obs_std.join(std_info, "source_id", rsuffix="_info")
@@ -93,25 +99,33 @@ teff_lims = (2500, 4500)
 logg_lims = (4, 6.0)
 feh_lims = (-1.25, 0.75)
 
-# Get the parameters
-label_names = ["teff_m15", "logg_m15", "feh_m15"]
+wl_min = 0
 
-std_mask = ~np.isnan(obs_join["teff_m15"])
+# Get the parameters
+label_names = ["teff_synth", "logg_synth"]
+
+#std_mask = ~np.isnan(obs_join["teff_m15"])
+std_mask = np.logical_or(
+    ~np.isnan(obs_join["teff_m15"]),
+    ~np.isnan(obs_join["teff_ra12"]))
+
+# Preferentially use Mann+15 metallcities
+fehs = np.atleast_2d([row["feh_ra12"] if np.isnan(row["feh_m15"]) else row["feh_m15"]
+        for sid, row in obs_join[std_mask].iterrows()]).T
 
 #obs_mask = [sid in std_info[std_mask].index for sid in obs_std.index]
 
-label_values = obs_join[std_mask][label_names].values
+label_values = np.hstack([obs_join[std_mask][label_names].values, fehs])
+
+
+label_names = ["teff", "logg", "feh"]
 
 # Prepare fluxes
-wls, training_set_flux, training_set_ivar = spec.prepare_spectra(
-    wave_b,
-    spec_norm_b[std_mask],
-    e_spec_norm_b[std_mask],
-    wave_r,
-    spec_norm_r[std_mask],
-    e_spec_norm_r[std_mask],
-    use_both_arms=True,
-    remove_blue_overlap=True)
+wls, training_set_flux, training_set_ivar = spec.prepare_cannon_spectra(
+    wave_std_br,
+    spec_std_br[std_mask],
+    e_spec_std_br[std_mask],
+    wl_min=wl_min,)
 
 # Add photometry
 wls = np.concatenate([wls, phot_wls])
@@ -144,15 +158,11 @@ print(std_text.format(*std))
 #------------------------------------------------------------------------------
 # Predict labels for TESS targets
 #------------------------------------------------------------------------------
-tess_wls, tess_flux, tess_ivar = spec.prepare_spectra(
-    tess_wave_b,
-    tess_spec_norm_b,
-    e_tess_spec_norm_b,
-    tess_wave_r,
-    tess_spec_norm_r,
-    e_tess_spec_norm_r,
-    use_both_arms=True,
-    remove_blue_overlap=True)
+tess_wls, tess_flux, tess_ivar = spec.prepare_cannon_spectra(
+    wave_tess_br,
+    spec_tess_br,
+    e_spec_tess_br,
+    wl_min=wl_min,)
 
 # Add photometry
 tess_wls = np.concatenate([tess_wls, phot_wls])

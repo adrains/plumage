@@ -63,7 +63,7 @@ def idl_init(drive="home"):
 def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
                      resolution=None, norm="abs", do_resample=True, 
                      wl_per_px=None, rv_bcor=0, wave_pad=50, abund_alpha=None,
-                     abund_CFe=None, ebv=0,):
+                     abund_CFe=None, ebv=0, do_log_resample=False, n_px=None):
     """Calls Thomas Nordlander's IDL routines (specifically get_spec) to 
     generate a synthetic MARCS model spectrum at the requested parameters. 
 
@@ -140,6 +140,12 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
     ebv: float, default: 0
         E(B-V) - stellar reddening.
 
+    do_log_resample: bool, default: False
+        Whether to resample onto a logarithmic wavelength scale.
+
+    n_px: float, default: None
+        Number of pixels for use when doing logarithmic scaling.
+
     Returns
     -------
     wave: 1D float array
@@ -182,7 +188,19 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
 
     # If resampling, initialise the output wavelength scale
     if do_resample:
-        idl("wout = [%f:%f:%f]" % (wl_min, wl_max, wl_per_px))
+        # Check if we're doing logarithmic resampling
+        if do_log_resample:
+            idl("wmin_log = ALog10(%f)" % (wl_min))
+            idl("wmax_log = ALog10(%f)" % (wl_max))
+            idl("exps = findgen(%f)/(%f-1)*(wmax_log - wmin_log) + wmin_log"
+                % (n_px, n_px))
+            #idl("exps = cgScaleVector(Findgen(%f), wmin_log, wmax_log)" % (n_px))
+            idl("wout = 10.^exps")
+
+        # Otherwise standard sampling
+        else:
+            idl("wout = [%f:%f:%f]" % (wl_min, wl_max, wl_per_px))
+        
         wout = ", wout=wout"
 
         # Incorporate padding *after* we've set our output scale
@@ -424,8 +442,20 @@ def make_synth_mask_for_bad_wl_regions(
     return bad_reg_mask.astype(bool)
     
 
-def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
-                         norm="abs"):
+def get_template_spectra(
+    teffs,
+    loggs,
+    fehs,
+    vsinis=[1],
+    setting="R7000",
+    norm="abs",
+    wl_min=None,
+    wl_max=None,
+    ipres=None,
+    resolution=None,
+    n_px=None,
+    wl_per_px=None,
+    do_log_resample=True,):
     """Creates synthetic spectra in a given grating format to serve as RV
     templates.
 
@@ -457,6 +487,8 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
             absolute flux large values: absolute flux, normalised to the  
             wavelength "norm"
 
+    TODO
+
     Returns
     -------
     wave: 1D float array
@@ -473,16 +505,22 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
     if setting == "R7000":
         wl_min = 5400
         wl_max = 7000
-        resolution = 7000
+        ipres = 7000
         n_px = 3637
         wl_per_px = 0.44
 
     elif setting == "B3000":
         wl_min = 3500
         wl_max = 5700
-        resolution = 3000
+        ipres = 3000
         n_px = 2858
         wl_per_px = 0.77
+
+    elif setting =="custom":
+        assert (type(wl_min) is int) or (type(wl_min) is float)
+        assert (type(wl_max) is int) or (type(wl_max) is float)
+        assert wl_min < wl_max
+        assert (ipres is not None) or (resolution is not None)
 
     else:
         raise ValueError("Unknown grating - choose either B3000 or R7000")
@@ -493,11 +531,11 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
     for vsini in vsinis:
         eff_r = const.c.to("km/s").value / vsini
 
-        # Take whichever the lower resolution is for the band in question
-        if eff_r < resolution:
+        # Take whichever the lower ipres is for the band in question
+        if eff_r < ipres:
             eff_rs.append(eff_r)
         else:
-            eff_rs.append(resolution)
+            eff_rs.append(ipres)
 
     # Load in the IDL object
     idl = idl_init()
@@ -516,10 +554,13 @@ def get_template_spectra(teffs, loggs, fehs, vsinis=[1], setting="R7000",
                         feh, 
                         wl_min, 
                         wl_max, 
-                        eff_r, 
+                        ipres=eff_r,
+                        resolution=resolution,
                         norm=norm,
                         do_resample=True, 
-                        wl_per_px=wl_per_px)
+                        wl_per_px=wl_per_px,
+                        n_px=n_px,
+                        do_log_resample=do_log_resample)
                 
                     spectra.append((spec))
 
@@ -650,37 +691,55 @@ def load_synthetic_templates(label):
 
     return wave, spectra, params
 
-def load_synthetic_templates_legacy(path, setting="R7000"):
-    """Load in the saved synthetic templates, but in the old case where the
-    synthetic spectra are in individual csvs. 
+def save_synthetic_templates_fits(
+    wave,
+    spectra,
+    params,
+    label,
+    path="templates"):
+    """Save the generated synthetic templates in templates/.
+
+    TODO move
 
     Parameters
     ----------
-    setting: string
-        The grating setting determining which templatesd to import.
-    Returns
-    -------
-    params: float array
-        Array of stellar parameters of form [teff, logg, feh]
-    
-    templates: float array
-        Array of imported template spectra of form [star, wl/spec, flux]
+    spectra: 3D float array
+        The synthetic spectra in the form [N_star, n_pixel]. The stars
+        are ordered by teff, then logg, then [Fe/H].
+
+    params: TODO
+
+    label: TODO
     """
-    # Load in the synthetic star params
-    params_file = os.path.join(path, "template_%s_params.csv" % setting)
+    from astropy.io import fits
+    from astropy.table import Table
 
-    params = np.loadtxt(params_file)
+    # Intialise HDU List
+    hdu = fits.HDUList()
 
-    templates = []
+    # Assert that all wavelength scales are the same
+    assert len(wave) == spectra.shape[1]
+    
+    # HDU 1: Wavelengths
+    wave_img =  fits.PrimaryHDU(wave)
+    wave_img.header["EXTNAME"] = ("WAVE", "Wavelength scale")
+    hdu.append(wave_img)
 
-    for param in tqdm(params):
-        tfile = os.path.join(path, "template_%s_%i_%0.2f_%0.2f_%i.csv"
-                             % (setting, param[0], param[1], param[2], 
-                                param[3]))
-        spec = np.loadtxt(tfile)
-        templates.append(spec.T)
+    # HDU 2: Flux
+    spec_img =  fits.PrimaryHDU(spectra)
+    spec_img.header["EXTNAME"] = ("SPEC", "Flux")
+    hdu.append(spec_img)
 
-    return params, np.stack(templates)
+    # HDU 7: table of observational information
+    params = pd.DataFrame(data=params, columns=["teff", "logg", "feh", "vsini"])
+    obs_tab = fits.BinTableHDU(Table.from_pandas(params))
+    obs_tab.header["EXTNAME"] = ("OBS_TAB", "Observation info table")
+    hdu.append(obs_tab)
+
+    # Done, save
+    save_path = os.path.join(path,  "template_{}.fits".format(label))
+    hdu.writeto(save_path, overwrite=True)
+
 
 # -----------------------------------------------------------------------------
 # Synthetic Fitting
