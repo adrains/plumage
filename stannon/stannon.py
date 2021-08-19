@@ -19,7 +19,7 @@ class Stannon(object):
 
     def __init__(self, training_data, training_data_ivar, training_labels, 
                  label_names, wavelengths, model_type, training_variances=None, 
-                 pixel_mask=None):
+                 pixel_mask=None, data_mask=None,):
         """Stannon class to encapsulate Cannon functionality.
 
         Parameters
@@ -46,6 +46,13 @@ class Stannon(object):
         training_variances: 2D numpy array, optional
             Label variances corresponding to (and same as) training_labels. 
             Defaults to None if not using an appropriate model.
+
+        pixel_mask: 1D boolean numpy array, optional
+            Used to mask out pixels during modelling, False = unused.
+
+        data_mask: 1D boolean numpy array, optional
+            Used to mask out training data during modelling, False = unused.
+
         """
         self.training_data = training_data
         self.training_data_ivar = training_data_ivar
@@ -55,6 +62,7 @@ class Stannon(object):
         self.model_type = model_type
         self.training_variances = training_variances
         self.pixel_mask = pixel_mask
+        self.data_mask = data_mask
 
         self.S, self.P = training_data.shape
         self.L = len(label_names)
@@ -169,6 +177,21 @@ class Stannon(object):
         else:
             self._pixel_mask = np.array(value).astype(bool)
 
+    @property
+    def data_mask(self):
+        return self._data_mask
+
+    @data_mask.setter
+    def data_mask(self, value):
+        if value is None:
+            self._data_mask = np.full(self.training_data.shape[0], True)
+
+        elif len(value) != self.training_data.shape[0]:
+            raise ValueError("Dimensions of mask and training data don't match"
+                             ", mask length must match 1st data dimension")
+        else:
+            self._data_mask = np.array(value).astype(bool)
+
     #--------------------------------------------------------------------------
     # Class functions
     #--------------------------------------------------------------------------
@@ -195,19 +218,20 @@ class Stannon(object):
     
 
     def whiten_labels(self):
-        """Whiten the labels and variances
+        """Whiten the *masked* labels and variances
         """
         # Compute mean and standard deviation of the training set (+save)
-        self.mean_labels = np.nanmean(self.training_labels, axis=0)
-        self.std_labels = np.nanstd(self.training_labels, axis=0)
+        self.mean_labels = np.nanmean(self.masked_labels, axis=0)
+        self.std_labels = np.nanstd(self.masked_labels, axis=0)
 
         # Whiten the labels and their variances (+save)
-        self.whitened_labels = (self.training_labels 
+        self.whitened_labels = (self.masked_labels 
                                 - self.mean_labels) / self.std_labels
 
+        # Whiten the variances. TODO: check correct formalism.
         if self.training_variances is not None:
-            self.whitened_label_vars = (self.training_variances 
-                                        - self.mean_labels) / self.std_labels
+            self.whitened_label_vars = self.masked_variances / self.std_labels
+
 
     def initialise_pixel_mask(self, px_min, px_max=None):
         """
@@ -219,8 +243,11 @@ class Stannon(object):
         else:
             self.pixel_mask[px_min:px_max] = True
 
+
     def train_cannon_model(self, suppress_output=True):
-        """Train the Cannon model, with training per the model specified
+        """Train the Cannon model, with training per the model specified.
+
+        Note that only the *masked* data is used for this.
 
         Parameters
         ----------
@@ -229,6 +256,30 @@ class Stannon(object):
             If yes, output is suppressed and a progress bar is displayed. Set 
             to false for debugging purposes.
         """
+        # Run training steps common to all models
+
+        # Mask labels
+        self.masked_labels = self.training_labels[self.data_mask]
+
+        if self.training_variances is not None:
+            self.masked_variances = self.training_variances[self.data_mask]
+
+        # Mask fluxes
+        self.masked_data = self.training_data[self.data_mask][:, self.pixel_mask]
+        self.masked_data_ivar = self.training_data_ivar[self.data_mask][:, self.pixel_mask]
+        self.masked_wl = self.wavelengths[self.pixel_mask]
+
+        # Whiten labels
+        self.whiten_labels()
+
+        # Use local pixel count to account for potential pixel masking
+        P = self.masked_data.shape[1]
+
+        # Initialise output arrays
+        self.theta = np.nan * np.ones((P, 10))
+        self.s2 = np.nan * np.ones(P)
+
+        # Now run specific training steps
         if self.model_type == "basic":
             self._train_cannon_model_basic(suppress_output)
         
@@ -250,69 +301,112 @@ class Stannon(object):
             If yes, output is suppressed and a progress bar is displayed. Set 
             to false for debugging purposes.
         """
-        # Whiten labels
-        self.whiten_labels()
-
-        # Mask data
-        self.masked_data = self.training_data[:, self.pixel_mask]
-        self.masked_data_ivar = self.training_data_ivar[:, self.pixel_mask]
-        self.masked_wl = self.wavelengths[self.pixel_mask]
-
-        # Use local pixel count accounting for masking
-        P = self.masked_data.shape[1]
-
-        # Setup Cannon
+        # Create design matrix
         self.vectorizer = PolynomialVectorizer(self.label_names, 2)
         self.design_matrix = self.vectorizer(self.whitened_labels)
 
-        self.theta = np.nan * np.ones((P, 10))
-        self.s2 = np.nan * np.ones(P)
-
+        # Initialise theta array
         init_theta = np.atleast_2d(
             np.hstack([1, np.zeros(self.theta.shape[1]-1)]))
 
+        # Intialise dictionaries to pass to stan
         data_dict = dict(P=1, S=self.S, DM=self.design_matrix.T)
         init_dict = dict(theta=init_theta, s2=1)
+
+        # Grab our number of pixels
+        n_px = self.masked_data.shape[1]
 
         # Suppress output - default behaviour when working. Hides Stan logging
         # and instead shows progress bar
         if suppress_output:
-            for px in tqdm(range(P), desc="Training"):
-                data_dict.update(y=self.masked_data[:, px],
-                                 y_var=1/self.masked_data_ivar[:, px])
-
-                kwds = dict(data=data_dict, init=init_dict)
-
+            for px_i in tqdm(range(n_px), desc="Training"):
                 # Suppress Stan output. This is dangerous!
                 with sutils.suppress_output() as sm:
-                    try:
-                        p_opt = self.model.optimizing(**kwds)
-                    except:
-                        logging.exception("Exception occurred when optimizing"
-                                          f"pixel index {px}")
-                    else:
-                        if p_opt is not None:
-                            self.theta[px] = p_opt["theta"]
-                            self.s2[px] = p_opt["s2"]
+                    self._train_cannon_pixel(px_i, data_dict, init_dict,)
 
         # Don't suppress the output when debugging to show stan logging
         else:
-            for px in range(P):
-                data_dict.update(y=self.masked_data[:, px],
-                                 y_var=1/self.masked_data_ivar[:, px])
+            for px_i in range(n_px):
+                self._train_cannon_pixel(px_i, data_dict, init_dict,)
 
-                kwds = dict(data=data_dict, init=init_dict)
 
-                try:
-                    p_opt = self.model.optimizing(**kwds)
-                except:
-                    logging.exception("Exception occurred when optimizing"
-                                      f"pixel index {px}")
-                else:
-                    if p_opt is not None:
-                        self.theta[px] = p_opt["theta"]
-                        self.s2[px] = p_opt["s2"]
+    def _train_cannon_model_label_uncertainties(self, suppress_output):
+        """Trains a Cannon model with uncertainties on label values.
 
+        TODO: currently broken
+
+        Parameters
+        ----------
+        suppress_output: bool
+            Boolean flag for whether to suppress Stan output during training.
+            If yes, output is suppressed and a progress bar is displayed. Set 
+            to false for debugging purposes.
+        """
+        # Initialise theta array
+        init_theta = np.atleast_2d(
+            np.hstack([1, np.zeros(self.theta.shape[1]-1)]))
+
+        # Intialise dictionaries to pass to stan
+        data_dict = dict(
+            S=self.S,
+            P=1,
+            L=self.L,
+            label_means=self.whitened_labels,
+            label_variances=self.whitened_label_vars)
+
+        init_dict = dict(
+            true_labels=self.whitened_labels,
+            s2=[1],
+            theta=init_theta)
+
+        # Grab our number of pixels
+        n_px = self.masked_data.shape[1]
+
+        # Suppress output - default behaviour when working. Hides Stan logging
+        # and instead shows progress bar
+        if suppress_output:
+            for px_i in tqdm(range(n_px), desc="Training"):
+                # Suppress Stan output. This is dangerous!
+                with sutils.suppress_output() as sm:
+                    self._train_cannon_pixel(px_i, data_dict, init_dict,)
+
+        # Don't suppress the output when debugging to show stan logging
+        else:
+            for px_i in range(n_px):
+                self._train_cannon_pixel(px_i, data_dict, init_dict,)
+
+
+    def _train_cannon_pixel(self, px_i, data_dict, init_dict,):
+        """Train a single pixel of a Cannon model.
+        """
+        # Update the data dictionary with flux and ivar values for the current
+        # spectral pixel
+        #data_dict.update(
+        #    y=np.atleast_2d(self.masked_data[:, px_i]).T,
+        #    y_var=np.atleast_2d(1/self.masked_data_ivar[:, px_i]).T)
+
+        data_dict.update(
+            y=self.masked_data[:, px_i],
+            y_var=1/self.masked_data_ivar[:, px_i])
+
+        kwds = dict(data=data_dict, init=init_dict)
+        
+        p_opt = self.model.optimizing(**kwds)
+        if p_opt is not None:
+                self.theta[px_i] = p_opt["theta"]
+                self.s2[px_i] = p_opt["s2"]
+        """
+        try:
+            p_opt = self.model.optimizing(**kwds)
+
+        except:
+            logging.exception("Exception occurred when optimizing"
+                                f"pixel index {px_i}")
+        else:
+            if p_opt is not None:
+                self.theta[px_i] = p_opt["theta"]
+                self.s2[px_i] = p_opt["s2"]
+        """
 
     def infer_labels(self, test_data, test_data_ivars):
         """
@@ -380,11 +474,6 @@ class Stannon(object):
 
         return labels_all, errs_all, chi2_all
 
-    
-    def _train_cannon_model_label_uncertainties(self):
-        """
-        """
-        pass
 
     def test_cannon_model(self):
         """
@@ -507,34 +596,48 @@ class Stannon(object):
         plt.savefig("plots/theta_coefficients.pdf")
         plt.savefig("plots/theta_coefficients.png", dpi=200)
 
-    def run_cross_validation(self):
-        """
-        """
-        # Make a copy of the data
-        all_training_labels = self.training_labels.copy()
-        all_training_data = self.training_data.copy()
-        all_training_data_ivar = self.training_data_ivar.copy()
 
-        label_uncertainties = []
+    def run_cross_validation(self,):
+        """Runs leave-one-out cross validation for the current training set.
 
-        for std_i in range(self.S):
+        TODO: parallelise
+        """
+        # Save trained theta and s2 values if we already have them
+        trained_theta = self.theta.copy()
+        trained_s2 = self.s2.copy()
+
+        # Decrement number of training standards temporarily so we only train
+        # on N-1 for the cross validation
+        self.S -= 1
+
+        # Initialise output array
+        self.cross_val_labels = np.ones_like(self.training_labels) * np.nan
+
+        # Do leave-one-out training and testing for all 
+        for std_i in range(self.S+1):
+            print("\nLeave one out validation {:0.0f}/{:0.0f}".format(
+                std_i+1, self.S))
+
             # Make a mask
-            std_mask = np.full(self.S, True)
+            self.data_mask = np.full(self.S+1, True)
 
             # Mask out the standard to be left out
-            std_mask[std_i] = False
-
-            # Apply masking
-            self.standard_mask = std_mask
+            self.data_mask[std_i] = False
 
             # Run fitting
             self.train_cannon_model(suppress_output=True)
 
-            # Predict the missing label
-            labels_pred, _, _ = self.infer_labels(self.masked_data,
-                                                  self.masked_data_ivar)
+            # Predict labels for the missing standard
+            labels_pred, _, _ = self.infer_labels(
+                self.training_data[~self.data_mask],
+                self.training_data_ivar[~self.data_mask])
 
-            label_uncertainties.append(labels_pred)
+            self.cross_val_labels[std_i] = labels_pred
+
+        # Reset theta, s2, and S
+        self.theta = trained_theta
+        self.s2 = trained_s2
+        self.S += 1
 
 #------------------------------------------------------------------------------
 # Module Functions

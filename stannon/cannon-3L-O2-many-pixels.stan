@@ -24,7 +24,7 @@ transformed parameters {
 
     matrix[S, P] total_y_err;
 
-    // Build the design matrix like a bitch.
+    // Build the design matrix
     matrix[S, 10] design_matrix;
 
     for (s in 1:S) {

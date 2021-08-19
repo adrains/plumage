@@ -7,15 +7,27 @@ import plumage.synthetic as synth
 import stannon.stannon as stannon
 import matplotlib.pyplot as plt 
 
+#------------------------------------------------------------------------------
+# Parameters
+#------------------------------------------------------------------------------
 suppress_output = True
 use_br_combined = False
 normalise_spectra = True
+add_photometry = False
+do_cross_validation = True
 
 px_min = 0
 px_max = None
 
-poly_order = 6
+wl_min = 5000
 
+poly_order = 3
+model_type = "basic"
+#model_type = "label_uncertainties"
+
+#------------------------------------------------------------------------------
+# Imports
+#------------------------------------------------------------------------------
 # Import literature info for both standards and TESS targets
 std_info = utils.load_info_cat(
     "data/std_info.tsv",
@@ -62,36 +74,6 @@ obs_join = obs_std.join(std_info, "source_id", rsuffix="_info")
 obs_join_tess = obs_tess.join(tess_info, "source_id", rsuffix="_info")
 
 #------------------------------------------------------------------------------
-# Photometry Definitions
-#------------------------------------------------------------------------------
-phot_wls = np.array([
-    4500,
-    7500,
-    6000,
-    12350,
-    16620,
-    21590,
-])
-
-abs_mags = np.array([
-    "Bp_mag_abs",
-    "Rp_mag_abs",
-    "G_mag_abs",
-    "J_mag_abs",
-    "H_mag_abs",
-    "K_mag_abs",
-    ], dtype=object)
-
-e_abs_mags = np.array([
-    "e_Bp_mag_abs",
-    "e_Rp_mag_abs",
-    "G_mag_abs",
-    "e_J_mag_abs",
-    "e_H_mag_abs",
-    "e_K_mag_abs",
-    ], dtype=object)
-
-#------------------------------------------------------------------------------
 # Setup training set
 #------------------------------------------------------------------------------
 # Parameter limits
@@ -99,10 +81,9 @@ teff_lims = (2500, 4500)
 logg_lims = (4, 6.0)
 feh_lims = (-1.25, 0.75)
 
-wl_min = 0
-
 # Get the parameters
 label_names = ["teff_synth", "logg_synth"]
+e_label_names = ["e_teff_synth", "e_logg_synth"]
 
 #std_mask = ~np.isnan(obs_join["teff_m15"])
 std_mask = np.logical_or(
@@ -112,11 +93,16 @@ std_mask = np.logical_or(
 # Preferentially use Mann+15 metallcities
 fehs = np.atleast_2d([row["feh_ra12"] if np.isnan(row["feh_m15"]) else row["feh_m15"]
         for sid, row in obs_join[std_mask].iterrows()]).T
+e_fehs = np.atleast_2d([row["e_feh_ra12"] if np.isnan(row["e_feh_m15"]) else row["e_feh_m15"]
+        for sid, row in obs_join[std_mask].iterrows()]).T
 
 #obs_mask = [sid in std_info[std_mask].index for sid in obs_std.index]
 
 label_values = np.hstack([obs_join[std_mask][label_names].values, fehs])
+label_var = np.hstack([obs_join[std_mask][e_label_names].values, e_fehs])**0.5
 
+# uniform variances
+label_var = 1e-3 * np.ones_like(label_values)
 
 label_names = ["teff", "logg", "feh"]
 
@@ -127,28 +113,74 @@ wls, training_set_flux, training_set_ivar = spec.prepare_cannon_spectra(
     e_spec_std_br[std_mask],
     wl_min=wl_min,)
 
-# Add photometry
-wls = np.concatenate([wls, phot_wls])
-training_set_flux = np.concatenate(
-    [training_set_flux, obs_join[std_mask][abs_mags].values], axis=1)
-training_set_ivar = np.concatenate(
-    [training_set_ivar, 1/obs_join[std_mask][e_abs_mags].values**2], axis=1)
+#------------------------------------------------------------------------------
+# Photometry (optional)
+#------------------------------------------------------------------------------
+if add_photometry:
+    phot_wls = np.array([
+        4500,
+        7500,
+        6000,
+        12350,
+        16620,
+        21590,
+    ])
+
+    abs_mags = np.array([
+        "Bp_mag_abs",
+        "Rp_mag_abs",
+        "G_mag_abs",
+        "J_mag_abs",
+        "H_mag_abs",
+        "K_mag_abs",
+        ], dtype=object)
+
+    e_abs_mags = np.array([
+        "e_Bp_mag_abs",
+        "e_Rp_mag_abs",
+        "G_mag_abs",
+        "e_J_mag_abs",
+        "e_H_mag_abs",
+        "e_K_mag_abs",
+        ], dtype=object)
+
+    # Add photometry
+    wls = np.concatenate([wls, phot_wls])
+    training_set_flux = np.concatenate(
+        [training_set_flux, obs_join[std_mask][abs_mags].values], axis=1)
+    training_set_ivar = np.concatenate(
+        [training_set_ivar, 1/obs_join[std_mask][e_abs_mags].values**2], axis=1)
 
 #------------------------------------------------------------------------------
 # Make and Train model
 #------------------------------------------------------------------------------
 # Make model
-sm = stannon.Stannon(training_set_flux, training_set_ivar, label_values, 
-                     label_names, wls, "basic")
+sm = stannon.Stannon(
+    training_data=training_set_flux,
+    training_data_ivar=training_set_ivar,
+    training_labels=label_values, 
+    label_names=label_names,
+    wavelengths=wls,
+    model_type=model_type,
+    training_variances=label_var,)
+
 # Setup model, train
 sm.initialise_pixel_mask(px_min, px_max)
 sm.train_cannon_model(suppress_output=suppress_output)
 
 # Predict and plot
-labels_pred, errs_all, chi2_all = sm.infer_labels(sm.masked_data, 
-                                                  sm.masked_data_ivar)
-sm.plot_label_comparison(sm.training_labels, labels_pred, teff_lims, logg_lims, feh_lims)
-sm.plot_theta_coefficients() 
+if do_cross_validation:
+    sm.run_cross_validation()
+
+    labels_pred = sm.cross_val_labels
+
+# Just run through once
+else:
+    labels_pred, errs_all, chi2_all = sm.infer_labels(
+        sm.masked_data, sm.masked_data_ivar)
+    sm.plot_label_comparison(
+        sm.training_labels, labels_pred, teff_lims, logg_lims, feh_lims)
+    sm.plot_theta_coefficients() 
 
 # Print
 std = np.std(label_values - labels_pred, axis=0)
@@ -165,11 +197,12 @@ tess_wls, tess_flux, tess_ivar = spec.prepare_cannon_spectra(
     wl_min=wl_min,)
 
 # Add photometry
-tess_wls = np.concatenate([tess_wls, phot_wls])
-tess_flux = np.concatenate(
-    [tess_flux, obs_join_tess[abs_mags].values], axis=1)
-tess_ivar = np.concatenate(
-    [tess_ivar, 1/obs_join_tess[e_abs_mags].values**2], axis=1)
+if add_photometry:
+    tess_wls = np.concatenate([tess_wls, phot_wls])
+    tess_flux = np.concatenate(
+        [tess_flux, obs_join_tess[abs_mags].values], axis=1)
+    tess_ivar = np.concatenate(
+        [tess_ivar, 1/obs_join_tess[e_abs_mags].values**2], axis=1)
 
 # Predict
 tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
