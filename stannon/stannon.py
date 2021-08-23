@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
 from tqdm import tqdm
 import stannon.stan_utils as sutils
+from datetime import datetime
 from scipy.optimize import curve_fit
 from stannon.vectorizer import PolynomialVectorizer
 
@@ -597,11 +598,13 @@ class Stannon(object):
         plt.savefig("plots/theta_coefficients.png", dpi=200)
 
 
-    def run_cross_validation(self,):
+    def run_cross_validation(self, show_timing=True):
         """Runs leave-one-out cross validation for the current training set.
 
         TODO: parallelise
         """
+        start_time = datetime.now()
+
         # Save trained theta and s2 values if we already have them
         trained_theta = self.theta.copy()
         trained_s2 = self.s2.copy()
@@ -616,7 +619,7 @@ class Stannon(object):
         # Do leave-one-out training and testing for all 
         for std_i in range(self.S+1):
             print("\nLeave one out validation {:0.0f}/{:0.0f}".format(
-                std_i+1, self.S))
+                std_i+1, self.S+1))
 
             # Make a mask
             self.data_mask = np.full(self.S+1, True)
@@ -638,6 +641,10 @@ class Stannon(object):
         self.theta = trained_theta
         self.s2 = trained_s2
         self.S += 1
+
+        if show_timing:
+            time_elapsed = datetime.now() - start_time
+            print("\nValidation duration (hh:mm:ss.ms) {}".format(time_elapsed))
 
 #------------------------------------------------------------------------------
 # Module Functions

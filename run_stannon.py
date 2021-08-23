@@ -19,9 +19,9 @@ do_cross_validation = True
 px_min = 0
 px_max = None
 
-wl_min = 5000
+wl_min = 0
 
-poly_order = 3
+poly_order = 4
 model_type = "basic"
 #model_type = "label_uncertainties"
 
@@ -96,12 +96,11 @@ fehs = np.atleast_2d([row["feh_ra12"] if np.isnan(row["feh_m15"]) else row["feh_
 e_fehs = np.atleast_2d([row["e_feh_ra12"] if np.isnan(row["e_feh_m15"]) else row["e_feh_m15"]
         for sid, row in obs_join[std_mask].iterrows()]).T
 
-#obs_mask = [sid in std_info[std_mask].index for sid in obs_std.index]
-
+# Prepare label values
 label_values = np.hstack([obs_join[std_mask][label_names].values, fehs])
 label_var = np.hstack([obs_join[std_mask][e_label_names].values, e_fehs])**0.5
 
-# uniform variances
+# Test with uniform variances
 label_var = 1e-3 * np.ones_like(label_values)
 
 label_names = ["teff", "logg", "feh"]
@@ -174,7 +173,7 @@ if do_cross_validation:
 
     labels_pred = sm.cross_val_labels
 
-# Just run through once
+# Just test on training set (to give a quick idea of performance)
 else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
@@ -183,7 +182,7 @@ else:
     sm.plot_theta_coefficients() 
 
 # Print
-std = np.std(label_values - labels_pred, axis=0)
+std = np.nanstd(label_values - labels_pred, axis=0)
 std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
 print(std_text.format(*std))
 
@@ -209,6 +208,7 @@ tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
     tess_flux[:,sm.pixel_mask],
     tess_ivar[:,sm.pixel_mask])
 
+# Plot
 plt.figure()
 plt.scatter(tess_labels_pred[:,0], 
             tess_labels_pred[:,1], 
