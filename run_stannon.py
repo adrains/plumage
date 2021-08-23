@@ -1,4 +1,4 @@
-"""
+"""Script to train and cross validate a Cannon model
 """
 import numpy as np
 import plumage.utils as utils
@@ -24,6 +24,8 @@ wl_min = 0
 poly_order = 4
 model_type = "basic"
 #model_type = "label_uncertainties"
+
+model_save_path = "spectra"
 
 #------------------------------------------------------------------------------
 # Imports
@@ -185,6 +187,9 @@ else:
 std = np.nanstd(label_values - labels_pred, axis=0)
 std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
 print(std_text.format(*std))
+
+# Save model
+sm.save_model(model_save_path)
 
 #------------------------------------------------------------------------------
 # Predict labels for TESS targets

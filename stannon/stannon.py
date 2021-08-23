@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
 from tqdm import tqdm
+import pickle
 import stannon.stan_utils as sutils
 from datetime import datetime
 from scipy.optimize import curve_fit
@@ -17,6 +18,7 @@ class Stannon(object):
     # Constants
     SUPPORTED_MODELS = ("basic", "label_uncertainties")
     SUPPORTED_N_LABELS = (3,)
+    N_PX_COEFF = 10   # Note that this should be generalised
 
     def __init__(self, training_data, training_data_ivar, training_labels, 
                  label_names, wavelengths, model_type, training_variances=None, 
@@ -68,8 +70,20 @@ class Stannon(object):
         self.S, self.P = training_data.shape
         self.L = len(label_names)
 
+        # Initialise theta and scatter
+        self.theta = np.nan * np.ones((self.P, self.N_PX_COEFF))
+        self.s2 = np.nan * np.ones(self.P)
+
+        # Initialise cross validation results
+        self.cross_val_labels = np.nan * np.ones_like(self.training_labels)
+
         # Load in the model itself
         self.model = self.get_stannon_model()
+
+        # Initialise masking and whitening (note that this is redone each time
+        # the Cannon is trained also)
+        self.initialise_masking()
+        self.whiten_labels()
 
     @property
     def training_data_ivar(self):
@@ -193,6 +207,41 @@ class Stannon(object):
         else:
             self._data_mask = np.array(value).astype(bool)
 
+    @property
+    def theta(self):
+        return self._theta
+
+    @theta.setter
+    def theta(self, value):
+        if value.shape != (self.P, self.N_PX_COEFF):
+            raise ValueError("Dimensions of theta is incorrect, must have "
+                             "dimensions [n_px, n_coeff]")
+        else:
+            self._theta = np.array(value)
+
+    @property
+    def s2(self):
+        return self._s2
+
+    @s2.setter
+    def s2(self, value):
+        if len(value) != self.P:
+            raise ValueError("Length of s2 incorrect, should be equal to n_px")
+        else:
+            self._s2 = np.array(value)
+
+    @property
+    def cross_val_labels(self):
+        return self._cross_val_labels
+
+    @cross_val_labels.setter
+    def cross_val_labels(self, value):
+        if value.shape != self.training_labels.shape:
+            raise ValueError("Dimensions of cross_val_labels is incorrect,"
+                             "must be equal to training_labels.")
+        else:
+            self._cross_val_labels = np.array(value)
+
     #--------------------------------------------------------------------------
     # Class functions
     #--------------------------------------------------------------------------
@@ -234,15 +283,19 @@ class Stannon(object):
             self.whitened_label_vars = self.masked_variances / self.std_labels
 
 
-    def initialise_pixel_mask(self, px_min, px_max=None):
+    def initialise_masking(self):
+        """Initialise the masked data and flux arrays
         """
-        """
-        self.pixel_mask = np.zeros(self.P, dtype=bool)
+        # Mask labels
+        self.masked_labels = self.training_labels[self.data_mask]
 
-        if px_max is None:
-            self.pixel_mask[px_min:] = True
-        else:
-            self.pixel_mask[px_min:px_max] = True
+        if self.training_variances is not None:
+            self.masked_variances = self.training_variances[self.data_mask]
+
+        # Mask fluxes
+        self.masked_data = self.training_data[self.data_mask][:, self.pixel_mask]
+        self.masked_data_ivar = self.training_data_ivar[self.data_mask][:, self.pixel_mask]
+        self.masked_wl = self.wavelengths[self.pixel_mask]
 
 
     def train_cannon_model(self, suppress_output=True):
@@ -259,16 +312,8 @@ class Stannon(object):
         """
         # Run training steps common to all models
 
-        # Mask labels
-        self.masked_labels = self.training_labels[self.data_mask]
-
-        if self.training_variances is not None:
-            self.masked_variances = self.training_variances[self.data_mask]
-
-        # Mask fluxes
-        self.masked_data = self.training_data[self.data_mask][:, self.pixel_mask]
-        self.masked_data_ivar = self.training_data_ivar[self.data_mask][:, self.pixel_mask]
-        self.masked_wl = self.wavelengths[self.pixel_mask]
+        # Initialise masking
+        self.initialise_masking()
 
         # Whiten labels
         self.whiten_labels()
@@ -277,7 +322,7 @@ class Stannon(object):
         P = self.masked_data.shape[1]
 
         # Initialise output arrays
-        self.theta = np.nan * np.ones((P, 10))
+        self.theta = np.nan * np.ones((P, self.N_PX_COEFF))
         self.s2 = np.nan * np.ones(P)
 
         # Now run specific training steps
@@ -646,9 +691,85 @@ class Stannon(object):
             time_elapsed = datetime.now() - start_time
             print("\nValidation duration (hh:mm:ss.ms) {}".format(time_elapsed))
 
+
+    def generate_spectra(self, labels):
+        """Generate spectra from a trained Cannon given stellar parameters.
+        """
+        # Whiten input labels
+        labels = (labels - self.mean_labels) / self.std_labels
+
+        # Construct the label vector and predict spectrum
+        label_vector = get_lvec(labels)
+        spec_gen = np.matmul(self.theta, label_vector)
+
+        return spec_gen
+
+
+    def save_model(self, path,):
+        """Saves the stannon model. Currently just uses pickle for simplicity,
+        but for persistence might want to consider fits as a future update.
+        """
+        # Create a dictionary of all class variables
+        class_dict = {
+            "training_data":self.training_data,
+            "training_data_ivar":self.training_data_ivar,
+            "training_labels":self.training_labels,
+            "label_names":self.label_names,
+            "wavelengths":self.wavelengths,
+            "model_type":self.model_type,
+            "training_variances":self.training_variances,
+            "pixel_mask":self.pixel_mask,
+            "data_mask":self.data_mask,
+            "theta":self.theta,
+            "s2":self.s2,
+            "cross_val_labels":self.cross_val_labels,
+        }
+
+        # Construct filename
+        filename = os.path.join(
+            path, 
+            "stannon_model_{}_{}px.pkl".format(self.model_type, self.P))
+
+        # Dump our model to disk, and overwrites any existing file.
+        with open(filename, 'wb') as output_file:
+            pickle.dump(class_dict, output_file, pickle.HIGHEST_PROTOCOL)
+
+
 #------------------------------------------------------------------------------
 # Module Functions
 #------------------------------------------------------------------------------
+def load_model(filename):
+    """Load a saved stannon model from file. Currently uses pickle, but in the
+    future this may change.
+    """
+    # Input checking
+    if not os.path.isfile(filename):
+        raise FileNotFoundError("Pickle not found")
+
+    # Import the saved pickle of class dict and remake object
+    with open(filename, 'rb') as input_file:
+        class_dict = pickle.load(input_file)
+
+        # Remake object
+        sm = Stannon(
+            training_data=class_dict["training_data"],
+            training_data_ivar=class_dict["training_data_ivar"],
+            training_labels=class_dict["training_labels"], 
+            label_names=class_dict["label_names"],
+            wavelengths=class_dict["wavelengths"],
+            model_type=class_dict["model_type"],
+            training_variances=class_dict["training_variances"],
+            pixel_mask=class_dict["pixel_mask"],
+            data_mask=class_dict["data_mask"])
+
+        # Save theta, s2, and results of cross validation
+        sm.theta = class_dict["theta"]
+        sm.s2 = class_dict["s2"]
+        sm.cross_val_labels = class_dict["cross_val_labels"]
+
+    return sm
+
+
 def get_lvec(labels):
     """
     Constructs a label vector for an arbitrary number of labels
