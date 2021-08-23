@@ -16,9 +16,6 @@ normalise_spectra = True
 add_photometry = False
 do_cross_validation = True
 
-px_min = 0
-px_max = None
-
 wl_min = 0
 
 poly_order = 4
@@ -165,8 +162,7 @@ sm = stannon.Stannon(
     model_type=model_type,
     training_variances=label_var,)
 
-# Setup model, train
-sm.initialise_pixel_mask(px_min, px_max)
+# Train model
 sm.train_cannon_model(suppress_output=suppress_output)
 
 # Predict and plot
