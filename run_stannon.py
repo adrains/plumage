@@ -232,3 +232,21 @@ splt.plot_cannon_cmd(
     benchmark_feh=fehs[:,0],
     science_colour=obs_join_tess["Bp-Rp"],
     science_mag=obs_join_tess["K_mag_abs"],)
+
+# Plot Kiel Diagram for results
+splt.plot_kiel_diagram(
+    teffs=tess_labels_pred[:,0],
+    e_teffs=np.repeat(label_pred_std[0], len(tess_labels_pred)),
+    loggs=tess_labels_pred[:,1],
+    e_loggs=np.repeat(label_pred_std[1], len(tess_labels_pred)),
+    fehs=tess_labels_pred[:,2],
+    label="science",)
+
+# And one for the benchmarks
+splt.plot_kiel_diagram(
+    teffs=label_values[:,0],
+    e_teffs=label_var[:,0]**2,
+    loggs=label_values[:,1],
+    e_loggs=label_var[:,1]**2,
+    fehs=label_values[:,2],
+    label="benchmark",)

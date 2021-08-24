@@ -198,3 +198,65 @@ def plot_cannon_cmd(
     fig.tight_layout()
     plt.savefig("paper/cannon_cmd.png")
     plt.savefig("paper/cannon_cmd.pdf")
+
+
+def plot_kiel_diagram(
+    teffs,
+    e_teffs,
+    loggs,
+    e_loggs,
+    fehs,
+    max_teff=4200,
+    label="",):
+    """
+    """
+    plt.close("all")
+    fig, axis = plt.subplots()
+
+    # Mask only those stars within the bounds of our trained Cannon model
+    mask = teffs < max_teff
+
+    # Plot 
+    scatter = axis.scatter(
+        teffs[mask],
+        loggs[mask],
+        zorder=1,
+        c=fehs[mask],
+        cmap="viridis",
+    )
+
+    cb = fig.colorbar(scatter, ax=axis)
+    cb.set_label("[Fe/H]")
+
+    axis.errorbar(
+        x=teffs[mask],
+        y=loggs[mask],
+        xerr=e_teffs[mask],
+        yerr=e_loggs[mask],
+        zorder=0,
+        ecolor="black",
+        elinewidth=0.4,
+        fmt=".",
+    )
+
+    # Flip axes
+    ymin, ymax = axis.get_ylim()
+    axis.set_ylim((ymax, ymin))
+
+    xmin, xmax = axis.get_xlim()
+    axis.set_xlim((xmax, xmin))
+
+    axis.set_xlabel(r"$T_{\rm eff}$ (K)", fontsize="large")
+    axis.set_ylabel(r"$\log g$", fontsize="large")
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
+
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=100))
+
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
+    axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+
+    fig.tight_layout()
+    plt.savefig("paper/cannon_kiel_{}.png".format(label))
+    plt.savefig("paper/cannon_kiel_{}.pdf".format(label))
