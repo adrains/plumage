@@ -75,11 +75,6 @@ obs_join_tess = obs_tess.join(tess_info, "source_id", rsuffix="_info")
 #------------------------------------------------------------------------------
 # Setup training set
 #------------------------------------------------------------------------------
-# Parameter limits
-teff_lims = (2500, 4500)
-logg_lims = (4, 6.0)
-feh_lims = (-1.25, 0.75)
-
 # Get the parameters
 label_names = ["teff_synth", "logg_synth"]
 e_label_names = ["e_teff_synth", "e_logg_synth"]
@@ -100,7 +95,7 @@ label_values = np.hstack([obs_join[std_mask][label_names].values, fehs])
 label_var = np.hstack([obs_join[std_mask][e_label_names].values, e_fehs])**0.5
 
 # Test with uniform variances
-label_var = 1e-3 * np.ones_like(label_values)
+#label_var = 1e-3 * np.ones_like(label_values)
 
 label_names = ["teff", "logg", "feh"]
 
@@ -175,14 +170,19 @@ if do_cross_validation:
 else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
-    sm.plot_label_comparison(
-        sm.training_labels, labels_pred, teff_lims, logg_lims, feh_lims)
-    sm.plot_theta_coefficients() 
 
-# Print
-std = np.nanstd(label_values - labels_pred, axis=0)
+# Work out uncertainties
+label_pred_std = np.nanstd(label_values - labels_pred, axis=0)
 std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
-print(std_text.format(*std))
+print(std_text.format(*label_pred_std))
+
+# Plot diagnostic plots
+sm.plot_label_comparison(
+    label_values=sm.training_labels,
+    e_label_values=sm.training_variances**2,
+    label_pred=labels_pred,
+    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),)
+sm.plot_theta_coefficients() 
 
 # Save model
 sm.save_model(model_save_path)

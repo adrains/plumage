@@ -163,12 +163,7 @@ class Stannon(object):
 
     @training_variances.setter
     def training_variances(self, value):
-        # Meaningless having training set label variances if not taking into
-        # account label uncertainties --> set to None
-        if self.model_type != "label_uncertainties":
-            self._training_variances = None
-
-        elif value is None:
+        if value is None:
             raise ValueError("No training data variances provided")
 
         elif value.shape != self.training_labels.shape:
@@ -527,86 +522,6 @@ class Stannon(object):
         pass
 
 
-    def plot_label_comparison(self, 
-        label_values, 
-        labels_pred, 
-        teff_lims=(2800,8000),
-        logg_lims=(0.5,6.0),
-        feh_lims=(-2,0.75),
-        teff_axis_step=200,
-        logg_axis_step=0.5,
-        feh_axis_step=0.5):
-        """Plot comparison between actual labels and predicted labels for 
-        Teff, logg, and [Fe/H].
-
-        Parameters
-        ----------
-        label_values: 2D numpy array
-            Label array with columns [teff, logg, feh]
-        
-        labels_pred: 2D numpy array
-            Predicted label array with columns [teff, logg, feh]
-        """
-        plt.close("all")
-        fig, (ax_teff, ax_logg, ax_feh) = plt.subplots(1, 3, figsize=(12, 4)) 
-        fig.subplots_adjust(left=0.1, bottom=0.2, right=0.9, top=0.95, 
-                            wspace=0.5)
-
-        # Plot Teff comparison
-        sc_teff = ax_teff.scatter(label_values[:,0],labels_pred[:,0], 
-                                  c=label_values[:,2], marker="o")
-        xy = np.arange(teff_lims[0]-500,teff_lims[1]+500)
-        ax_teff.plot(xy, xy, "-", color="black")
-        ax_teff.set_xlabel(r"T$_{\rm eff}$ (Lit)")
-        ax_teff.set_ylabel(r"T$_{\rm eff}$ (Cannon)")
-        cb_teff = fig.colorbar(sc_teff, ax=ax_teff)
-        cb_teff.set_label(r"[Fe/H]")
-        ax_teff.set_xlim(teff_lims)
-        ax_teff.set_ylim(teff_lims)
-        loc_teff = plticker.MultipleLocator(base=teff_axis_step)
-        ax_teff.xaxis.set_major_locator(loc_teff)
-        plt.setp(ax_teff.get_xticklabels(), rotation="vertical")
-        #ax_teff.set_aspect("equal")
-
-        # Plot logg comparison
-        sc_logg = ax_logg.scatter(label_values[:,1],labels_pred[:,1], 
-                                  c=label_values[:,0], marker="o", 
-                                  cmap="magma")
-        xy = np.arange(logg_lims[0]-1,logg_lims[1]+1, 0.1)
-        ax_logg.plot(xy, xy, "-", color="black")
-        ax_logg.set_xlim(logg_lims)
-        ax_logg.set_ylim(logg_lims)
-        ax_logg.set_ylabel(r"$\log g$ (Cannon)")
-        ax_logg.set_xlabel(r"$\log g$ (Lit)")
-        cb_logg = fig.colorbar(sc_logg, ax=ax_logg)
-        cb_logg.set_label(r"T$_{\rm eff}$")
-        loc_logg = plticker.MultipleLocator(base=logg_axis_step)
-        ax_logg.xaxis.set_major_locator(loc_logg)
-        plt.setp(ax_logg.get_xticklabels(), rotation="vertical")
-        #ax_logg.set_aspect("equal")
-
-        # Plot Fe/H comparison
-        sc_feh = ax_feh.scatter(label_values[:,2],labels_pred[:,2], 
-                                c=label_values[:,0], marker="o", cmap="magma") 
-        xy = np.arange(feh_lims[0]-1,feh_lims[1]+1, 0.05)
-        ax_feh.plot(xy, xy, "-", color="black")
-        ax_feh.set_xlim(feh_lims)
-        ax_feh.set_ylim(feh_lims)
-        ax_feh.set_xlabel(r"[Fe/H] (Lit)")
-        ax_feh.set_ylabel(r"[Fe/H] (Cannon)") 
-        cb_feh = fig.colorbar(sc_feh, ax=ax_feh) 
-        cb_feh.set_label(r"T$_{\rm eff}$")
-        loc_feh = plticker.MultipleLocator(base=feh_axis_step)
-        ax_feh.xaxis.set_major_locator(loc_feh)
-        plt.setp(ax_feh.get_xticklabels(), rotation="vertical")
-        #ax_feh.set_aspect("equal")
-
-        plt.setp(ax_feh.get_xticklabels(), rotation="vertical")
-
-        plt.savefig("plots/label_comp.pdf")
-        plt.savefig("plots/label_comp.png", dpi=200)
-
-
     def plot_theta_coefficients(self):
         """Plot values of theta coefficients against wavelength for Teff, logg,
         and [Fe/H], plus fluxes.
@@ -730,7 +645,7 @@ class Stannon(object):
             path, 
             "stannon_model_{}_{}px.pkl".format(self.model_type, self.P))
 
-        # Dump our model to disk, and overwrites any existing file.
+        # Dump our model to disk, and overwrite any existing file.
         with open(filename, 'wb') as output_file:
             pickle.dump(class_dict, output_file, pickle.HIGHEST_PROTOCOL)
 
