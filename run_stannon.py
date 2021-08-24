@@ -224,3 +224,11 @@ plt.ylabel(r"$\log g$")
 plt.tight_layout()
 plt.show()
 plt.savefig("plots/tess_cannon_keel.pdf", dpi=200)
+
+# Plot CMD
+splt.plot_cannon_cmd(
+    benchmark_colour=obs_join[std_mask]["Bp-Rp"],
+    benchmark_mag=obs_join[std_mask]["K_mag_abs"],
+    benchmark_feh=fehs[:,0],
+    science_colour=obs_join_tess["Bp-Rp"],
+    science_mag=obs_join_tess["K_mag_abs"],)

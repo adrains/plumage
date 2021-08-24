@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import plumage.plotting as pplt
+import matplotlib.ticker as plticker
 
 def plot_label_recovery(
     label_values,
@@ -111,3 +112,89 @@ def plot_label_recovery(
     fig.tight_layout()
     fig.savefig("paper/cannon_param_recovery{}.pdf".format(fn_suffix))
     fig.savefig("paper/cannon_param_recovery{}.png".format(fn_suffix))
+
+
+def plot_cannon_cmd(
+    benchmark_colour,
+    benchmark_mag,
+    benchmark_feh,
+    science_colour,
+    science_mag,
+    x_label=r"$B_P-R_P$",
+    y_label=r"$M_{K_S}$",):
+    """Plots a colour magnitude diagram using the specified columns and saves
+    the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
+    stars for e.g. comparison with standards.
+
+    Parameters
+    ----------
+    info_cat: pandas.DataFrame
+        Table of stellar literature info.
+
+    info_cat_2: pandas.DataFrame, default: None
+        Table of stellar literature info for second set of stars (e.g. 
+        standards). Optional.
+
+    plot_toi_ids: bool, default: False
+        Plot the TOI IDs on top of the points for diagnostic purposes.
+
+    colour: string, default: 'Bp-Rp'
+        Column name for colour (x) axis of CMD.
+
+    abs_mag: string, default: 'G_mag_abs'
+        Column name for absolute magnitude (y) axis of CMD.
+
+    x_label, y_label: string, default: r'$B_P-R_P$', r'$M_{\rm G}$'
+        Axis labels for X and Y axis respectively.
+
+    label: string, default: 'tess'
+        Label to use in filename, e.g. {label}_cmd.pdf
+    """
+    plt.close("all")
+    fig, axis = plt.subplots()
+
+    # Plot benchmarks
+    scatter = axis.scatter(
+        benchmark_colour, 
+        benchmark_mag, 
+        zorder=1,
+        c=benchmark_feh,
+        label="Benchmark",
+        alpha=0.9,
+        cmap="viridis",
+    )
+
+    cb = fig.colorbar(scatter, ax=axis)
+    cb.set_label("[Fe/H]")
+
+    # Plot science targets
+    scatter = axis.scatter(
+        science_colour, 
+        science_mag, 
+        marker="o",
+        edgecolor="black",#"#ff7f0e",
+        facecolors="none",
+        zorder=2,
+        alpha=0.6,
+        label="Science",)
+
+    plt.legend(loc="best", fontsize="large")
+
+    # Flip magnitude axis
+    ymin, ymax = axis.get_ylim()
+    axis.set_ylim((ymax, ymin))
+
+    axis.set_xlabel(x_label, fontsize="large")
+    axis.set_ylabel(y_label, fontsize="large")
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
+
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=1.0))
+    axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
+
+    fig.tight_layout()
+    plt.savefig("paper/cannon_cmd.png")
+    plt.savefig("paper/cannon_cmd.pdf")
