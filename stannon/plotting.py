@@ -1,6 +1,7 @@
 """Plotting functions related to Stannon
 """
 import numpy as np
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import plumage.plotting as pplt
 import matplotlib.ticker as plticker
@@ -260,3 +261,84 @@ def plot_kiel_diagram(
     fig.tight_layout()
     plt.savefig("paper/cannon_kiel_{}.png".format(label))
     plt.savefig("paper/cannon_kiel_{}.pdf".format(label))
+
+
+def plot_theta_coefficients(
+    sm,
+    teff_scale=0.5,
+    x_lims=(5700,6400),
+    y_lims=(-0.1,0.1),):
+    """Plot values of theta coefficients against wavelength for Teff, logg,
+    and [Fe/H], plus fluxes.
+    """
+    plt.close("all")
+    # Initialise axes
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 8))
+    axes = axes.flatten()
+
+    # Initialise teff colours
+    cmap = cm.get_cmap("plasma")
+    teff_min = np.min(sm.training_labels[:,0])
+    teff_max = np.max(sm.training_labels[:,0])
+
+    # First plot spectra
+    for star_i, star in enumerate(sm.training_data):
+        teff = sm.training_labels[star_i, 0]
+        colour = cmap((teff-teff_min)/(teff_max-teff_min))
+        axes[0].plot(sm.wavelengths, star, linewidth=0.2, c=colour)
+
+    # Plot first order coefficients
+    axes[1].plot(sm.masked_wl, sm.theta[:,1]*teff_scale, linewidth=0.5, 
+        label=r"$T_{\rm eff}$")
+    axes[1].plot(sm.masked_wl, sm.theta[:,2], linewidth=0.5, label=r"$\log g$")
+    axes[1].plot(sm.masked_wl, sm.theta[:,3], linewidth=0.5, label="[Fe/H]")
+
+    axes[1].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
+
+    # Plot scatter
+    axes[2].plot(sm.masked_wl, sm.s2, linewidth=0.25,)
+
+    # Now mask out emission and telluric regions
+    pplt.shade_excluded_regions(
+        wave=sm.wavelengths,
+        bad_px_mask=~sm.pixel_mask,
+        axis=axes[0],
+        res_ax=None,
+        colour="red",
+        alpha=0.25,
+        hatch=None)
+
+    pplt.shade_excluded_regions(
+        wave=sm.wavelengths,
+        bad_px_mask=~sm.pixel_mask,
+        axis=axes[1],
+        res_ax=None,
+        colour="red",
+        alpha=0.25,
+        hatch=None)
+
+    pplt.shade_excluded_regions(
+        wave=sm.wavelengths,
+        bad_px_mask=~sm.pixel_mask,
+        axis=axes[2],
+        res_ax=None,
+        colour="red",
+        alpha=0.25,
+        hatch=None)
+
+    axes[0].set_xlim(x_lims)
+    axes[0].set_ylim([0,2])
+    axes[1].set_ylim(y_lims)
+    axes[2].set_ylim([-0.001,0.01])
+
+    axes[1].legend()
+
+    axes[0].set_ylabel(r"Flux")
+    axes[1].set_ylabel(r"$\theta_{1-3}$")
+    axes[2].set_ylabel(r"Scatter")
+
+    plt.xlabel("Wavelength (A)")
+    
+    plt.tight_layout()
+    plt.savefig("plots/theta_coefficients.pdf")
+    plt.savefig("plots/theta_coefficients.png", dpi=200)

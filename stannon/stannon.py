@@ -2,8 +2,6 @@
 """
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.ticker as plticker
 from tqdm import tqdm
 import pickle
 import stannon.stan_utils as sutils
@@ -67,7 +65,7 @@ class Stannon(object):
         self.pixel_mask = pixel_mask
         self.data_mask = data_mask
 
-        self.S, self.P = training_data.shape
+        self.S, self.P = training_data[:,pixel_mask].shape
         self.L = len(label_names)
 
         # Initialise theta and scatter
@@ -522,42 +520,6 @@ class Stannon(object):
         pass
 
 
-    def plot_theta_coefficients(self):
-        """Plot values of theta coefficients against wavelength for Teff, logg,
-        and [Fe/H], plus fluxes.
-        """
-        # Plot of theta coefficients
-        fig, axes = plt.subplots(4, 1, sharex=True, figsize=(12, 8))
-        axes = axes.flatten()
-
-        for star in self.masked_data:
-            axes[0].plot(self.masked_wl, star, linewidth=0.2)
-
-        axes[1].plot(self.masked_wl, self.theta[:,1], linewidth=0.25)
-        axes[2].plot(self.masked_wl, self.theta[:,2], linewidth=0.25)
-        axes[3].plot(self.masked_wl, self.theta[:,3], linewidth=0.25)
-
-        axes[1].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
-        axes[2].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
-        axes[3].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
-
-        axes[0].set_xlim([3500,7000])
-        axes[0].set_ylim([0,3])
-        axes[1].set_ylim([-0.5,0.5])
-        axes[2].set_ylim([-0.5,0.5])
-        axes[3].set_ylim([-0.1,0.1])
-
-        axes[0].set_ylabel(r"Flux")
-        axes[1].set_ylabel(r"$\theta$ T$_{\rm eff}$")
-        axes[2].set_ylabel(r"$\theta$ $\log g$")
-        axes[3].set_ylabel(r"$\theta$ $[Fe/H]$")
-        plt.xlabel("Wavelength (A)")
-        
-        plt.tight_layout()
-        plt.savefig("plots/theta_coefficients.pdf")
-        plt.savefig("plots/theta_coefficients.png", dpi=200)
-
-
     def run_cross_validation(self, show_timing=True):
         """Runs leave-one-out cross validation for the current training set.
 
@@ -683,6 +645,24 @@ def load_model(filename):
         sm.cross_val_labels = class_dict["cross_val_labels"]
 
     return sm
+
+
+def prepare_fluxes(spec_br, e_spec_br,):
+    """Prepare fluxes for use in Cannon model. Assume that we are receiving 
+    previously combined blue and red arms.
+    """
+    training_set_flux = spec_br
+    training_set_ivar = 1/e_spec_br**2
+    
+    # If flux is nan, set to 1 and give high variance (inverse variance of 0)
+    training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
+    training_set_flux[~np.isfinite(training_set_flux)] = 1
+
+    # If the inverse variance is nan, do the same
+    training_set_flux[~np.isfinite(training_set_ivar)] = 1
+    training_set_ivar[~np.isfinite(training_set_ivar)] = 1e-8
+
+    return training_set_flux, training_set_ivar
 
 
 def get_lvec(labels):

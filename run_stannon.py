@@ -5,7 +5,7 @@ import plumage.utils as utils
 import plumage.spectra as spec
 import plumage.synthetic as synth
 import stannon.stannon as stannon
-import matplotlib.pyplot as plt 
+import stannon.plotting as splt
 
 #------------------------------------------------------------------------------
 # Parameters
@@ -14,7 +14,7 @@ suppress_output = True
 use_br_combined = False
 normalise_spectra = True
 add_photometry = False
-do_cross_validation = True
+do_cross_validation = False
 
 wl_min = 0
 
@@ -100,11 +100,21 @@ label_var = np.hstack([obs_join[std_mask][e_label_names].values, e_fehs])**0.5
 label_names = ["teff", "logg", "feh"]
 
 # Prepare fluxes
-wls, training_set_flux, training_set_ivar = spec.prepare_cannon_spectra(
-    wave_std_br,
+training_set_flux, training_set_ivar = stannon.prepare_fluxes(
     spec_std_br[std_mask],
-    e_spec_std_br[std_mask],
-    wl_min=wl_min,)
+    e_spec_std_br[std_mask],)
+
+wls = wave_std_br
+
+# Construct standard mask to mask emission regions
+bad_px_mask = spec.make_wavelength_mask(
+    wls,
+    mask_emission=True,
+    mask_sky_emission=False,
+    mask_edges=True,)
+
+# Enforce minimum wavelength
+bad_px_mask = np.logical_and(bad_px_mask, wls > wl_min)
 
 #------------------------------------------------------------------------------
 # Photometry (optional)
@@ -155,7 +165,8 @@ sm = stannon.Stannon(
     label_names=label_names,
     wavelengths=wls,
     model_type=model_type,
-    training_variances=label_var,)
+    training_variances=label_var,
+    pixel_mask=bad_px_mask)
 
 # Train model
 sm.train_cannon_model(suppress_output=suppress_output)
@@ -177,12 +188,12 @@ std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
 print(std_text.format(*label_pred_std))
 
 # Plot diagnostic plots
-sm.plot_label_comparison(
+splt.plot_label_recovery(
     label_values=sm.training_labels,
     e_label_values=sm.training_variances**2,
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),)
-sm.plot_theta_coefficients() 
+splt.plot_theta_coefficients(sm)
 
 # Save model
 sm.save_model(model_save_path)
@@ -190,11 +201,11 @@ sm.save_model(model_save_path)
 #------------------------------------------------------------------------------
 # Predict labels for TESS targets
 #------------------------------------------------------------------------------
-tess_wls, tess_flux, tess_ivar = spec.prepare_cannon_spectra(
-    wave_tess_br,
+tess_flux, tess_ivar = stannon.prepare_fluxes(
     spec_tess_br,
-    e_spec_tess_br,
-    wl_min=wl_min,)
+    e_spec_tess_br,)
+
+tess_wls = wave_tess_br
 
 # Add photometry
 if add_photometry:
@@ -208,22 +219,6 @@ if add_photometry:
 tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
     tess_flux[:,sm.pixel_mask],
     tess_ivar[:,sm.pixel_mask])
-
-# Plot
-plt.figure()
-plt.scatter(tess_labels_pred[:,0], 
-            tess_labels_pred[:,1], 
-            c=tess_labels_pred[:,2])
-plt.plot(label_values[:,0], label_values[:,1], "*", color="black")
-cb = plt.colorbar()
-cb.set_label(r"[Fe/H]")
-plt.xlim([4500,2900])
-plt.ylim([5.5,4])
-plt.xlabel(r"T$_{\rm eff}$")
-plt.ylabel(r"$\log g$")
-plt.tight_layout()
-plt.show()
-plt.savefig("plots/tess_cannon_keel.pdf", dpi=200)
 
 # Plot CMD
 splt.plot_cannon_cmd(
