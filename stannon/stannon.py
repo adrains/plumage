@@ -20,7 +20,7 @@ class Stannon(object):
 
     def __init__(self, training_data, training_data_ivar, training_labels, 
                  label_names, wavelengths, model_type, training_variances=None, 
-                 pixel_mask=None, data_mask=None,):
+                 adopted_wl_mask=None, data_mask=None, bad_px_mask=None):
         """Stannon class to encapsulate Cannon functionality.
 
         Parameters
@@ -48,7 +48,7 @@ class Stannon(object):
             Label variances corresponding to (and same as) training_labels. 
             Defaults to None if not using an appropriate model.
 
-        pixel_mask: 1D boolean numpy array, optional
+        adopted_wl_mask: 1D boolean numpy array, optional
             Used to mask out pixels during modelling, False = unused.
 
         data_mask: 1D boolean numpy array, optional
@@ -62,10 +62,11 @@ class Stannon(object):
         self.wavelengths = wavelengths
         self.model_type = model_type
         self.training_variances = training_variances
-        self.pixel_mask = pixel_mask
+        self.adopted_wl_mask = adopted_wl_mask
         self.data_mask = data_mask
+        self.bad_px_mask = bad_px_mask
 
-        self.S, self.P = training_data[:,pixel_mask].shape
+        self.S, self.P = training_data[:,adopted_wl_mask].shape
         self.L = len(label_names)
 
         # Initialise theta and scatter
@@ -171,19 +172,19 @@ class Stannon(object):
             self._training_variances = value
 
     @property
-    def pixel_mask(self):
-        return self._pixel_mask
+    def adopted_wl_mask(self):
+        return self._adopted_wl_mask
 
-    @pixel_mask.setter
-    def pixel_mask(self, value):
+    @adopted_wl_mask.setter
+    def adopted_wl_mask(self, value):
         if value is None:
-            self._pixel_mask = np.full(self.training_data.shape[1], True)
+            self._adopted_wl_mask = np.full(self.training_data.shape[1], True)
 
         elif len(value) != self.training_data.shape[1]:
             raise ValueError("Dimensions of mask and training data don't match"
                              ", mask length must match 2nd data dimension")
         else:
-            self._pixel_mask = np.array(value).astype(bool)
+            self._adopted_wl_mask = np.array(value).astype(bool)
 
     @property
     def data_mask(self):
@@ -199,6 +200,21 @@ class Stannon(object):
                              ", mask length must match 1st data dimension")
         else:
             self._data_mask = np.array(value).astype(bool)
+
+    @property
+    def bad_px_mask(self):
+        return self._bad_px_mask
+
+    @bad_px_mask.setter
+    def bad_px_mask(self, value):
+        if value is None:
+            self._bad_px_mask = np.full(self.training_data.shape, False)
+
+        elif value.shape != self.training_data.shape:
+            raise ValueError("Dimensions of bad_px_mask is incorrect,"
+                             "must be same as training_data.")
+        else:
+            self._bad_px_mask = np.array(value).astype(bool)
 
     @property
     def theta(self):
@@ -285,10 +301,17 @@ class Stannon(object):
         if self.training_variances is not None:
             self.masked_variances = self.training_variances[self.data_mask]
 
-        # Mask fluxes
-        self.masked_data = self.training_data[self.data_mask][:, self.pixel_mask]
-        self.masked_data_ivar = self.training_data_ivar[self.data_mask][:, self.pixel_mask]
-        self.masked_wl = self.wavelengths[self.pixel_mask]
+        # Apply bad pixel mask - set bad pixel flux to 1 and ivar to 0
+        masked_data = self.training_data.copy()
+        masked_data_ivar = self.training_data_ivar.copy()
+
+        masked_data[self.bad_px_mask] = 1
+        masked_data_ivar[self.bad_px_mask] = 1e-8
+
+        # Now mask out wavelength regions we've excluded
+        self.masked_data = masked_data[self.data_mask][:, self.adopted_wl_mask]
+        self.masked_data_ivar = masked_data_ivar[self.data_mask][:, self.adopted_wl_mask]
+        self.masked_wl = self.wavelengths[self.adopted_wl_mask]
 
 
     def train_cannon_model(self, suppress_output=True):
@@ -447,6 +470,7 @@ class Stannon(object):
                 self.s2[px_i] = p_opt["s2"]
         """
 
+
     def infer_labels(self, test_data, test_data_ivars):
         """
         Use coefficients and scatters from a trained Cannon model to infer the 
@@ -514,10 +538,32 @@ class Stannon(object):
         return labels_all, errs_all, chi2_all
 
 
-    def test_cannon_model(self):
+    def make_sigma_clipped_bad_px_mask(self, flux_sigma_to_clip=5):
+        """Generate a bad pixel mask via sigma clipping using a trained Cannon
+        model.
         """
-        """
-        pass
+        # Initialise blank bad pixel mask
+        new_bad_px_mask = np.full(self.training_data.shape, False)
+
+        # For every star, check how many sigma the model is out
+        for bm_i in range(len(self.training_labels)):
+            # Generate a model spectrum
+            labels = self.training_labels[bm_i]
+            spec_gen = self.generate_spectra(labels)
+
+            # Add the observed + model pixel uncertainty in quadrature. Note
+            # std^2 is just the variance.
+            std_px = np.sqrt(
+                1/self.training_data_ivar[bm_i][self.adopted_wl_mask] + self.s2)
+            
+            # Compute the difference
+            diff = np.abs(self.training_data[bm_i][self.adopted_wl_mask] - spec_gen)
+
+            # Sigma clip
+            new_bad_px_mask[bm_i, self.adopted_wl_mask] = diff > std_px*flux_sigma_to_clip
+
+        # Save
+        self.bad_px_mask = np.logical_or(self.bad_px_mask, new_bad_px_mask)
 
 
     def run_cross_validation(self, show_timing=True):
@@ -595,11 +641,12 @@ class Stannon(object):
             "wavelengths":self.wavelengths,
             "model_type":self.model_type,
             "training_variances":self.training_variances,
-            "pixel_mask":self.pixel_mask,
+            "adopted_wl_mask":self.adopted_wl_mask,
             "data_mask":self.data_mask,
             "theta":self.theta,
             "s2":self.s2,
             "cross_val_labels":self.cross_val_labels,
+            "bad_px_mask":self.bad_px_mask,
         }
 
         # Construct filename
@@ -636,8 +683,9 @@ def load_model(filename):
             wavelengths=class_dict["wavelengths"],
             model_type=class_dict["model_type"],
             training_variances=class_dict["training_variances"],
-            pixel_mask=class_dict["pixel_mask"],
-            data_mask=class_dict["data_mask"])
+            adopted_wl_mask=class_dict["adopted_wl_mask"],
+            data_mask=class_dict["data_mask"],
+            bad_px_mask=class_dict["bad_px_mask"],)
 
         # Save theta, s2, and results of cross validation
         sm.theta = class_dict["theta"]
@@ -654,15 +702,17 @@ def prepare_fluxes(spec_br, e_spec_br,):
     training_set_flux = spec_br
     training_set_ivar = 1/e_spec_br**2
     
+    # Get bad px mask
+    bad_px_mask = np.logical_or(
+        ~np.isfinite(training_set_flux),
+        ~np.isfinite(training_set_ivar)
+    )
+
     # If flux is nan, set to 1 and give high variance (inverse variance of 0)
-    training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
-    training_set_flux[~np.isfinite(training_set_flux)] = 1
+    # training_set_ivar[bad_px_mask] = 1e-8
+    # training_set_flux[bad_px_mask] = 1
 
-    # If the inverse variance is nan, do the same
-    training_set_flux[~np.isfinite(training_set_ivar)] = 1
-    training_set_ivar[~np.isfinite(training_set_ivar)] = 1e-8
-
-    return training_set_flux, training_set_ivar
+    return training_set_flux, training_set_ivar, bad_px_mask
 
 
 def get_lvec(labels):

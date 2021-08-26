@@ -16,6 +16,10 @@ normalise_spectra = True
 add_photometry = False
 do_cross_validation = False
 
+# Whether to do sigma clipping using trained Cannon model
+do_iterative_bad_px_masking = True
+flux_sigma_to_clip = 5
+
 wl_min = 0
 
 poly_order = 4
@@ -100,21 +104,21 @@ label_var = np.hstack([obs_join[std_mask][e_label_names].values, e_fehs])**0.5
 label_names = ["teff", "logg", "feh"]
 
 # Prepare fluxes
-training_set_flux, training_set_ivar = stannon.prepare_fluxes(
+training_set_flux, training_set_ivar, bad_px_mask = stannon.prepare_fluxes(
     spec_std_br[std_mask],
     e_spec_std_br[std_mask],)
 
 wls = wave_std_br
 
 # Construct standard mask to mask emission regions
-bad_px_mask = spec.make_wavelength_mask(
+adopted_wl_mask = spec.make_wavelength_mask(
     wls,
     mask_emission=True,
     mask_sky_emission=False,
     mask_edges=True,)
 
 # Enforce minimum wavelength
-bad_px_mask = np.logical_and(bad_px_mask, wls > wl_min)
+adopted_wl_mask = np.logical_and(adopted_wl_mask, wls > wl_min)
 
 #------------------------------------------------------------------------------
 # Photometry (optional)
@@ -166,10 +170,18 @@ sm = stannon.Stannon(
     wavelengths=wls,
     model_type=model_type,
     training_variances=label_var,
-    pixel_mask=bad_px_mask)
+    adopted_wl_mask=adopted_wl_mask,
+    bad_px_mask=bad_px_mask,)
 
 # Train model
+print("\nRunning initial training...")
 sm.train_cannon_model(suppress_output=suppress_output)
+
+# If we run the iterative bad px masking, train again afterwards
+if do_iterative_bad_px_masking:
+    print("\nRunning iterative sigma clipping for bad px...")
+    sm.make_sigma_clipped_bad_px_mask(flux_sigma_to_clip=flux_sigma_to_clip)
+    sm.train_cannon_model(suppress_output=suppress_output)
 
 # Predict and plot
 if do_cross_validation:
@@ -193,7 +205,21 @@ splt.plot_label_recovery(
     e_label_values=sm.training_variances**2,
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),)
-splt.plot_theta_coefficients(sm)
+
+# Save theta coefficients
+splt.plot_theta_coefficients(
+    sm,
+    x_lims=(5400,7000),
+    y_s2_lims=(-0.0005, 0.005),
+    x_ticks=(200,100),
+    label="r")
+
+splt.plot_theta_coefficients(
+    sm,
+    x_lims=(3500,5400),
+    y_s2_lims=(-0.001, 0.01),
+    x_ticks=(200,100),
+    label="b") 
 
 # Save model
 sm.save_model(model_save_path)
@@ -201,7 +227,7 @@ sm.save_model(model_save_path)
 #------------------------------------------------------------------------------
 # Predict labels for TESS targets
 #------------------------------------------------------------------------------
-tess_flux, tess_ivar = stannon.prepare_fluxes(
+tess_flux, tess_ivar, tess_bad_px_mask = stannon.prepare_fluxes(
     spec_tess_br,
     e_spec_tess_br,)
 
@@ -217,8 +243,8 @@ if add_photometry:
 
 # Predict
 tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
-    tess_flux[:,sm.pixel_mask],
-    tess_ivar[:,sm.pixel_mask])
+    tess_flux[:,sm.adopted_wl_mask],
+    tess_ivar[:,sm.adopted_wl_mask])
 
 # Plot CMD
 splt.plot_cannon_cmd(

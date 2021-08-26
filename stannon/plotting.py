@@ -265,15 +265,23 @@ def plot_kiel_diagram(
 
 def plot_theta_coefficients(
     sm,
-    teff_scale=0.5,
+    teff_scale=0.3,
     x_lims=(5700,6400),
-    y_lims=(-0.1,0.1),):
-    """Plot values of theta coefficients against wavelength for Teff, logg,
-    and [Fe/H], plus fluxes.
+    y_spec_lims=(0,2.5),
+    y_theta_lims=(-0.1,0.1),
+    y_s2_lims=(-0.001,0.01),
+    x_ticks=(500,100),
+    label="",):
+    """Plot fluxes, values of first order theta coefficients for Teff, logg,
+    and [Fe/H], as well as model scatter - all against wavelength.
+
+    TODO
     """
     plt.close("all")
     # Initialise axes
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 8))
+    fig.subplots_adjust(hspace=0.001, wspace=0.001)
+
     axes = axes.flatten()
 
     # Initialise teff colours
@@ -281,15 +289,20 @@ def plot_theta_coefficients(
     teff_min = np.min(sm.training_labels[:,0])
     teff_max = np.max(sm.training_labels[:,0])
 
+    # Do bad px masking
+    masked_spectra = sm.training_data.copy()
+    masked_spectra[sm.bad_px_mask] = np.nan
+
     # First plot spectra
-    for star_i, star in enumerate(sm.training_data):
+    for star_i, star in enumerate(masked_spectra):
         teff = sm.training_labels[star_i, 0]
         colour = cmap((teff-teff_min)/(teff_max-teff_min))
+
         axes[0].plot(sm.wavelengths, star, linewidth=0.2, c=colour)
 
     # Plot first order coefficients
     axes[1].plot(sm.masked_wl, sm.theta[:,1]*teff_scale, linewidth=0.5, 
-        label=r"$T_{\rm eff}$")
+        label=r"$T_{\rm eff} \times$" + "{:0.1f}".format(teff_scale))
     axes[1].plot(sm.masked_wl, sm.theta[:,2], linewidth=0.5, label=r"$\log g$")
     axes[1].plot(sm.masked_wl, sm.theta[:,3], linewidth=0.5, label="[Fe/H]")
 
@@ -301,7 +314,7 @@ def plot_theta_coefficients(
     # Now mask out emission and telluric regions
     pplt.shade_excluded_regions(
         wave=sm.wavelengths,
-        bad_px_mask=~sm.pixel_mask,
+        bad_px_mask=~sm.adopted_wl_mask,
         axis=axes[0],
         res_ax=None,
         colour="red",
@@ -310,7 +323,7 @@ def plot_theta_coefficients(
 
     pplt.shade_excluded_regions(
         wave=sm.wavelengths,
-        bad_px_mask=~sm.pixel_mask,
+        bad_px_mask=~sm.adopted_wl_mask,
         axis=axes[1],
         res_ax=None,
         colour="red",
@@ -319,7 +332,7 @@ def plot_theta_coefficients(
 
     pplt.shade_excluded_regions(
         wave=sm.wavelengths,
-        bad_px_mask=~sm.pixel_mask,
+        bad_px_mask=~sm.adopted_wl_mask,
         axis=axes[2],
         res_ax=None,
         colour="red",
@@ -327,18 +340,25 @@ def plot_theta_coefficients(
         hatch=None)
 
     axes[0].set_xlim(x_lims)
-    axes[0].set_ylim([0,2])
-    axes[1].set_ylim(y_lims)
-    axes[2].set_ylim([-0.001,0.01])
+    axes[0].set_ylim(y_spec_lims)
+    axes[1].set_ylim(y_theta_lims)
+    axes[2].set_ylim(y_s2_lims)
 
-    axes[1].legend()
+    leg = axes[1].legend()
+
+    # Update width of legend objects
+    for legobj in leg.legendHandles:
+        legobj.set_linewidth(1.5)
 
     axes[0].set_ylabel(r"Flux")
     axes[1].set_ylabel(r"$\theta_{1-3}$")
     axes[2].set_ylabel(r"Scatter")
 
+    axes[2].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
+    axes[2].xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
+
     plt.xlabel("Wavelength (A)")
     
     plt.tight_layout()
-    plt.savefig("plots/theta_coefficients.pdf")
-    plt.savefig("plots/theta_coefficients.png", dpi=200)
+    plt.savefig("paper/theta_coefficients_{}.pdf".format(label))
+    plt.savefig("paper/theta_coefficients_{}.png".format(label), dpi=200)
