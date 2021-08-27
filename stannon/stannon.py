@@ -584,6 +584,10 @@ class Stannon(object):
         # Initialise output array
         self.cross_val_labels = np.ones_like(self.training_labels) * np.nan
 
+        # Keep initial masked data, as it'll get overwritten each loop
+        masked_data = self.masked_data.copy()
+        masked_data_ivar = self.masked_data_ivar.copy()
+
         # Do leave-one-out training and testing for all 
         for std_i in range(self.S+1):
             print("\nLeave one out validation {:0.0f}/{:0.0f}".format(
@@ -600,8 +604,8 @@ class Stannon(object):
 
             # Predict labels for the missing standard
             labels_pred, _, _ = self.infer_labels(
-                self.training_data[~self.data_mask],
-                self.training_data_ivar[~self.data_mask])
+                masked_data[~self.data_mask],
+                masked_data_ivar[~self.data_mask])
 
             self.cross_val_labels[std_i] = labels_pred
 
