@@ -194,6 +194,12 @@ else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
 
+# Save model
+sm.save_model(model_save_path)
+
+#------------------------------------------------------------------------------
+# Diagnostic Plotting
+#------------------------------------------------------------------------------
 # Work out uncertainties
 label_pred_std = np.nanstd(label_values - labels_pred, axis=0)
 std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
@@ -206,14 +212,7 @@ splt.plot_label_recovery(
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),)
 
-# Save theta coefficients
-splt.plot_theta_coefficients(
-    sm,
-    x_lims=(5400,7000),
-    y_s2_lims=(-0.0005, 0.005),
-    x_ticks=(200,100),
-    label="r")
-
+# Save theta coefficients - one for each WiFeS arm
 splt.plot_theta_coefficients(
     sm,
     x_lims=(3500,5400),
@@ -221,8 +220,52 @@ splt.plot_theta_coefficients(
     x_ticks=(200,100),
     label="b") 
 
-# Save model
-sm.save_model(model_save_path)
+splt.plot_theta_coefficients(
+    sm,
+    x_lims=(5400,7000),
+    y_s2_lims=(-0.0005, 0.005),
+    x_ticks=(200,100),
+    label="r")
+
+# Plot comparison of observed vs model spectra. Here we've picked a set of 
+# spectral types at approximately low, high, and solar [Fe/H] for testing.
+source_ids = [
+    "2595284016771502080",      # M5, +, LHS 3799
+    "2640434056928150400",      # M5, 0, GJ 1286
+    "2358524597030794112",      # M5, -, PM J01125-1659
+
+    "2603090003484152064",      # M3, +, GJ 876
+    "4508377078422114944",      # M4, 0, GJ 4065
+    "4472832130942575872",      # M4, -, Gl 699
+
+    "2910909931633597312",      # M3, +, LP 837-53
+    "3184351876391975808",      # M2, 0, Gl 173
+    "2979590513145784192",      # M2, -, Gl 180
+
+    "145421309108301184",       # K8, +, Gl 169
+    "2533723464155234176",      # K8, 0, Gl 56.3 B
+    "1244644727396803584",      # K8, -, Gl 525
+]
+    #"3796072592206250624",      # M4, GJ 447
+    #"3101920046552857728",      # M2, Gl 250 B
+    #"3738099879558957952",      # M1, Gl 514
+    #"3339921875389105152",      # K8, Gl 208
+    #"3057712188691831936",      # K7, Gl 282B
+
+
+splt.plot_spectra_comparison(
+    sm=sm,
+    obs_join=obs_join[std_mask],
+    source_ids=source_ids,
+    x_lims=(3500,5400),
+    fn_label="b",)
+
+splt.plot_spectra_comparison(
+    sm=sm,
+    obs_join=obs_join[std_mask],
+    source_ids=source_ids,
+    x_lims=(5400,7000),
+    fn_label="r",)
 
 #------------------------------------------------------------------------------
 # Predict labels for TESS targets

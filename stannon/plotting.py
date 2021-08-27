@@ -1,5 +1,6 @@
 """Plotting functions related to Stannon
 """
+from ctypes import alignment
 import numpy as np
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
@@ -285,7 +286,7 @@ def plot_theta_coefficients(
     axes = axes.flatten()
 
     # Initialise teff colours
-    cmap = cm.get_cmap("plasma")
+    cmap = cm.get_cmap("magma")
     teff_min = np.min(sm.training_labels[:,0])
     teff_max = np.max(sm.training_labels[:,0])
 
@@ -362,3 +363,95 @@ def plot_theta_coefficients(
     plt.tight_layout()
     plt.savefig("paper/theta_coefficients_{}.pdf".format(label))
     plt.savefig("paper/theta_coefficients_{}.png".format(label), dpi=200)
+
+
+def plot_spectra_comparison(
+    sm,
+    obs_join,
+    source_ids,
+    y_offset=1.8,
+    x_lims=(5400,7000),
+    x_ticks=(200,100),
+    fn_label="",):
+    """Plot a set of observed spectra against their Cannon generated spectra
+    equivalents.
+    """
+    # Intialise
+    plt.close("all")
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    fig.subplots_adjust(hspace=0.001, wspace=0.001)
+
+    # Mask out emission and telluric regions
+    pplt.shade_excluded_regions(
+        wave=sm.wavelengths,
+        bad_px_mask=~sm.adopted_wl_mask,
+        axis=ax,
+        res_ax=None,
+        colour="red",
+        alpha=0.25,
+        hatch=None)
+
+    # Do bad px masking
+    masked_spectra = sm.training_data.copy()
+    masked_spectra[sm.bad_px_mask] = np.nan
+
+    # For every star in source_ids, plot blue and red spectra
+    for star_i, source_id in enumerate(source_ids):
+        # Get the index of the particular benchmark
+        bm_i = int(np.argwhere(obs_join.index == source_id))
+
+        # Generate a model spectrum (with nans for our excluded regions)
+        labels = sm.training_labels[bm_i]
+
+        spec_gen = np.full(sm.training_data.shape[1], np.nan)
+        spec_gen[sm.adopted_wl_mask] = sm.generate_spectra(labels)
+
+        # Plot observed spectrum
+        ax.plot(
+            sm.wavelengths,
+            masked_spectra[bm_i] + star_i*y_offset,
+            linewidth=0.2,
+            c="k",
+            label="Observed",)
+
+        # Plot model spectrum
+        ax.plot(
+            sm.wavelengths,
+            spec_gen + star_i*y_offset,
+            linewidth=0.2,
+            c="r",
+            label="Model",)
+
+        # Label spectrum
+        star_txt = r"{}, $T_{{\rm eff}}={:0.0f}\,$K, [Fe/H]$ = ${:+.2f}"
+        star_txt = star_txt.format(
+            obs_join.loc[source_id]["simbad_name"],
+            labels[0],
+            labels[2])
+
+        ax.text(
+            x=x_lims[0]+(x_lims[1]-x_lims[0])/2,
+            y=star_i*y_offset+1.6,
+            s=star_txt,
+            horizontalalignment="center",
+        )
+
+        # Only plot one set of legend items
+        if star_i == 0:
+            leg = ax.legend(loc="upper right", ncol=2,)
+
+            for legobj in leg.legendHandles:
+                legobj.set_linewidth(1.5)
+    
+    ax.set_yticks([])
+    ax.set_xlim(x_lims)
+    ax.set_ylim((0, star_i*y_offset+2.4))
+
+    ax.xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
+    ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
+
+    ax.set_xlabel("Wavelength (A)")
+    plt.tight_layout()
+
+    plt.savefig("paper/cannon_spectra_comp_{}.pdf".format(fn_label))
+    plt.savefig("paper/cannon_spectra_comp_{}.png".format(fn_label), dpi=200)
