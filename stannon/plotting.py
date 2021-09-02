@@ -15,9 +15,6 @@ def plot_label_recovery(
     teff_lims=(2800,4500),
     logg_lims=(4.4,5.4),
     feh_lims=(-0.6,0.75),
-    teff_axis_step=200,
-    logg_axis_step=0.2,
-    feh_axis_step=0.25,
     elinewidth=0.4,
     show_offset=True,
     fn_suffix="",
@@ -123,7 +120,9 @@ def plot_cannon_cmd(
     science_colour,
     science_mag,
     x_label=r"$B_P-R_P$",
-    y_label=r"$M_{K_S}$",):
+    y_label=r"$M_{K_S}$",
+    highlight_mask=None,
+    highlight_mask_label="",):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
     stars for e.g. comparison with standards.
@@ -180,8 +179,20 @@ def plot_cannon_cmd(
         alpha=0.6,
         label="Science",)
 
-    plt.legend(loc="best", fontsize="large")
+    # If we've been given a highlight mask, plot for diagnostic reasons
+    if highlight_mask is not None:
+        scatter = axis.scatter(
+            benchmark_colour[highlight_mask],
+            benchmark_mag[highlight_mask],
+            marker="o",
+            edgecolor="red",#"#ff7f0e",
+            facecolors="none",
+            zorder=4,
+            alpha=0.8,
+            label=highlight_mask_label,)
 
+    plt.legend(loc="best", fontsize="large")
+    
     # Flip magnitude axis
     ymin, ymax = axis.get_ylim()
     axis.set_ylim((ymax, ymin))

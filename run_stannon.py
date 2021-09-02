@@ -21,10 +21,13 @@ do_iterative_bad_px_masking = True
 flux_sigma_to_clip = 5
 
 wl_min = 0
+wl_max = 7000
 
 poly_order = 4
 model_type = "basic"
-#model_type = "label_uncertainties"
+
+model_type = "label_uncertainties"
+use_label_uniform_variances = False
 
 model_save_path = "spectra"
 
@@ -79,27 +82,91 @@ obs_join_tess = obs_tess.join(tess_info, "source_id", rsuffix="_info")
 #------------------------------------------------------------------------------
 # Setup training set
 #------------------------------------------------------------------------------
-# Get the parameters
-label_names = ["teff_synth", "logg_synth"]
-e_label_names = ["e_teff_synth", "e_logg_synth"]
+def prepare_labels(obs_join, n_labels=3, e_teff_quad=60, max_teff=4200,):
+    """Prepare our set of training labels using our heirarchy of parameter 
+    source preferences.
 
-#std_mask = ~np.isnan(obs_join["teff_m15"])
-std_mask = np.logical_or(
-    ~np.isnan(obs_join["teff_m15"]),
-    ~np.isnan(obs_join["teff_ra12"]))
+    Teff: Prefer interferometric measurements, otherwise take the uniform Teff
+    scale from Rains+21 which has been benchmarked to the interferometric Teff
+    scale. Add Rains+21 uncertainties in quadrature with standard M+15 
+    uncertainties to ensure that interferometric benchmarks are weighted more
+    highly. Enforce a max Teff limit to avoid warmer stars.
 
-# Preferentially use Mann+15 metallcities
-fehs = np.atleast_2d([row["feh_ra12"] if np.isnan(row["feh_m15"]) else row["feh_m15"]
-        for sid, row in obs_join[std_mask].iterrows()]).T
-e_fehs = np.atleast_2d([row["e_feh_ra12"] if np.isnan(row["e_feh_m15"]) else row["e_feh_m15"]
-        for sid, row in obs_join[std_mask].iterrows()]).T
+    Logg: uniform Logg from Rains+21 (Mann+15 intial guess, updated from fit)
 
-# Prepare label values
-label_values = np.hstack([obs_join[std_mask][label_names].values, fehs])
-label_var = np.hstack([obs_join[std_mask][e_label_names].values, e_fehs])**0.5
+    [Fe/H]: Prefer CPM binary benchmarks, then M+15, then RA+12, then [Fe/H]
+    from other NIR relations (e.g. T+15, G+14), then just default for Solar 
+    Neighbourhood with large uncertainties.
+    """
+    # Intialise mask
+    std_mask = np.full(len(obs_join), True)
+
+    # Initialise label vector
+    label_values = np.full( (len(obs_join), n_labels), np.nan)
+    label_sigma = np.full( (len(obs_join), n_labels), np.nan)
+
+    # Go through one star at a time and select labels
+    for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
+        # Only accept properly vetted stars with consistent Teffs
+        if not star_info["in_paper"]:
+            std_mask[star_i] = False
+            continue
+
+        # Only accept interferometric, M+15, RA+12, and CPM standards
+        elif not (~np.isnan(star_info["teff_int"]) 
+            or ~np.isnan(star_info["teff_m15"])
+            or ~np.isnan(star_info["teff_ra12"])
+            or ~np.isnan(star_info["feh_cpm"])):
+            std_mask[star_i] = False
+            continue
+        
+        # Enforce our max temperature for interferometric standards
+        elif star_info["teff_int"] > max_teff:
+            std_mask[star_i] = False
+            continue
+
+        # Teff: interferometric > Rains+21
+        if not np.isnan(star_info["teff_int"]):
+            label_values[star_i, 0] = star_info["teff_int"]
+            label_sigma[star_i, 0] = star_info["e_teff_int"]
+
+        else:
+            label_values[star_i, 0] = star_info["teff_synth"]
+            label_sigma[star_i, 0] = (
+                star_info["e_teff_synth"]**2 + e_teff_quad**2)**0.5
+
+        # logg: Rains+21
+        label_values[star_i, 1] = star_info["logg_synth"]
+        label_sigma[star_i, 1] = star_info["e_logg_synth"]
+
+        # [Fe/H]: CPM > M+15 > RA+12 > default
+        if not np.isnan(star_info["feh_cpm"]):
+            label_values[star_i, 2] = star_info["feh_cpm"]
+            label_sigma[star_i, 2] = star_info["e_feh_cpm"]
+
+        elif not np.isnan(star_info["feh_m15"]):
+            label_values[star_i, 2] = star_info["feh_m15"]
+            label_sigma[star_i, 2] = star_info["e_feh_m15"]
+
+        elif not np.isnan(star_info["feh_ra12"]):
+            label_values[star_i, 2] = star_info["feh_ra12"]
+            label_sigma[star_i, 2] = star_info["e_feh_ra12"]
+
+        else:
+            label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood
+            label_sigma[star_i, 2] = 0.5    # Default uncertainty
+
+    return label_values, label_sigma, std_mask
+
+# Prepare our labels
+label_values_all, label_sigma_all, std_mask = prepare_labels(obs_join)
+
+label_values = label_values_all[std_mask]
+label_var = label_sigma_all[std_mask]**0.5
 
 # Test with uniform variances
-#label_var = 1e-3 * np.ones_like(label_values)
+if use_label_uniform_variances:
+    label_var = 1e-3 * np.ones_like(label_values)
 
 label_names = ["teff", "logg", "feh"]
 
@@ -117,8 +184,8 @@ adopted_wl_mask = spec.make_wavelength_mask(
     mask_sky_emission=False,
     mask_edges=True,)
 
-# Enforce minimum wavelength
-adopted_wl_mask = np.logical_and(adopted_wl_mask, wls > wl_min)
+# Enforce minimum and maximum wavelengths
+adopted_wl_mask = adopted_wl_mask * (wls > wl_min) * (wls < wl_max)
 
 #------------------------------------------------------------------------------
 # Photometry (optional)
@@ -174,7 +241,7 @@ sm = stannon.Stannon(
     bad_px_mask=bad_px_mask,)
 
 # Train model
-print("\nRunning initial training...")
+print("\nRunning initial training with {} benchmarks...".format(len(label_values)))
 sm.train_cannon_model(suppress_output=suppress_output)
 
 # If we run the iterative bad px masking, train again afterwards
@@ -293,7 +360,7 @@ tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
 splt.plot_cannon_cmd(
     benchmark_colour=obs_join[std_mask]["Bp-Rp"],
     benchmark_mag=obs_join[std_mask]["K_mag_abs"],
-    benchmark_feh=fehs[:,0],
+    benchmark_feh=label_values[:,2],
     science_colour=obs_join_tess["Bp-Rp"],
     science_mag=obs_join_tess["K_mag_abs"],)
 

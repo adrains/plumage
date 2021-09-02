@@ -10,7 +10,9 @@ data {
     matrix[S, P] y_var; // variance on the training set pseudo-continuum-normalized flux values
 
     matrix[S, L] label_means; // *whitened* mean label values (e.g., teff estimate after rescaling)
-    matrix[S, L] label_variances; // *whitened* label variances 
+    matrix[S, L] label_variances; // *whitened* label variances
+
+    matrix[S, 10] design_matrix; // Design matrix that we're passing in
 }
 
 parameters {
@@ -24,6 +26,7 @@ transformed parameters {
 
     matrix[S, P] total_y_err;
 
+    /*
     // Build the design matrix
     matrix[S, 10] design_matrix;
 
@@ -38,7 +41,7 @@ transformed parameters {
         design_matrix[s, 8] = pow(true_labels[s, 2], 2); // logg^2
         design_matrix[s, 9] = true_labels[s, 2] * true_labels[s, 3]; // logg * feh
         design_matrix[s, 10] = pow(true_labels[s, 3], 2); // feh^2
-    }
+    } */
 
     for (s in 1:S) {
         for (p in 1:P) {

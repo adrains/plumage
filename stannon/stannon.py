@@ -381,7 +381,7 @@ class Stannon(object):
         # Suppress output - default behaviour when working. Hides Stan logging
         # and instead shows progress bar
         if suppress_output:
-            for px_i in tqdm(range(n_px), desc="Training"):
+            for px_i in tqdm(range(n_px), smoothing=0.2, desc="Training"):
                 # Suppress Stan output. This is dangerous!
                 with sutils.suppress_output() as sm:
                     self._train_cannon_pixel(px_i, data_dict, init_dict,)
@@ -404,6 +404,10 @@ class Stannon(object):
             If yes, output is suppressed and a progress bar is displayed. Set 
             to false for debugging purposes.
         """
+        # Create design matrix
+        self.vectorizer = PolynomialVectorizer(self.label_names, 2)
+        self.design_matrix = self.vectorizer(self.whitened_labels)
+
         # Initialise theta array
         init_theta = np.atleast_2d(
             np.hstack([1, np.zeros(self.theta.shape[1]-1)]))
@@ -414,7 +418,8 @@ class Stannon(object):
             P=1,
             L=self.L,
             label_means=self.whitened_labels,
-            label_variances=self.whitened_label_vars)
+            label_variances=self.whitened_label_vars,
+            design_matrix=self.design_matrix.T)
 
         init_dict = dict(
             true_labels=self.whitened_labels,
@@ -427,7 +432,7 @@ class Stannon(object):
         # Suppress output - default behaviour when working. Hides Stan logging
         # and instead shows progress bar
         if suppress_output:
-            for px_i in tqdm(range(n_px), desc="Training"):
+            for px_i in tqdm(range(n_px), smoothing=0.2, desc="Training"):
                 # Suppress Stan output. This is dangerous!
                 with sutils.suppress_output() as sm:
                     self._train_cannon_pixel(px_i, data_dict, init_dict,)
@@ -443,13 +448,14 @@ class Stannon(object):
         """
         # Update the data dictionary with flux and ivar values for the current
         # spectral pixel
-        #data_dict.update(
-        #    y=np.atleast_2d(self.masked_data[:, px_i]).T,
-        #    y_var=np.atleast_2d(1/self.masked_data_ivar[:, px_i]).T)
-
-        data_dict.update(
-            y=self.masked_data[:, px_i],
-            y_var=1/self.masked_data_ivar[:, px_i])
+        if self.model_type == "label_uncertainties":
+            data_dict.update(
+                y=np.atleast_2d(self.masked_data[:, px_i]).T,
+                y_var=np.atleast_2d(1/self.masked_data_ivar[:, px_i]).T)
+        else:
+            data_dict.update(
+                y=self.masked_data[:, px_i],
+                y_var=1/self.masked_data_ivar[:, px_i])
 
         kwds = dict(data=data_dict, init=init_dict)
         
