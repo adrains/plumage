@@ -11,7 +11,7 @@ import plumage.plotting as pplt
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of the fits file of spectra
-label = "test"
+label = "cannon"
 
 # Where to load from and save to
 spec_path = "spectra"
@@ -25,13 +25,13 @@ ref_label_r = "51_teff_only_R7000_rv_grid"
 observations = utils.load_fits_table("OBS_TAB", label, path=spec_path)
 
 # Load in science spectra
-wave_b = utils.load_fits_image_hdu("rest_frame_wave", label, arm="b")
-spec_b = utils.load_fits_image_hdu("rest_frame_spec", label, arm="b")
-e_spec_b = utils.load_fits_image_hdu("rest_frame_sigma", label, arm="b")
+wave_b = utils.load_fits_image_hdu("wave", label, arm="b")
+spec_b = utils.load_fits_image_hdu("spec", label, arm="b")
+e_spec_b = utils.load_fits_image_hdu("sigma", label, arm="b")
 
-wave_r = utils.load_fits_image_hdu("rest_frame_wave", label, arm="r")
-spec_r = utils.load_fits_image_hdu("rest_frame_spec", label, arm="r")
-e_spec_r = utils.load_fits_image_hdu("rest_frame_sigma", label, arm="r")
+wave_r = utils.load_fits_image_hdu("wave", label, arm="r")
+spec_r = utils.load_fits_image_hdu("spec", label, arm="r")
+e_spec_r = utils.load_fits_image_hdu("sigma", label, arm="r")
 
 # Whether to do plotting
 make_rv_diagnostic_plots = False

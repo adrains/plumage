@@ -20,7 +20,7 @@ do_cross_validation = False
 do_iterative_bad_px_masking = True
 flux_sigma_to_clip = 5
 
-wl_min = 0
+wl_min = 4000
 wl_max = 7000
 
 poly_order = 4
@@ -30,6 +30,7 @@ model_type = "label_uncertainties"
 use_label_uniform_variances = False
 
 model_save_path = "spectra"
+std_label = "cannon"
 
 #------------------------------------------------------------------------------
 # Imports
@@ -49,19 +50,21 @@ tess_info = utils.load_info_cat(
     do_extinction_correction=False,)
 
 # Load results tables for both standards and TESS targets
-obs_std = utils.load_fits_table("OBS_TAB", "std", path="spectra")
+obs_std = utils.load_fits_table("OBS_TAB", std_label, path="spectra")
 obs_tess = utils.load_fits_table("OBS_TAB", "tess", path="spectra")
 
 # Load in RV corrected standard spectra
-wave_std_br = utils.load_fits_image_hdu("rest_frame_wave", "std", arm="br")
-spec_std_br = utils.load_fits_image_hdu("rest_frame_spec", "std", arm="br")
-e_spec_std_br = utils.load_fits_image_hdu("rest_frame_sigma", "std", arm="br")
+wave_std_br = utils.load_fits_image_hdu("rest_frame_wave", std_label, arm="br")
+spec_std_br = utils.load_fits_image_hdu("rest_frame_spec", std_label, arm="br")
+e_spec_std_br = utils.load_fits_image_hdu("rest_frame_sigma", std_label, arm="br")
 
 spec_std_br, e_spec_std_br = spec.normalise_spectra(
     wave_std_br,
     spec_std_br,
     e_spec_std_br,
-    poly_order=poly_order)
+    poly_order=poly_order,
+    wl_min=wl_min,
+    wl_max=wl_max,)
 
 # Load in RV corrected TESS spectra
 wave_tess_br = utils.load_fits_image_hdu("rest_frame_wave", "tess", arm="br")
@@ -72,7 +75,9 @@ spec_tess_br, e_spec_tess_br = spec.normalise_spectra(
     wave_tess_br,
     spec_tess_br,
     e_spec_tess_br,
-    poly_order=poly_order,)
+    poly_order=poly_order,
+    wl_min=wl_min,
+    wl_max=wl_max,)
 
 # Table joins
 obs_join = obs_std.join(std_info, "source_id", rsuffix="_info")
@@ -83,7 +88,7 @@ obs_join_tess = obs_tess.join(tess_info, "source_id", rsuffix="_info")
 # Setup training set
 #------------------------------------------------------------------------------
 def prepare_labels(obs_join, n_labels=3, e_teff_quad=60, max_teff=4200,):
-    """Prepare our set of training labels using our heirarchy of parameter 
+    """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
     Teff: Prefer interferometric measurements, otherwise take the uniform Teff
@@ -112,10 +117,11 @@ def prepare_labels(obs_join, n_labels=3, e_teff_quad=60, max_teff=4200,):
             std_mask[star_i] = False
             continue
 
-        # Only accept interferometric, M+15, RA+12, and CPM standards
+        # Only accept interferometric, M+15, RA+12, NIR other, & CPM standards
         elif not (~np.isnan(star_info["teff_int"]) 
             or ~np.isnan(star_info["teff_m15"])
             or ~np.isnan(star_info["teff_ra12"])
+            or ~np.isnan(star_info["feh_nir"])
             or ~np.isnan(star_info["feh_cpm"])):
             std_mask[star_i] = False
             continue
@@ -139,7 +145,7 @@ def prepare_labels(obs_join, n_labels=3, e_teff_quad=60, max_teff=4200,):
         label_values[star_i, 1] = star_info["logg_synth"]
         label_sigma[star_i, 1] = star_info["e_logg_synth"]
 
-        # [Fe/H]: CPM > M+15 > RA+12 > default
+        # [Fe/H]: CPM > M+15 > RA+12 > NIR other > Rains+21 > default
         if not np.isnan(star_info["feh_cpm"]):
             label_values[star_i, 2] = star_info["feh_cpm"]
             label_sigma[star_i, 2] = star_info["e_feh_cpm"]
@@ -151,6 +157,14 @@ def prepare_labels(obs_join, n_labels=3, e_teff_quad=60, max_teff=4200,):
         elif not np.isnan(star_info["feh_ra12"]):
             label_values[star_i, 2] = star_info["feh_ra12"]
             label_sigma[star_i, 2] = star_info["e_feh_ra12"]
+
+        elif not np.isnan(star_info["feh_nir"]):
+            label_values[star_i, 2] = star_info["feh_nir"]
+            label_sigma[star_i, 2] = star_info["e_feh_nir"]
+
+        elif not np.isnan(star_info["phot_feh"]):
+            label_values[star_i, 2] = star_info["phot_feh"]
+            label_sigma[star_i, 2] = star_info["e_phot_feh"]
 
         else:
             label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood

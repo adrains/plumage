@@ -36,7 +36,8 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
 
 def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
                      ext_telluric_corr=3, include_subfolders=False, 
-                     use_counts_ext_and_flux=False,):
+                     use_counts_ext_and_flux=False, 
+                     correct_negative_fluxes=False,):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations.
 
@@ -91,6 +92,12 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
     filename_r = []
     fluxed = []
     telluric_corr = []
+    corrected_neg_fluxes_b_all = []
+    corrected_neg_fluxes_r_all = []
+    n_neg_px_b_all = []
+    n_neg_px_r_all = []
+    neg_flux_weight_b_all = []
+    neg_flux_weight_r_all = []
 
     if not include_subfolders:
         spectra_b_path = os.path.join(spectra_folder, "*_b.fits")
@@ -159,6 +166,39 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
             # for use as the "science" spectrum
             spec_b = np.stack(fits_b[ext_sci].data)
             spec_r = np.stack(fits_r[ext_sci].data)
+
+            # PyWiFeS/process_stellar extraction causes non-physical negative
+            # fluxes for some stars, likely those that have a substantial sky
+            # background from e.g. a nearby star. Short of re-reducing these 
+            # stars, we can correct this here in a ~mostly~ rigorous way. 
+            # Uncertainties from this approach will likely be overestimated.
+            # TODO: implement this for when we're not doing our own fluxing.
+            corrected_neg_fluxes_b = False
+            corrected_neg_fluxes_r = False
+
+            n_neg_px_b = np.nansum(spec_b[:,1] < 0)
+            n_neg_px_r = np.nansum(spec_r[:,1] < 0)
+
+            neg_flux_weight_b = np.nan
+            neg_flux_weight_r = np.nan
+            
+            if correct_negative_fluxes and (ext_sci == ext_snr):
+                # Only run if we have negative fluxes
+                if n_neg_px_b > 0:
+                    spec_b, neg_flux_weight_b, _ = correct_neg_counts(spec_b)
+                    corrected_neg_fluxes_b = True
+
+                if n_neg_px_r > 0:
+                    spec_r, neg_flux_weight_r, _ = correct_neg_counts(spec_r)
+                    corrected_neg_fluxes_r = True
+
+            # Regardless, store info on negative flux processing
+            corrected_neg_fluxes_b_all.append(corrected_neg_fluxes_b)
+            corrected_neg_fluxes_r_all.append(corrected_neg_fluxes_r)
+            n_neg_px_b_all.append(n_neg_px_b)
+            n_neg_px_r_all.append(n_neg_px_r)
+            neg_flux_weight_b_all.append(neg_flux_weight_b)
+            neg_flux_weight_r_all.append(neg_flux_weight_r)
 
             # Get headers
             header_b = fits_b[0].header
@@ -268,11 +308,16 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
 
     data = [ids, snrs_b, snrs_r, exp_time, obs_mjd, obs_date, ra, dec, airmass,
             bcor, readmode, grating_b, grating_r, beam_splitter, xbin, ybin, 
-            fullframe, filename_b, filename_r, fluxed, telluric_corr]
+            fullframe, filename_b, filename_r, fluxed, telluric_corr,
+            corrected_neg_fluxes_b_all, corrected_neg_fluxes_r_all, 
+            n_neg_px_b_all, n_neg_px_r_all, neg_flux_weight_b_all, 
+            neg_flux_weight_r_all]
     cols = ["id", "snr_b", "snr_r", "exp_time", "mjd", "date", "ra", 
             "dec", "airmass", "bcor_pw", "readmode", "grating_b", "grating_r", 
             "beam_splitter", "xbin", "ybin", "fullframe", "filename_b", 
-            "filename_r", "fluxed", "telluric_corr"]
+            "filename_r", "fluxed", "telluric_corr", "corrected_neg_fluxes_b", 
+            "corrected_neg_fluxes_r", "n_neg_px_b", "n_neg_px_r",
+            "neg_flux_weight_b", "neg_flux_weight_r",]
 
     # Create our resulting dataframe from a dict comprehension
     data = {col: vals for col, vals in zip(cols, data)}  
@@ -284,6 +329,94 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
 
     return observations, spectra_b, spectra_r
 
+
+def correct_neg_counts(spec, var_rn=11, n_max_weighting=10, 
+    max_px_flux_fac=0.5, useful_frac_uncertainty=0.5, 
+    negative_flux_correct_fac=1.01, do_plot=False,):
+    """
+
+    Note: this function should *only* be run if there are negative fluxes,
+    implying an incorrect sky subtraction.
+    """
+    # Construct mask to only use positive values of flux, and pixels with 
+    # reasonable fractional uncertainties
+    is_pos = spec[:,1] > 0
+    useful_uncertainties = (spec[:,2] / spec[:,1]) < useful_frac_uncertainty
+    mask = np.logical_and(is_pos, useful_uncertainties)
+
+    # Calculate Poisson uncertainty based on the assumed flux on the brightest
+    # spaxel (by default 50% of total flux)
+    sigma_poisson = max_px_flux_fac * spec[mask,1] / np.sqrt(spec[mask,1])
+
+    # Now find the best fit weighting (a combination of the number of pixels
+    # readout, and the seeing - i.e. how concentrated/distributed the flux is).
+    # We do this by approximating the uncertainty as Poisson + readout noise,
+    # and seeing what value of weighting matches best with the observed 
+    # uncertainties.
+    delta_sigma_all = np.zeros(n_max_weighting+1)
+
+    for n_weighting in range(0, n_max_weighting+1):
+        # Predict our uncertainty with the current value of n_weighting
+        sigma_rn = n_weighting * var_rn**0.5
+        sigma_total = np.sqrt(sigma_poisson**2 + sigma_rn**2)
+
+        # Calculate the difference between this and our observed uncertainties
+        delta_sigma = (spec[mask,2] / spec[mask,1]) - (sigma_total / spec[mask,1])
+
+        delta_sigma_all[n_weighting] = np.nansum(np.abs(delta_sigma))
+
+    # Find our optimal weighting - it will have the minimum difference
+    fit_weighting = np.argmin(delta_sigma_all)
+
+    # Now that we've computed the weighting from the data as is, correct
+    # the negative fluxes
+    min_count = np.abs(np.nanmin(spec[:,1]))
+
+    # Increase all pixels by negative_flux_correct_fac x this minimum value 
+    # (i.e. make the assumption that our minimum pixel got some flux, avoid 
+    # division by 0)
+    out_spec = spec.copy()
+    out_spec[:,1] = spec[:,1] + negative_flux_correct_fac * min_count
+
+    # Now recalculate the uncertainties by adding the Poisson uncertainty in 
+    # quadrature with readout noise by assuming our calculated weighting
+    sigma_poisson = out_spec[:,1] / np.sqrt(out_spec[:,1])
+    sigma_rn = fit_weighting * var_rn**0.5
+    
+    # And update the uncertainties
+    sigma_new = np.sqrt(sigma_poisson**2 + sigma_rn**2)
+    out_spec[:,2] = sigma_new
+
+    #sigma_fac = (out_spec[:,2]/out_spec[:,1]) / (spec[:,2]/spec[:,1])
+    #print("Sigma fac = {:0.2f}".format(np.nanmedian(sigma_fac[mask])))
+
+    if do_plot:
+        plt.close("all")
+        plt.errorbar(
+            x=out_spec[:,0],
+            y=out_spec[:,1],
+            yerr=out_spec[:,2],
+            linewidth=0.4,
+            color="#1f77b4",
+            ecolor="k",
+            elinewidth=0.1,
+            label="Corrected",)
+
+        plt.errorbar(
+            x=spec[:,0],
+            y=spec[:,1],
+            yerr=spec[:,2],
+            linewidth=0.4,
+            color="#ff7f0e",
+            ecolor="k",
+            elinewidth=0.1,
+            label="Uncorrected",)
+
+        plt.legend(loc="best")
+
+    return out_spec, fit_weighting, delta_sigma_all
+
+    
 
 # -----------------------------------------------------------------------------
 # Processing spectra
@@ -365,11 +498,12 @@ def clean_spectra(spectra):
         # Set any spectra with negative or zero flux values to np.nan, along
         # with the associated error
         spectra[:,2] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,2])
-        spectra[:,1] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,1])
+        #spectra[:,1] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,1])
 
 
 def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False, 
-                       plot_norm=False, mask=None, poly_order=2):
+                       plot_norm=False, mask=None, poly_order=2, wl_min=0,
+                       wl_max=10000,):
     """Normalise a single spectrum by a 2nd order polynomial in log space. 
     Automatically detects which WiFeS arm and grating is being used and masks 
     out regions accordingly. Currently only implemented for B3000 and R7000.
@@ -429,6 +563,11 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
 
     mask[ignore] = False
 
+    # And mask out everything below/above min/max wavelength. By default this
+    # has no effect as it is broader than the WiFeS bands.
+    ignored_wl_mask = np.logical_or(wl < wl_min, wl > wl_max)
+    mask[ignored_wl_mask] = False
+
     # Normalise wavelength scale (pivot about 0)
     wl_norm = (1/wl - 1/lambda_0)*(wl[0]-lambda_0)
 
@@ -470,7 +609,8 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
         return spectrum_norm.astype(float)
 
 
-def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2):
+def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2, wl_min=0,
+    wl_max=10000,):
     """Normalises all spectra
 
     Parameters
@@ -499,7 +639,9 @@ def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2):
                 wl,
                 spectra[spec_i],
                 e_spectra[spec_i],
-                poly_order=poly_order,)
+                poly_order=poly_order,
+                wl_min=wl_min,
+                wl_max=wl_max,)
 
             spectra_norm[spec_i] = spec_norm
             e_spectra_norm[spec_i] = e_spec_norm
@@ -509,7 +651,9 @@ def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2):
             spec_norm = normalise_spectrum(
                 wl,
                 spectra[spec_i],
-                poly_order=poly_order,)
+                poly_order=poly_order,
+                wl_min=wl_min,
+                wl_max=wl_max,)
 
             spectra_norm[spec_i] = spec_norm
 
@@ -782,41 +926,6 @@ def make_wl_scale(wl_min, wl_max, n_px):
     wl_scale = np.arange(wl_min, wl_max, wl_per_px)
 
     return wl_scale
-
-
-def prepare_cannon_spectra(
-    wl_br,
-    spec_br,
-    e_spec_br,
-    wl_min=0):
-    """Prepare spectra for use in Cannon model. Assume that we are receiving 
-    previously combined blue and red arms.
-
-    TODO: move this function
-    """
-    # Mask emission regions
-    wl_mask = make_wavelength_mask(
-        wl_br,
-        mask_emission=True,
-        mask_sky_emission=False,
-        mask_edges=True,)
-
-    # Enforce minimum wavelength
-    wl_mask = np.logical_and(wl_mask, wl_br > wl_min)
-    
-    wls = wl_br[wl_mask]
-    training_set_flux = spec_br[:, wl_mask]
-    training_set_ivar = 1/e_spec_br[:, wl_mask]**2
-    
-    # If flux is nan, set to 1 and give high variance (inverse variance of 0)
-    training_set_ivar[~np.isfinite(training_set_flux)] = 1e-8
-    training_set_flux[~np.isfinite(training_set_flux)] = 1
-
-    # If the inverse variance is nan, do the same
-    training_set_flux[~np.isfinite(training_set_ivar)] = 1
-    training_set_ivar[~np.isfinite(training_set_ivar)] = 1e-8
-
-    return wls, training_set_flux, training_set_ivar
 
 # -----------------------------------------------------------------------------
 # Radial Velocities
