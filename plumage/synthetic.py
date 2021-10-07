@@ -455,7 +455,7 @@ def get_template_spectra(
     resolution=None,
     n_px=None,
     wl_per_px=None,
-    do_log_resample=True,):
+    do_log_resample=False,):
     """Creates synthetic spectra in a given grating format to serve as RV
     templates.
 

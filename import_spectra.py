@@ -66,8 +66,8 @@ observations, spectra_b, spectra_r = spec.load_all_spectra(
 )
 
 # Clean spectra by setting negative or zero flux values + errors to np.nan
-spec.clean_spectra(spectra_b)
-spec.clean_spectra(spectra_r)
+spec.clean_spectra(spectra_b, do_set_nan_for_neg_px=True)
+spec.clean_spectra(spectra_r, do_set_nan_for_neg_px=True)
 
 # Compute barycentric correction
 print("Computing barycentric velocities...")

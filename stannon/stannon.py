@@ -7,6 +7,7 @@ import pickle
 import stannon.stan_utils as sutils
 from datetime import datetime
 from scipy.optimize import curve_fit
+from stannon.vectorizer import polynomial as svp
 from stannon.vectorizer import PolynomialVectorizer
 
 
@@ -15,8 +16,7 @@ class Stannon(object):
     """
     # Constants
     SUPPORTED_MODELS = ("basic", "label_uncertainties")
-    SUPPORTED_N_LABELS = (3,)
-    N_PX_COEFF = 10   # Note that this should be generalised
+    ORDER = 2
 
     def __init__(self, training_data, training_data_ivar, training_labels, 
                  label_names, wavelengths, model_type, training_variances=None, 
@@ -69,8 +69,13 @@ class Stannon(object):
         self.S, self.P = training_data[:,adopted_wl_mask].shape
         self.L = len(label_names)
 
+        # Set the shape of our theta array
+        lvec = svp.terminator(label_names, order=self.ORDER)
+        self.N_COEFF = 1 + len(
+            svp.parse_label_vector_description(lvec, label_names))
+
         # Initialise theta and scatter
-        self.theta = np.nan * np.ones((self.P, self.N_PX_COEFF))
+        self.theta = np.nan * np.ones((self.P, self.N_COEFF))
         self.s2 = np.nan * np.ones(self.P)
 
         # Initialise cross validation results
@@ -107,10 +112,6 @@ class Stannon(object):
         if value.shape[0] != self.training_data.shape[0]:
             raise ValueError("Shape of training data and label vectors "
                              "inconsistent, must have same first dimension")
-
-        elif value.shape[1] not in self.SUPPORTED_N_LABELS:
-            raise ValueError("Unsupported number of training set labels, see "
-                             "Stannon.SUPPORTED_N_LABELS for allowed values")
         else:
             self._training_labels = value
 
@@ -136,11 +137,6 @@ class Stannon(object):
         if len(value) != self.training_labels.shape[1]:
             raise ValueError("Number of label names inconsistent with shape "
                              "of data array, must share second dimension")
-        
-        # Not sure it is possible to trigger this, but in here for safety
-        elif len(value) not in self.SUPPORTED_N_LABELS:
-            raise ValueError("Unsupported number of training set labels, see "
-                             "Stannon.SUPPORTED_N_LABELS for allowed values")
         else:
             self._label_names = value
 
@@ -222,7 +218,7 @@ class Stannon(object):
 
     @theta.setter
     def theta(self, value):
-        if value.shape != (self.P, self.N_PX_COEFF):
+        if value.shape != (self.P, self.N_COEFF):
             raise ValueError("Dimensions of theta is incorrect, must have "
                              "dimensions [n_px, n_coeff]")
         else:
@@ -264,7 +260,7 @@ class Stannon(object):
             model_name = f"cannon-{self.L:.0f}L-O2.stan"
 
         elif self.model_type == "label_uncertainties":
-            model_name = f"cannon-{self.L:.0f}L-O2-many-pixels.stan"
+            model_name = f"cannon_model_uncertainties.stan"
 
         else:
             # Note that it shouldn't be possible to get to this position, but
@@ -338,7 +334,7 @@ class Stannon(object):
         P = self.masked_data.shape[1]
 
         # Initialise output arrays
-        self.theta = np.nan * np.ones((P, self.N_PX_COEFF))
+        self.theta = np.nan * np.ones((P, self.N_COEFF))
         self.s2 = np.nan * np.ones(P)
 
         # Now run specific training steps
@@ -417,6 +413,7 @@ class Stannon(object):
             S=self.S,
             P=1,
             L=self.L,
+            C=self.N_COEFF,
             label_means=self.whitened_labels,
             label_variances=self.whitened_label_vars,
             design_matrix=self.design_matrix.T)
@@ -662,7 +659,8 @@ class Stannon(object):
         # Construct filename
         filename = os.path.join(
             path, 
-            "stannon_model_{}_{}px.pkl".format(self.model_type, self.P))
+            "stannon_model_{}_{}label_{}px_{}.pkl".format(
+                self.model_type, self.L, self.P, "_".join(self.label_names)))
 
         # Dump our model to disk, and overwrite any existing file.
         with open(filename, 'wb') as output_file:

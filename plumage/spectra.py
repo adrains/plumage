@@ -480,7 +480,7 @@ def flux_calibrate_spectra(
     return spec_fluxed, e_spec_fluxed
 
 
-def clean_spectra(spectra):
+def clean_spectra(spectra, do_set_nan_for_neg_px=False,):
     """Clean non-realistic spectral pixels
 
     Parameters
@@ -498,7 +498,9 @@ def clean_spectra(spectra):
         # Set any spectra with negative or zero flux values to np.nan, along
         # with the associated error
         spectra[:,2] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,2])
-        #spectra[:,1] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,1])
+
+        if do_set_nan_for_neg_px:
+            spectra[:,1] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,1])
 
 
 def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False, 

@@ -5,6 +5,7 @@ data {
     int<lower=1> S; // size of the training set
     int<lower=1> P; // number of pixels
     int<lower=1> L; // number of labels
+    int<lower=1> C; // number of model coefficients per px
 
     matrix[S, P] y; // training set pseudo-continuum-normalised flux values
     matrix[S, P] y_var; // variance on the training set pseudo-continuum-normalized flux values
@@ -12,11 +13,11 @@ data {
     matrix[S, L] label_means; // *whitened* mean label values (e.g., teff estimate after rescaling)
     matrix[S, L] label_variances; // *whitened* label variances
 
-    matrix[S, 10] design_matrix; // Design matrix that we're passing in
+    matrix[S, C] design_matrix; // Design matrix that we're passing in
 }
 
 parameters {
-    matrix[P, 10] theta; // spectral derivatives
+    matrix[P, C] theta; // spectral derivatives
     real<lower=0> s2[P]; // intrinsic variance at each pixel
 
     matrix[S, L] true_labels; // true values of the labels
