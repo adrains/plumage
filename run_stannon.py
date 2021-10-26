@@ -7,6 +7,7 @@ import plumage.spectra as spec
 import plumage.synthetic as synth
 import stannon.stannon as stannon
 import stannon.plotting as splt
+from numpy.polynomial.polynomial import Polynomial
 
 #------------------------------------------------------------------------------
 # Parameters
@@ -39,7 +40,7 @@ std_label = "cannon"
 # Whether to fit for abundances from Montes+18. Not recommended to fit > 1-2.
 # Available options: Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels = ["V_H"]
+abundance_labels = []
 
 label_names = ["teff", "logg", "feh"] + abundance_labels
 n_labels = len(label_names)
@@ -101,7 +102,10 @@ montes18_abund = pd.read_csv(
     dtype={"source_id":str},
     na_filter=False)
 montes18_abund.set_index("source_id", inplace=True)
-obs_join = obs_join.join(montes18_abund, "source_id", rsuffix="_m18")  
+obs_join = obs_join.join(montes18_abund, "source_id", rsuffix="_m18")
+
+# Import Montes+18 abundance trends
+montes18_abund_trends = pd.read_csv("data/montes18_abundance_trends.csv") 
 
 #------------------------------------------------------------------------------
 # Setup training set
@@ -111,7 +115,8 @@ def prepare_labels(
     n_labels=3,
     e_teff_quad=60,
     max_teff=4200,
-    abundance_labels=[],):
+    abundance_labels=[],
+    abundance_trends=montes18_abund_trends,):
     """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
@@ -194,16 +199,23 @@ def prepare_labels(
             label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood
             label_sigma[star_i, 2] = 2.0    # Default uncertainty
 
+        # Note the adopted [Fe/H]
+        feh_adopted = label_values[star_i, 2]
+
         # Other abundances
         for abundance_i, abundance in enumerate(abundance_labels):
             label_i = 3 + abundance_i
 
+            # Use the abundance if we have it
             if not np.isnan(star_info[abundance]):
                 label_values[star_i, label_i] = star_info[abundance]
                 label_sigma[star_i, label_i] = star_info["e{}".format(abundance)]
             
+            # Otherwise default to the solar neighbourhood abundance trend
             else:
-                label_values[star_i, label_i] = 0.0   # Uninformative Solar default
+                poly = Polynomial(abundance_trends[abundance].values)
+                X_H = poly(feh_adopted)
+                label_values[star_i, label_i] = X_H
                 label_sigma[star_i, label_i] = 2.0
 
     return label_values, label_sigma, std_mask
@@ -212,7 +224,8 @@ def prepare_labels(
 label_values_all, label_sigma_all, std_mask = prepare_labels(
     obs_join=obs_join,
     n_labels=n_labels,
-    abundance_labels=abundance_labels,)
+    abundance_labels=abundance_labels,
+    abundance_trends=montes18_abund_trends)
 
 label_values = label_values_all[std_mask]
 label_var = label_sigma_all[std_mask]**0.5
@@ -333,7 +346,8 @@ label_pred_std = np.nanstd(label_values - labels_pred, axis=0)
 std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
 print(std_text.format(*label_pred_std))
 
-fn_label = "_{}_{}_label".format(model_type, len(label_names))
+fn_label = "_{}_{}_label_{}".format(
+    model_type, len(label_names), "_".join(label_names))
 
 # Label recovery for Teff, logg, and [Fe/H]
 splt.plot_label_recovery(
@@ -344,8 +358,7 @@ splt.plot_label_recovery(
     obs_join=obs_join[std_mask],
     fn_suffix=fn_label,)
 
-# Plot label recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM
-# [Fe/H], and abundances if we're working with them
+# Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
 splt.plot_label_recovery_per_source( 
     label_values=sm.training_labels, 
     e_label_values=sm.training_variances**2, 
@@ -353,6 +366,16 @@ splt.plot_label_recovery_per_source(
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L), 
     obs_join=obs_join[std_mask],
     fn_suffix=fn_label,)
+
+# And finally plot the label recovery for any abundances we might be using
+splt.plot_label_recovery_abundances(
+    label_values=sm.training_labels,
+    e_label_values=sm.training_variances**2,
+    label_pred=labels_pred,
+    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
+    obs_join=obs_join[std_mask],
+    fn_suffix=fn_label,
+    abundance_labels=abundance_labels)
 
 # Save theta coefficients - one for each WiFeS arm
 splt.plot_theta_coefficients(
