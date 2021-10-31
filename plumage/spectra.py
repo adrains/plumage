@@ -692,6 +692,123 @@ def norm_spec_by_wl_region(wave, spectrum, arm, e_spec=None):
         return spec_norm
 
 
+def gaussian_weight_matrix(wl, wl_broadening):
+    """Generates a matrix of Gaussian weights given a wavelength vector and
+    broadening width.
+
+    Originally written by Dr Anna Ho.
+    https://github.com/annayqho/TheCannon/blob/master/TheCannon/normalization.py
+
+    Parameters
+    ----------
+    wl: numpy ndarray
+        pixel wavelength values
+    wl_broadening: float
+        width of Gaussian in Angstroms.
+
+    Return
+    ------
+    Weight matrix
+    """
+    weights = np.exp(-0.5*(wl[:,None]-wl[None,:])**2/wl_broadening**2)
+
+    return weights
+
+
+def do_gaussian_spectrum_normalisation(
+    wl,
+    flux,
+    ivar,
+    adopted_px_mask,
+    wl_broadening,):
+    """ Returns the weighted mean block of spectra
+
+    Originally written by Dr Anna Ho.
+    https://github.com/annayqho/TheCannon/blob/master/TheCannon/normalization.py
+
+    Parameters
+    ----------
+    wl: numpy ndarray
+
+        wavelength vector
+    flux: numpy ndarray
+
+        block of flux values 
+    ivar: numpy ndarray
+
+        block of ivar values
+    L: float
+        width of Gaussian used to assign weights
+
+    Returns
+    -------
+    smoothed_fluxes: numpy ndarray
+        block of smoothed flux values, mean spectra
+    """
+    # 1) generate Gaussian weights for just the pixels we're using
+    useful_wl = wl[adopted_px_mask]
+    useful_fluxes = flux[adopted_px_mask]
+    useful_ivar = ivar[adopted_px_mask]
+
+    weights = gaussian_weight_matrix(useful_wl, wl_broadening)
+
+    # 2) generate Gaussian normalisation for just good pixels
+    denominator = np.dot(useful_ivar, weights.T)
+    numerator = np.dot(useful_fluxes*useful_ivar, weights.T)
+    bad = denominator == 0
+    #cont = np.zeros(numerator.shape)
+    continuum_sparse = numerator[~bad] / denominator[~bad]
+
+    # 3) interpolate this for every pixel in our wavelength vector
+    continuum_func = interp1d(
+        useful_wl,
+        continuum_sparse,
+        fill_value='extrapolate')
+
+    continuum = continuum_func(wl)
+
+    # 4) normalise
+    flux_norm = flux / continuum
+    ivar_norm = ivar * continuum**2
+
+    return flux_norm, ivar_norm, continuum
+
+
+def gaussian_normalise_spectra(
+    wl,
+    fluxes,
+    ivars,
+    adopted_wl_mask,
+    bad_px_masks,
+    wl_broadening,):
+    """Gaussian normalises a set of spectra
+    """ 
+    # Initialise outputs
+    fluxes_norm = np.ones_like(fluxes)
+    ivars_norm = np.ones_like(fluxes)
+    continua = np.ones_like(fluxes)
+
+    tqdm_label = "Gaussian normalising spectra"
+
+    for spec_i in tqdm(range(len(fluxes)), desc=tqdm_label):
+        # Make mask
+        norm_mask = adopted_wl_mask * ~bad_px_masks[spec_i]
+        
+        # Run normalisation for each spectrum
+        flux_norm, ivar_norm, continuum = do_gaussian_spectrum_normalisation(
+            wl=wl,
+            flux=fluxes[spec_i],
+            ivar=ivars[spec_i],
+            adopted_px_mask=norm_mask,
+            wl_broadening=wl_broadening,)
+
+        fluxes_norm[spec_i,:] = flux_norm
+        ivars_norm[spec_i,:] = ivar_norm
+        continua[spec_i,:] = continuum
+        
+    return fluxes_norm, ivars_norm, continua
+
+
 def merge_wifes_arms(wl_b, spec_b, wl_r, spec_r):
     """Merge WiFeS arms with proper normalisation, then remove overlap region.
     """

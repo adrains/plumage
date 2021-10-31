@@ -9,6 +9,7 @@ from datetime import datetime
 from scipy.optimize import curve_fit
 from stannon.vectorizer import polynomial as svp
 from stannon.vectorizer import PolynomialVectorizer
+from numpy.polynomial.polynomial import Polynomial
 
 
 class Stannon(object):
@@ -832,3 +833,134 @@ def prepare_training_set(observations, spectra_b, spectra_r, std_params_all):
         std_params = std_params.append(std_params_all.loc[idx])
 
     return std_observations, std_spectra_b, std_spectra_r, std_params
+
+def prepare_labels(
+    obs_join,
+    n_labels=3,
+    e_teff_quad=60,
+    max_teff=4200,
+    abundance_labels=[],
+    abundance_trends=None,):
+    """Prepare our set of training labels using our hierarchy of parameter 
+    source preferences.
+
+    Teff: Prefer interferometric measurements, otherwise take the uniform Teff
+    scale from Rains+21 which has been benchmarked to the interferometric Teff
+    scale. Add Rains+21 uncertainties in quadrature with standard M+15 
+    uncertainties to ensure that interferometric benchmarks are weighted more
+    highly. Enforce a max Teff limit to avoid warmer stars.
+
+    Logg: uniform Logg from Rains+21 (Mann+15 intial guess, updated from fit)
+
+    [Fe/H]: Prefer CPM binary benchmarks, then M+15, then RA+12, then [Fe/H]
+    from other NIR relations (e.g. T+15, G+14), then just default for Solar 
+    Neighbourhood with large uncertainties.
+
+    Parameters
+    ----------
+    TODO
+
+    Returns
+    -------
+    TODO
+    label_values, label_sigma, std_mask, label_sources
+    """
+    # Intialise mask
+    std_mask = np.full(len(obs_join), True)
+
+    # Initialise label vector
+    label_values = np.full( (len(obs_join), n_labels), np.nan)
+    label_sigma = np.full( (len(obs_join), n_labels), np.nan)
+
+    # Initialise record of label source/s
+    label_sources = np.full( (len(obs_join), n_labels), "").astype(object)
+
+    # Go through one star at a time and select labels
+    for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
+        # Only accept properly vetted stars with consistent Teffs
+        if not star_info["in_paper"]:
+            std_mask[star_i] = False
+            continue
+
+        # Only accept interferometric, M+15, RA+12, NIR other, & CPM standards
+        elif not (~np.isnan(star_info["teff_int"]) 
+            or ~np.isnan(star_info["teff_m15"])
+            or ~np.isnan(star_info["teff_ra12"])
+            or ~np.isnan(star_info["feh_nir"])
+            or ~np.isnan(star_info["feh_cpm"])):
+            std_mask[star_i] = False
+            continue
+        
+        # Enforce our max temperature for interferometric standards
+        elif star_info["teff_int"] > max_teff:
+            std_mask[star_i] = False
+            continue
+
+        # Teff: interferometric > Rains+21
+        if not np.isnan(star_info["teff_int"]):
+            label_values[star_i, 0] = star_info["teff_int"]
+            label_sigma[star_i, 0] = star_info["e_teff_int"]
+            label_sources[star_i, 0] = star_info["int_source"]
+
+        else:
+            label_values[star_i, 0] = star_info["teff_synth"]
+            label_sigma[star_i, 0] = (
+                star_info["e_teff_synth"]**2 + e_teff_quad**2)**0.5
+            label_sources[star_i, 0] = "R21"
+
+        # logg: Rains+21
+        label_values[star_i, 1] = star_info["logg_synth"]
+        label_sigma[star_i, 1] = star_info["e_logg_synth"]
+        label_sources[star_i, 1] = "R21"
+
+        # [Fe/H]: CPM > M+15 > RA+12 > NIR other > Rains+21 > default
+        if not np.isnan(star_info["feh_cpm"]):
+            label_values[star_i, 2] = star_info["feh_cpm"]
+            label_sigma[star_i, 2] = star_info["e_feh_cpm"]
+            label_sources[star_i, 2] = star_info["source_cpm"]
+
+        elif not np.isnan(star_info["feh_m15"]):
+            label_values[star_i, 2] = star_info["feh_m15"]
+            label_sigma[star_i, 2] = star_info["e_feh_m15"]
+            label_sources[star_i, 2] = "M15"
+
+        elif not np.isnan(star_info["feh_ra12"]):
+            label_values[star_i, 2] = star_info["feh_ra12"]
+            label_sigma[star_i, 2] = star_info["e_feh_ra12"]
+            label_sources[star_i, 2] = "RA12"
+
+        elif not np.isnan(star_info["feh_nir"]):
+            label_values[star_i, 2] = star_info["feh_nir"]
+            label_sigma[star_i, 2] = star_info["e_feh_nir"]
+            label_sources[star_i, 2] = star_info["nir_source"]
+
+        elif not np.isnan(star_info["phot_feh"]):
+            label_values[star_i, 2] = star_info["phot_feh"]
+            label_sigma[star_i, 2] = star_info["e_phot_feh"]
+            label_sources[star_i, 2] = "R21"
+
+        else:
+            label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood
+            label_sigma[star_i, 2] = 2.0    # Default uncertainty
+
+        # Note the adopted [Fe/H]
+        feh_adopted = label_values[star_i, 2]
+
+        # Other abundances
+        for abundance_i, abundance in enumerate(abundance_labels):
+            label_i = 3 + abundance_i
+
+            # Use the abundance if we have it
+            if not np.isnan(star_info[abundance]):
+                label_values[star_i, label_i] = star_info[abundance]
+                label_sigma[star_i, label_i] = star_info["e{}".format(abundance)]
+                label_sources[star_i, label_i] = "M18"
+            
+            # Otherwise default to the solar neighbourhood abundance trend
+            else:
+                poly = Polynomial(abundance_trends[abundance].values)
+                X_H = poly(feh_adopted)
+                label_values[star_i, label_i] = X_H
+                label_sigma[star_i, label_i] = 2.0
+
+    return label_values, label_sigma, std_mask, label_sources

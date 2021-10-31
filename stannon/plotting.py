@@ -612,8 +612,8 @@ def plot_theta_coefficients(
     plt.xlabel("Wavelength (A)")
     
     plt.tight_layout()
-    plt.savefig("paper/theta_coefficients_{}_{}.pdf".format(label, fn_suffix))
-    plt.savefig("paper/theta_coefficients_{}_{}.png".format(label, fn_suffix),
+    plt.savefig("paper/theta_coefficients_{}{}.pdf".format(label, fn_suffix))
+    plt.savefig("paper/theta_coefficients_{}{}.png".format(label, fn_suffix),
         dpi=200)
 
 
