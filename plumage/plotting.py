@@ -2801,6 +2801,120 @@ def plot_confirmed_planet_comparison(
     plt.savefig("paper/lit_planet_comp.png")
 
 
+def plot_planet_feh_correlation(
+    obs_tab,
+    tic_info,
+    host_star_fehs,
+    giant_planet_rp=5,
+    use_default_bins=True,
+    custom_nbins=4,
+    plot_poisson_errors=True,):
+    """Plot two histograms in host star [Fe/H] for stars with planets above
+    and below giant_planet_rp R_earth.
+
+    """
+    # Initialise
+    n_planets = np.zeros(len(obs_tab))
+    has_giant_planet = np.full(len(obs_tab), False)
+
+    # Go through every star and check fits from Rains+21
+    for tic_i, tic in enumerate(obs_tab["TIC"].values):
+        tic_mask = tic_info["TIC"] == tic
+
+        n_planets[tic_i] = len(tic_info[tic_mask])
+
+        planet_giant_status = tic_info[tic_mask]["rp_fit"] > giant_planet_rp
+        has_giant_planet[tic_i] = np.sum(planet_giant_status) > 0
+
+    # Only plot those stars with planet params in Rains+21
+    in_rains21 = n_planets > 0
+
+    # Initialise the number of bins. By defauly, this is two sub-solar bins,
+    # and two super-solar bins.
+    if use_default_bins:
+        bins = np.linspace(-0.5, 0.5, 5)
+    else:
+        bins = np.linspace(
+            np.min(host_star_fehs),
+            np.max(host_star_fehs),
+            custom_nbins+1)
+
+    # Note that we only want to plot stars with a measured planet radius from 
+    # Rains+21, but some stars 
+    has_giant_planet_mask = np.logical_and(has_giant_planet, in_rains21)
+    no_giant_planet_mask = np.logical_and(~has_giant_planet, in_rains21)
+
+    plt.close("all")
+    fig, axis = plt.subplots()
+
+    no_giant_label = r"No planet/s with ($R_P>{}\,R\oplus$) ({} stars)".format(
+        giant_planet_rp, np.sum(no_giant_planet_mask))
+
+    giant_label = r"Has planet/s with ($R_P>{}\,R\oplus$) ({} stars)".format(
+        giant_planet_rp, np.sum(has_giant_planet_mask))
+
+    # Plot histograms
+    hist_1, _, _ = axis.hist(
+        x=host_star_fehs[no_giant_planet_mask],
+        bins=bins,
+        alpha=0.6,
+        linewidth=0.5,
+        edgecolor="black",
+        zorder=0,
+        label=no_giant_label)
+
+    hist_2, _, _ = axis.hist(
+        x=host_star_fehs[np.logical_and(has_giant_planet_mask, in_rains21)],
+        bins=bins,
+        alpha=0.6,
+        linewidth=0.5,
+        edgecolor="black",
+        zorder=2,
+        label=giant_label)
+
+    # Plot Poisson uncertainties for each bin
+    if plot_poisson_errors:
+        bin_width = bins[1] - bins[0]
+        axis.errorbar(
+            x=bins[1:]-bin_width/2,
+            y=hist_1,
+            yerr=np.sqrt(hist_1),
+            fmt='none',
+            zorder=1,
+            linewidth=2,
+            e_linewidth=0.5,
+            ecolor="#1f77b4",
+            barsabove=True,
+            capsize=3,)
+
+        axis.errorbar(
+            x=bins[1:]-bin_width/2,
+            y=hist_2,
+            yerr=np.sqrt(hist_2),
+            fmt='none',
+            zorder=3,
+            linewidth=1,
+            e_linewidth=0.5,
+            ecolor="#ff7f0e",
+            barsabove=True,
+            capsize=3,)
+
+    axis.legend(loc="best")
+    axis.set_xlabel("Host Star [Fe/H]", fontsize="large")
+
+    axis.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.125))
+    axis.xaxis.set_major_locator(plticker.MultipleLocator(base=0.25))
+    axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=1))
+    axis.yaxis.set_major_locator(plticker.MultipleLocator(base=2))
+
+    axis.tick_params(axis='both', which='major', labelsize="large")
+
+    plt.gcf().set_size_inches(6, 4)
+    plt.tight_layout()
+    plt.savefig("paper/planet_feh_hist.pdf")
+    plt.savefig("paper/planet_feh_hist.png", dpi=200)
+
+
 # -----------------------------------------------------------------------------
 # Light curve fitting
 # ----------------------------------------------------------------------------- 

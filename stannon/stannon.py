@@ -6,6 +6,7 @@ from tqdm import tqdm
 import pickle
 import stannon.stan_utils as sutils
 from datetime import datetime
+import plumage.spectra as spec
 from scipy.optimize import curve_fit
 from stannon.vectorizer import polynomial as svp
 from stannon.vectorizer import PolynomialVectorizer
@@ -964,3 +965,59 @@ def prepare_labels(
                 label_sigma[star_i, label_i] = 2.0
 
     return label_values, label_sigma, std_mask, label_sources
+
+def prepare_cannon_spectra_normalisation(
+    wls,
+    spectra,
+    e_spectra,
+    wl_min_model=4000,
+    wl_max_model=7000,
+    wl_min_normalisation=4000,
+    wl_broadening=50,
+    do_gaussian_spectra_normalisation=True,
+    poly_order=5,):
+    """Prepares spectra for Cannon input using one of two normalisation methods.
+    """
+    # Construct mask for emission regions - useful regions are *TRUE*
+    adopted_wl_mask = spec.make_wavelength_mask(
+        wls,
+        mask_emission=True,
+        mask_sky_emission=False,
+        mask_edges=True,)
+
+    # Enforce minimum and maximum wavelengths
+    adopted_wl_mask = adopted_wl_mask * (wls > wl_min_model) * (wls < wl_max_model)
+
+    # Normalise using a Gaussian
+    if do_gaussian_spectra_normalisation:
+        # Convert uncertainties to inverse variances, get an initial bad pixel mask
+        # flagging nan pixels for each spectrum.
+        fluxes, flux_ivar, bad_px_mask = prepare_fluxes(
+            spectra,
+            e_spectra,)
+
+        # Normalise training sample
+        fluxes_norm, ivars_norm, continua = spec.gaussian_normalise_spectra(
+            wl=wls,
+            fluxes=fluxes,
+            ivars=flux_ivar,
+            adopted_wl_mask=adopted_wl_mask,
+            bad_px_masks=bad_px_mask,
+            wl_broadening=wl_broadening,)
+
+    # Otherwise do polynomial normalisation
+    else:
+        spectra_norm, e_spec_norm = spec.normalise_spectra(
+            wls,
+            spectra,
+            e_spectra,
+            poly_order=poly_order,
+            wl_min=wl_min_normalisation,)
+        
+        # And put in Cannon form
+        fluxes_norm, ivars_norm, bad_px_mask = prepare_fluxes(
+            spectra_norm,
+            e_spec_norm,)
+
+    # Return
+    return fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask
