@@ -7,7 +7,7 @@ import plumage.utils as utils
 import plumage.plotting as pplt
 import stannon.stannon as stannon
 import stannon.plotting as splt
-import matplotlib.pyplot as plt
+import stannon.tables as stab
 
 #------------------------------------------------------------------------------
 # Parameters and Setup
@@ -104,7 +104,7 @@ ivars_norm[bad_px_mask] = 0
 # Predict labels for TESS targets
 #------------------------------------------------------------------------------
 # Predict labels
-tess_labels_pred, tess_errs_all, tess_chi2_all = sm.infer_labels(
+tess_labels_pred, e_tess_labels_pred, tess_chi2_all = sm.infer_labels(
     fluxes_norm[:,sm.adopted_wl_mask],
     ivars_norm[:,sm.adopted_wl_mask])
 
@@ -115,8 +115,9 @@ tess_labels_pred -= systematic_vector
 
 # Create uncertainties vector. TODO: do this in quadrature with those output
 # from infer_labels
-uncertainties_vector = np.tile(adopted_label_uncertainties, np.sum(tess_mask))
-e_fit = uncertainties_vector.reshape([np.sum(tess_mask), n_labels])
+cross_val_sigma = np.tile(adopted_label_uncertainties, np.sum(tess_mask))
+cross_val_sigma = cross_val_sigma.reshape([np.sum(tess_mask), n_labels])
+e_tess_labels_pred = np.sqrt(e_tess_labels_pred**2 + cross_val_sigma**2)
 
 """
 # Plot a joint CMD of benchmarks and science targets
@@ -138,11 +139,38 @@ splt.plot_cannon_cmd(
 # Plot Kiel Diagram for results
 splt.plot_kiel_diagram(
     teffs=tess_labels_pred[:,0],
-    e_teffs=e_fit[:,0],
+    e_teffs=e_tess_labels_pred[:,0],
     loggs=tess_labels_pred[:,1],
-    e_loggs=e_fit[:,1],
+    e_loggs=e_tess_labels_pred[:,1],
     fehs=tess_labels_pred[:,2],
     label="science",)
+
+# Plot spectra comparison
+bp_rp_order = np.argsort(obs_join_tess[tess_mask]["Bp-Rp"].values)
+splt.plot_spectra_comparison(
+    sm=sm,
+    obs_join=obs_join_tess[tess_mask],
+    fluxes=fluxes_norm,
+    bad_px_masks=bad_px_mask,
+    labels_all=tess_labels_pred,
+    source_ids=obs_join_tess[tess_mask].index[bp_rp_order],
+    x_lims=(wl_min_model,wl_max_model),
+    fn_label="d",
+    data_label="tess",
+    star_name_col="TOI")
+
+caption = "TESS candidate planet host parameter fits (corrected for systematics)"
+
+# Make results table
+stab.make_table_parameter_fit_results(
+    obs_tab=obs_join_tess[tess_mask],
+    label_fits=tess_labels_pred,
+    e_label_fits=e_tess_labels_pred,
+    abundance_labels=abundance_labels,
+    break_row=61,
+    star_label=("TOI", "TOI"),
+    table_label="tess",
+    caption=caption,)
 
 #------------------------------------------------------------------------------
 # Planet-star correlations

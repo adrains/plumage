@@ -620,11 +620,16 @@ def plot_theta_coefficients(
 def plot_spectra_comparison(
     sm,
     obs_join,
+    fluxes,
+    bad_px_masks,
+    labels_all,
     source_ids,
     y_offset=1.8,
     x_lims=(5400,7000),
     x_ticks=(200,100),
-    fn_label="",):
+    fn_label="",
+    data_label="",
+    star_name_col="simbad_name",):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
     """
@@ -650,8 +655,8 @@ def plot_spectra_comparison(
         hatch=None)
 
     # Do bad px masking
-    masked_spectra = sm.training_data.copy()
-    masked_spectra[sm.bad_px_mask] = np.nan
+    masked_spectra = fluxes.copy()
+    masked_spectra[bad_px_masks] = np.nan
 
     # For every star in source_ids, plot blue and red spectra
     for star_i, source_id in enumerate(source_ids):
@@ -659,9 +664,9 @@ def plot_spectra_comparison(
         bm_i = int(np.argwhere(obs_join.index == source_id))
 
         # Generate a model spectrum (with nans for our excluded regions)
-        labels = sm.training_labels[bm_i]
+        labels = labels_all[bm_i]
 
-        spec_gen = np.full(sm.training_data.shape[1], np.nan)
+        spec_gen = np.full(fluxes.shape[1], np.nan)
         spec_gen[sm.adopted_wl_mask] = sm.generate_spectra(labels)
 
         # Plot observed spectrum
@@ -683,7 +688,7 @@ def plot_spectra_comparison(
         # Label spectrum
         star_txt = r"{}, $T_{{\rm eff}}={:0.0f}\,$K, [Fe/H]$ = ${:+.2f}"
         star_txt = star_txt.format(
-            obs_join.loc[source_id]["simbad_name"],
+            obs_join.loc[source_id][star_name_col],
             labels[0],
             labels[2])
 
@@ -711,5 +716,5 @@ def plot_spectra_comparison(
     ax.set_xlabel("Wavelength (A)")
     plt.tight_layout()
 
-    plt.savefig("paper/cannon_spectra_comp_{}.pdf".format(fn_label))
-    plt.savefig("paper/cannon_spectra_comp_{}.png".format(fn_label), dpi=200)
+    plt.savefig("paper/cannon_spectra_comp_{}_{}.pdf".format(data_label, fn_label))
+    plt.savefig("paper/cannon_spectra_comp_{}_{}.png".format(data_label, fn_label), dpi=200)

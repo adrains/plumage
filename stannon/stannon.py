@@ -537,8 +537,7 @@ class Stannon(object):
                     * ivar / (1 + ivar * self.s2**2))
             chi2_all[star_i] = sum(chi2)
             labels_all[star_i,:] = labels * self.std_labels + self.mean_labels
-            errs_all[star_i,:] = (np.sqrt(cov.diagonal()) * self.std_labels
-                                  + self.mean_labels)
+            errs_all[star_i,:] = (np.sqrt(cov.diagonal()) * self.std_labels)
 
         return labels_all, errs_all, chi2_all
 

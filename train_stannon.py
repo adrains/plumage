@@ -261,6 +261,9 @@ representative_stars_source_ids = [
 splt.plot_spectra_comparison(
     sm=sm,
     obs_join=obs_join[std_mask],
+    fluxes=sm.training_data,
+    bad_px_masks=sm.bad_px_mask,
+    labels_all=labels_pred,
     source_ids=representative_stars_source_ids,
     x_lims=(wl_min_model,5400),
     fn_label="b",)
@@ -269,6 +272,9 @@ splt.plot_spectra_comparison(
 splt.plot_spectra_comparison(
     sm=sm,
     obs_join=obs_join[std_mask],
+    fluxes=sm.training_data,
+    bad_px_masks=sm.bad_px_mask,
+    labels_all=labels_pred,
     source_ids=representative_stars_source_ids,
     x_lims=(5400,wl_max_model),
     fn_label="r",)
@@ -278,9 +284,13 @@ bp_rp_order = np.argsort(obs_join[std_mask]["Bp-Rp"])
 splt.plot_spectra_comparison(
     sm=sm,
     obs_join=obs_join[std_mask],
+    fluxes=sm.training_data,
+    bad_px_masks=sm.bad_px_mask,
+    labels_all=labels_pred,
     source_ids=obs_join[std_mask].index[bp_rp_order],
     x_lims=(wl_min_model,wl_max_model),
-    fn_label="d",)
+    fn_label="d",
+    data_label="benchmark",)
 
 # Tabulate our adopted benchmark parameters
 stab.make_table_benchmark_overview(

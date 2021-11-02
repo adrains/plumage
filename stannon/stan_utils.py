@@ -265,7 +265,7 @@ def infer_labels(theta, scatter, fluxes, ivars, lbl_mean, lbl_std, n_labels=3):
                 * ivar / (1 + ivar * scatter**2))
         chi2_all[star_i] = sum(chi2)
         labels_all[star_i,:] = labels * lbl_std + lbl_mean
-        errs_all[star_i,:] = np.sqrt(cov.diagonal()) * lbl_std + lbl_mean
+        errs_all[star_i,:] = np.sqrt(cov.diagonal()) * lbl_std
 
     return labels_all, errs_all, chi2_all
 
