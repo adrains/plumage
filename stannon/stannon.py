@@ -21,8 +21,9 @@ class Stannon(object):
     ORDER = 2
 
     def __init__(self, training_data, training_data_ivar, training_labels, 
-                 label_names, wavelengths, model_type, training_variances=None, 
-                 adopted_wl_mask=None, data_mask=None, bad_px_mask=None):
+                 training_ids, label_names, wavelengths, model_type, 
+                 training_variances=None, adopted_wl_mask=None, data_mask=None, 
+                 bad_px_mask=None):
         """Stannon class to encapsulate Cannon functionality.
 
         Parameters
@@ -35,6 +36,8 @@ class Stannon(object):
 
         training_labels: 2D numpy array
             Labels for the training set, of shape [S spectra, L labels]
+
+        training_ids: 
 
         label_names: 1D array_like
             1D array of label/column names corresponding to training_labels. Of
@@ -60,6 +63,7 @@ class Stannon(object):
         self.training_data = training_data
         self.training_data_ivar = training_data_ivar
         self.training_labels = training_labels
+        self.training_ids = training_ids
         self.label_names = label_names
         self.wavelengths = wavelengths
         self.model_type = model_type
@@ -116,6 +120,19 @@ class Stannon(object):
                              "inconsistent, must have same first dimension")
         else:
             self._training_labels = value
+
+    @property
+    def training_ids(self):
+        return self._training_ids
+
+    @training_ids.setter
+    def training_ids(self, value):
+        # Check dimensions
+        if len(value) != self.training_data.shape[0]:
+            raise ValueError("Number of training IDs must be the same as the "
+                             "first data dimension (i.e. # stars).")
+        else:
+            self._training_ids = value
 
     @property
     def wavelengths(self):
@@ -645,6 +662,7 @@ class Stannon(object):
             "training_data":self.training_data,
             "training_data_ivar":self.training_data_ivar,
             "training_labels":self.training_labels,
+            "training_ids":self.training_ids,
             "label_names":self.label_names,
             "wavelengths":self.wavelengths,
             "model_type":self.model_type,
@@ -687,7 +705,8 @@ def load_model(filename):
         sm = Stannon(
             training_data=class_dict["training_data"],
             training_data_ivar=class_dict["training_data_ivar"],
-            training_labels=class_dict["training_labels"], 
+            training_labels=class_dict["training_labels"],
+            training_ids=class_dict["training_ids"],
             label_names=class_dict["label_names"],
             wavelengths=class_dict["wavelengths"],
             model_type=class_dict["model_type"],

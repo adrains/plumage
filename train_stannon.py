@@ -113,6 +113,9 @@ label_values_all, label_sigma_all, std_mask, label_sources = stannon.prepare_lab
     abundance_labels=abundance_labels,
     abundance_trends=montes18_abund_trends)
 
+# Grab the IDs of the selected stars
+benchmark_source_ids = obs_join[std_mask].index.values
+
 label_values = label_values_all[std_mask]
 label_var = label_sigma_all[std_mask]**0.5
 
@@ -148,7 +151,8 @@ print("\n", "%"*80, "\n\n", sep="")
 sm = stannon.Stannon(
     training_data=training_set_flux,
     training_data_ivar=training_set_ivar,
-    training_labels=label_values, 
+    training_labels=label_values,
+    training_ids=benchmark_source_ids,
     label_names=label_names,
     wavelengths=wls,
     model_type=model_type,
@@ -181,7 +185,7 @@ else:
 sm.save_model(model_save_path)
 
 #------------------------------------------------------------------------------
-# Diagnostics, plotting, tables
+# Diagnostics and plotting
 #------------------------------------------------------------------------------
 # Work out uncertainties
 label_pred_std = np.nanstd(label_values - labels_pred, axis=0)
@@ -292,6 +296,9 @@ splt.plot_spectra_comparison(
     fn_label="d",
     data_label="benchmark",)
 
+#------------------------------------------------------------------------------
+# Tables
+#------------------------------------------------------------------------------
 # Tabulate our adopted benchmark parameters
 stab.make_table_benchmark_overview(
     obs_tab=obs_join[std_mask],
