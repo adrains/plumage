@@ -202,7 +202,12 @@ splt.plot_label_recovery(
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
     obs_join=obs_join[std_mask],
-    fn_suffix=fn_label,)
+    fn_suffix=fn_label,
+    teff_lims=(2750,4300),
+    teff_ticks=(500,250,200,100),
+    logg_ticks=(0.25,0.125,0.2,0.1),
+    feh_lims=(-1.1,0.65),
+    feh_ticks=(0.5,0.25,0.4,0.2),)
 
 # Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
 splt.plot_label_recovery_per_source( 
@@ -221,24 +226,35 @@ splt.plot_label_recovery_abundances(
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
     obs_join=obs_join[std_mask],
     fn_suffix=fn_label,
-    abundance_labels=abundance_labels)
+    abundance_labels=abundance_labels,
+    feh_lims=(-0.65,0.65),
+    feh_ticks=(0.4,0.2,0.2,0.1))
 
 # Save theta coefficients - one for each WiFeS arm
 splt.plot_theta_coefficients(
     sm,
+    teff_scale=1.0,
     x_lims=(wl_min_model,5400),
-    y_theta_lims=(-0.06,0.06),
-    y_s2_lims=(-0.001, 0.006),
+    y_spec_lims=(0,2.25),
+    y_theta_lims=(-0.25,0.25),
+    y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
     label="b",
-    fn_suffix=fn_label,) 
+    linewidth=0.9,
+    alpha=0.8,
+    fn_suffix=fn_label,)
 
 splt.plot_theta_coefficients(
     sm,
+    teff_scale=1.0,
     x_lims=(5400,wl_max_model),
-    y_s2_lims=(-0.0005, 0.005),
+    y_spec_lims=(0,2.25),
+    y_theta_lims=(-0.12,0.12),
+    y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
     label="r",
+    linewidth=0.9,
+    alpha=0.8,
     fn_suffix=fn_label,)
 
 # Plot comparison of observed vs model spectra. Here we've picked a set of 
@@ -247,18 +263,15 @@ representative_stars_source_ids = [
     "5853498713160606720",      # M5.5 +, GJ 551
     "2467732906559754496",      # M5.1, 0, GJ 3119
     "2358524597030794112",      # M5, -, PM J01125-1659
-
+    "3195919322830293760",      # M5, Gl 166 C
+    "6322070093095493504",      # M2, GJ 581
     "2603090003484152064",      # M3, +, GJ 876
-    "4508377078422114944",      # M4, 0, GJ 4065
     "4472832130942575872",      # M4, -, Gl 699
-
     "2910909931633597312",      # M3, +, LP 837-53
     "3184351876391975808",      # M2, 0, Gl 173
-    "2979590513145784192",      # M2, -, Gl 180
-
+    "2739689239311660672",      # M0, Gl 908
     "145421309108301184",       # K8, +, Gl 169
-    "2533723464155234176",      # K8, 0, Gl 56.3 B
-    "1244644727396803584",      # K8, -, Gl 525
+    "4282578724832056576",      # M0.7, Gl 740
 ]
 
 # Plot model spectrum performance for WiFeS blue band

@@ -821,7 +821,7 @@ def merge_wifes_arms(wl_b, spec_b, wl_r, spec_r):
 
     # Normalise blue by overlap
     norm_mask_b = np.logical_and(wl_b > 5400, wl_b < 5445)
-    norm_spec_b = spec_b / np.nanmean(spec_b[norm_mask_b]) / norm_fac_overlap
+    norm_spec_b = spec_b / np.nanmean(spec_b[norm_mask_b]) * norm_fac_overlap
 
     # Now get rid of overlap region
     overlap_mask = wl_b < 5400

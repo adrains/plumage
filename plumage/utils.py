@@ -918,7 +918,8 @@ def load_info_cat(
     skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",
     unresolved_equal_mass_binary_list=[],
     unresolved_equal_mass_binary_mag_diff=0.75,
-    dustmap="leike_glatzle_ensslin_2020",):
+    dustmap="leike_glatzle_ensslin_2020",
+    gdr="",):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -1300,3 +1301,59 @@ def load_exofop_toi_cat(
 
     return toi_info[np.isin(toi_info["TIC"], tic_info["TIC"])]
 
+def load_linelist(
+    filename,
+    wl_lower=3500,
+    wl_upper=7000,
+    ew_min_ma=200,):
+    """Load in a Thomas Nordlander sourced line list of EWs computed for 
+    M-dwarfs into a pandas dataframe format. 
+
+    Parameters
+    ----------
+    filename: string
+        Filepath to the line list file.
+
+    wl_lower: float, default: 3500
+        Lower wavelength bound in Angstroms.
+
+    wl_upper: float, default: 7000
+        Upper wavelength bound in Angstroms.
+
+    ew_min_ma: float, default: 200
+        Minimum line EW in milli-Angstroms.
+
+    Returns
+    -------
+    line_list: pd.DataFrame
+        DataFrame of line list data.
+
+    """
+    cols = [
+        "atom",
+        "state",
+        "wl",
+        "elow",
+        "log_gf",
+        "ew_ma",
+        "7", "8", "9", "10", "11", "12","13"]  # Don't care about rest
+
+    # Import
+    line_list = pd.read_csv(filename, delim_whitespace=True, names=cols)
+
+    # Combine first two columns
+    line_list["ion"] = (line_list["atom"].astype(str) + str(" ")
+                        + line_list["state"].astype(str))
+
+    # Reorder and get rid of irrelevant columns
+    new_cols = ["ion", "wl", "elow", "log_gf", "ew_ma",]
+    
+    line_list = line_list[new_cols]
+
+    # Apply limits
+    mask = np.logical_and(
+        np.logical_and(line_list["wl"] > wl_lower, line_list["wl"] < wl_upper),
+        line_list["ew_ma"] > ew_min_ma,
+    )
+
+    return line_list[mask]

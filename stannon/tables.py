@@ -209,7 +209,9 @@ def make_table_parameter_fit_results(
     break_row=61,
     star_label=("Star", "simbad_name"),
     table_label="benchmark",
-    caption="",):
+    caption="",
+    synth_logg_col="logg_synth",
+    aberrant_logg_threshold=0.15,):
     """Make a LaTeX table of our Cannon fitted stellar parameters.
     """
     cols = OrderedDict([
@@ -280,9 +282,16 @@ def make_table_parameter_fit_results(
         table_row += r"${:0.0f}\pm{:0.0f}$ & ".format(
             sorted_labels[star_i, 0], sorted_e_labels[star_i, 0])
 
-        # Logg
-        table_row += r"${:0.2f}\pm{:0.2f}$ & ".format(
-            sorted_labels[star_i, 1], sorted_e_labels[star_i, 1])
+        # logg - making sure to flag the star if it has an aberrant logg
+        delta_logg = np.abs(
+            sorted_labels[star_i, 1] - star[synth_logg_col])
+        
+        if delta_logg > aberrant_logg_threshold:
+            table_row += r"${:0.2f}\pm{:0.2f}$ $\dagger$ & ".format(
+                sorted_labels[star_i, 1], sorted_e_labels[star_i, 1])
+        else:
+            table_row += r"${:0.2f}\pm{:0.2f}$ & ".format(
+                sorted_labels[star_i, 1], sorted_e_labels[star_i, 1])
 
         # [Fe/H]
         table_row += r"${:+0.2f}\pm{:0.2f}$ & ".format(

@@ -118,7 +118,7 @@ def plot_label_recovery(
     fig.set_size_inches(12, 3)
     fig.tight_layout()
     fig.savefig("paper/cannon_param_recovery{}.pdf".format(fn_suffix))
-    fig.savefig("paper/cannon_param_recovery{}.png".format(fn_suffix), dpi=200)
+    fig.savefig("paper/cannon_param_recovery{}.png".format(fn_suffix), dpi=300)
 
 
 def plot_label_recovery_per_source(
@@ -336,7 +336,7 @@ def plot_label_recovery_abundances(
         "paper/cannon_param_recovery_abundance{}.pdf".format(fn_suffix))
     fig.savefig(
         "paper/cannon_param_recovery_abundance{}.png".format(fn_suffix),
-        dpi=200)
+        dpi=300)
 
 
 def plot_cannon_cmd(
@@ -345,10 +345,11 @@ def plot_cannon_cmd(
     benchmark_feh,
     science_colour,
     science_mag,
-    x_label=r"$B_P-R_P$",
+    x_label=r"$BP-RP$",
     y_label=r"$M_{K_S}$",
     highlight_mask=None,
-    highlight_mask_label="",):
+    highlight_mask_label="",
+    bp_rp_cutoff=1.7,):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
     stars for e.g. comparison with standards.
@@ -394,10 +395,11 @@ def plot_cannon_cmd(
     cb = fig.colorbar(scatter, ax=axis)
     cb.set_label("[Fe/H]")
 
-    # Plot science targets
+    # Plot science targets, makingg sure to not plot any science targets beyond
+    # the extent of our benchmarks
     scatter = axis.scatter(
-        science_colour, 
-        science_mag, 
+        science_colour[science_colour > bp_rp_cutoff],
+        science_mag[science_colour > bp_rp_cutoff],
         marker="o",
         edgecolor="black",#"#ff7f0e",
         facecolors="none",
@@ -408,8 +410,8 @@ def plot_cannon_cmd(
     # If we've been given a highlight mask, plot for diagnostic reasons
     if highlight_mask is not None:
         scatter = axis.scatter(
-            benchmark_colour[highlight_mask],
-            benchmark_mag[highlight_mask],
+            benchmark_colour[highlight_mask][science_colour > bp_rp_cutoff],
+            benchmark_mag[highlight_mask][science_colour > bp_rp_cutoff],
             marker="o",
             edgecolor="red",#"#ff7f0e",
             facecolors="none",
@@ -509,8 +511,12 @@ def plot_theta_coefficients(
     y_theta_lims=(-0.1,0.1),
     y_s2_lims=(-0.001,0.01),
     x_ticks=(500,100),
+    linewidth=0.5,
+    alpha=0.9,
     label="",
-    fn_suffix="",):
+    fn_suffix="",
+    leg_loc="best",
+    line_list=None,):
     """Plot fluxes, values of first order theta coefficients for Teff, logg,
     and [Fe/H], as well as model scatter - all against wavelength.
 
@@ -539,11 +545,61 @@ def plot_theta_coefficients(
 
         axes[0].plot(sm.wavelengths, star, linewidth=0.2, c=colour)
 
+    # Only show teff_scale if != 1.0
+    if teff_scale == 1.0:
+        teff_label =  r"$T_{\rm eff}$"
+    else:
+        teff_label =  r"$T_{\rm eff} \times$" + "{:0.1f}".format(teff_scale)
+
+    # We want to avoid plotting lines across the gaps we've excluded, so we're
+    # going to insert nans in the breaks so that matplotlib leaves a gap. This
+    # is a bit clunky, but this involves looping over each gap and inserting a
+    # fake wavelength value and corresponding nan for the theta and scatter 
+    # arrays.
+    gap_px = np.argwhere(
+        np.abs(sm.masked_wl[:-1] - sm.masked_wl[1:]) > 1.0)[:,0]
+    gap_px = np.concatenate((gap_px+1, [sm.P]))
+
+    px_min = 0
+
+    wave = []
+    theta = []
+    scatter = []
+
+    for px_max in gap_px:
+        wave.append(np.concatenate(
+            (sm.masked_wl[px_min:px_max], [sm.masked_wl[px_max-1]+1])))
+        theta.append(np.concatenate(
+            (sm.theta[px_min:px_max],
+                np.atleast_2d(np.full(sm.N_COEFF, np.nan)))))
+        scatter.append(np.concatenate((sm.s2[px_min:px_max], [np.nan])))
+
+        px_min = px_max
+
+    wave = np.concatenate(wave)
+    theta = np.concatenate(theta)
+    scatter = np.concatenate(scatter)
+
     # Plot first order coefficients
-    axes[1].plot(sm.masked_wl, sm.theta[:,1]*teff_scale, linewidth=0.5, 
-        label=r"$T_{\rm eff} \times$" + "{:0.1f}".format(teff_scale))
-    axes[1].plot(sm.masked_wl, sm.theta[:,2], linewidth=0.5, label=r"$\log g$")
-    axes[1].plot(sm.masked_wl, sm.theta[:,3], linewidth=0.5, label="[Fe/H]")
+    axes[1].plot(
+        wave,
+        theta[:,1]*teff_scale,
+        linewidth=linewidth,
+        alpha=alpha,
+        label=teff_label,)
+
+    axes[1].plot(
+        wave,
+        theta[:,2],
+        linewidth=linewidth,
+        alpha=alpha,
+        label=r"$\log g$")
+
+    axes[1].plot(
+        wave,
+        theta[:,3],
+        linewidth=linewidth,
+        label="[Fe/H]")
 
     # And first order abundance coefficients if we have it
     if sm.L > 3:
@@ -553,15 +609,54 @@ def plot_theta_coefficients(
             abundance_label = "[{}/H]".format(abundance.split("_")[0])
 
             axes[1].plot(
-                sm.masked_wl,
-                sm.theta[:,label_i],
-                linewidth=0.5,
+                wave,
+                theta[:,label_i],
+                linewidth=linewidth,
+                alpha=alpha,
                 label=abundance_label,)
 
     axes[1].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
 
     # Plot scatter
-    axes[2].plot(sm.masked_wl, sm.s2, linewidth=0.25,)
+    axes[2].plot(wave, scatter, linewidth=linewidth,)
+
+    if line_list is not None:
+        point_height_spec = 1.5
+        text_height_spec = 2
+
+        point_height_scatter = 0.003
+        text_height_scatter = 0.004
+
+        line_mask = np.logical_and(
+            line_list["wl"] > x_lims[0],
+            line_list["wl"] < x_lims[1],)
+
+        for line_i, line_data in line_list[line_mask].iterrows():
+
+            if line_i % 2 == 0:
+                offset_spec = (text_height_spec - point_height_spec)/4
+                offset_scatter = (text_height_scatter - point_height_scatter)/4
+            else:
+                offset_spec = 0
+                offset_scatter = 0
+
+            # Plot text and arrow for each line
+            axes[0].annotate(
+                s=line_data["ion"],
+                xy=(line_data["wl"], point_height_spec),
+                xytext=(line_data["wl"], text_height_spec + offset_spec),
+                horizontalalignment="center",
+                fontsize=5,
+                arrowprops=dict(arrowstyle='->',lw=0.2),)
+
+            axes[2].annotate(
+                s=line_data["ion"],
+                xy=(line_data["wl"], point_height_scatter),
+                xytext=(line_data["wl"], text_height_scatter + offset_scatter),
+                horizontalalignment="center",
+                fontsize=5,
+                arrowprops=dict(arrowstyle='->',lw=0.2),)
+
 
     # Now mask out emission and telluric regions
     pplt.shade_excluded_regions(
@@ -596,14 +691,14 @@ def plot_theta_coefficients(
     axes[1].set_ylim(y_theta_lims)
     axes[2].set_ylim(y_s2_lims)
 
-    leg = axes[1].legend()
+    leg = axes[1].legend(ncol=sm.L, loc=leg_loc,)
 
     # Update width of legend objects
     for legobj in leg.legendHandles:
         legobj.set_linewidth(1.5)
 
     axes[0].set_ylabel(r"Flux")
-    axes[1].set_ylabel(r"$\theta_{1-3}$")
+    axes[1].set_ylabel(r"$\theta_{{1-{:0.0f}}}$".format(sm.L))
     axes[2].set_ylabel(r"Scatter")
 
     axes[2].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
@@ -629,7 +724,11 @@ def plot_spectra_comparison(
     x_ticks=(200,100),
     fn_label="",
     data_label="",
-    star_name_col="simbad_name",):
+    star_name_col="simbad_name",
+    sort_col_name=None,
+    do_reverse_sort=True,
+    do_plot_eps=False,
+    fig_size=(12,8),):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
     """
@@ -638,11 +737,30 @@ def plot_spectra_comparison(
 
     # If plotting diagnostic plot, use custom size
     if fn_label == "d":
-        n_inches = len(source_ids) * 2 / 3
+        n_inches = len(source_ids) * 2# / 3
         fig, ax = plt.subplots(1, 1, figsize=(12, n_inches))
     else:
-        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        fig, ax = plt.subplots(1, 1, figsize=fig_size,)
     fig.subplots_adjust(hspace=0.001, wspace=0.001)
+
+    # We want to sort based on a given column, but it's tricky since we have
+    # multiple data stuctures. So what we'll do is to use the sort order
+    # indices as the y axis offsets.
+    if sort_col_name is not None and sort_col_name in obs_join.columns.values:
+        # First reduce obs_join down to just the selected source_ids
+        selected_mask = np.isin(obs_join.index, source_ids)
+
+        sorted_indices = np.argsort(
+            obs_join[selected_mask][sort_col_name].values)
+
+        if do_reverse_sort:
+            sorted_indices = sorted_indices[::-1]
+
+        obs_join = obs_join[selected_mask].iloc[sorted_indices]
+        fluxes = fluxes[selected_mask][sorted_indices]
+        bad_px_masks = bad_px_masks[selected_mask][sorted_indices]
+        labels_all = labels_all[selected_mask][sorted_indices]
+        source_ids = obs_join.index.values
 
     # Mask out emission and telluric regions
     pplt.shade_excluded_regions(
@@ -683,14 +801,17 @@ def plot_spectra_comparison(
             spec_gen + star_i*y_offset,
             linewidth=0.2,
             c="r",
-            label="Model",)
+            label="Cannon",)
 
         # Label spectrum
-        star_txt = r"{}, $T_{{\rm eff}}={:0.0f}\,$K, [Fe/H]$ = ${:+.2f}"
+        star_txt = (
+            r"{}, $T_{{\rm eff}}={:0.0f}\,$K, "
+            r"[Fe/H]$ = ${:+.2f}, $(BP-RP)={:0.2f}$")
         star_txt = star_txt.format(
             obs_join.loc[source_id][star_name_col],
             labels[0],
-            labels[2])
+            labels[2],
+            obs_join.loc[source_id]["Bp-Rp"],)
 
         ax.text(
             x=x_lims[0]+(x_lims[1]-x_lims[0])/2,
@@ -713,8 +834,14 @@ def plot_spectra_comparison(
     ax.xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
     ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
 
-    ax.set_xlabel("Wavelength (A)")
+    ax.set_xlabel(r"Wavelength (${\rm \AA}$)")
     plt.tight_layout()
 
-    plt.savefig("paper/cannon_spectra_comp_{}_{}.pdf".format(data_label, fn_label))
-    plt.savefig("paper/cannon_spectra_comp_{}_{}.png".format(data_label, fn_label), dpi=200)
+    fn = "paper/cannon_spectra_comp_{}_{}".format(
+        data_label, fn_label).replace("__", "_")
+
+    plt.savefig("{}.pdf".format(fn))
+    plt.savefig("{}.png".format(fn), dpi=300)
+
+    if do_plot_eps:
+        plt.savefig("{}.eps".format(fn))

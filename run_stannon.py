@@ -49,10 +49,13 @@ adopted_label_uncertainties = np.array([59.15, 0.06, 0.12, 0.09])
 bp_rp_cutoff = 1.7
 
 # Rp cutoff in R_earth for planet [Fe/H] correlation
-rearth_cutoff = 2.5
+rearth_cutoff = 4
 
 # And finally which dataset we want to run on
 dataset = "tess"
+
+# What our threshold between Cannon logg and Rains+21 loggs are for flagging.
+aberrant_logg_threshold = 0.15
 
 #------------------------------------------------------------------------------
 # Import science spectra, normalise, and prepare fluxes
@@ -98,7 +101,7 @@ e_spec_tess_br = utils.load_fits_image_hdu("rest_frame_sigma", "tess", arm="br")
 print("Running on {} sample".format(dataset))
 
 # Setup datasets as appropriate
-if dataset is "tess":
+if dataset == "tess":
     fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
         stannon.prepare_cannon_spectra_normalisation(
             wls=wave_tess_br,
@@ -116,7 +119,7 @@ if dataset is "tess":
     star_label_tab = "TOI"
     caption_unique = "TESS candidate planet host"
 
-elif dataset is "benchmark":
+elif dataset == "benchmark":
     fluxes_norm = sm.training_data
     ivars_norm = sm.training_data_ivar
     bad_px_mask = sm.bad_px_mask
@@ -183,7 +186,10 @@ splt.plot_spectra_comparison(
     data_label=dataset,
     star_name_col=star_name_col)
 
-caption = "{} parameter fits (corrected for systematics)".format(caption_unique)
+caption = ("{} parameter fits (corrected for systematics). A $\dagger$ "
+           "indicates a difference in $\log g > {:0.2f}$ between the "
+           "Cannon and the fits from \citet{{rains_characterization_2021}}.")
+caption = caption.format(caption_unique, aberrant_logg_threshold)
 
 # Make results table
 stab.make_table_parameter_fit_results(
@@ -200,7 +206,7 @@ stab.make_table_parameter_fit_results(
 # Planet-star correlations
 #------------------------------------------------------------------------------
 # Planet-[Fe/H] correlations
-if dataset is "tess":
+if dataset == "tess":
     pplt.plot_planet_feh_correlation(
         obs_tab=obs_join_tess[tess_mask],
         tic_info=tic_info,

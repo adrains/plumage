@@ -3,7 +3,10 @@
 import os
 import numpy as np
 import lightkurve as lk
-import batman as bm
+try:
+    import batman as bm
+except:
+    pass
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from astropy.timeseries import LombScargle 

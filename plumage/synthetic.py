@@ -57,13 +57,14 @@ def idl_init(drive="home"):
     idl("grid='{}'".format(os.path.join(root, "grid_synthspec_main.sav")))
     idl("grid_b='{}'".format(os.path.join(root, "grid_3000-10000_res1.0.sav")))
     idl("grid_r='{}'".format(os.path.join(root, "grid_3000-10000_res0.45.sav")))
+    idl("grid_mdwarf='{}'".format(os.path.join(root, "grid_synthY_Mdwarftest.sav")))
 
     return idl
     
 def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
                      resolution=None, norm="abs", do_resample=True, 
                      wl_per_px=None, rv_bcor=0, wave_pad=50, abund_alpha=None,
-                     abund_CFe=None, ebv=0, do_log_resample=False, n_px=None):
+                     abund=None, ebv=0, do_log_resample=False, n_px=None):
     """Calls Thomas Nordlander's IDL routines (specifically get_spec) to 
     generate a synthetic MARCS model spectrum at the requested parameters. 
 
@@ -133,7 +134,7 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
         RV shifting and without interpolation. 50 A by default, as a star would
         need to have an RV of 2,000+ km/s to shift outside this.
 
-    abund_alpha, abund_CFe: float or None, default: None
+    abund_alpha, abund: float or None, default: None
         Alpha element and [C/Fe] abundance respectively, uses Nordlander IDL
         defaults when set to None.
 
@@ -181,10 +182,10 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
     else:
         idl("alpha = {};".format(abund_alpha))
 
-    if abund_CFe is None:
-        idl("CFe = 0.0;")
+    if abund is None:
+        idl("abund = 0.0;")
     else:
-        idl("CFe = {};".format(abund_CFe))
+        idl("abund = {};".format(abund))
 
     # If resampling, initialise the output wavelength scale
     if do_resample:
@@ -214,31 +215,37 @@ def get_idl_spectrum(idl, teff, logg, feh, wl_min, wl_max, ipres, grid="full",
         # Default behaviour is constant-velocity broadening, unless a value has 
         # been provided for resolution
         if resolution is None:
-            cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, "
+            cmd = ("spectrum = get_spec(%f, %f, %f, alpha, abund, %f, %f, "
                 "ipres=%f, norm=%i, grid=grid, wave=wave, vrad=%f%s, ebmv=%f)"
                 % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
                     wout, ebv))
         # Otherwise do constant-wavelength broadening
         else:
-            cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, "
+            cmd = ("spectrum = get_spec(%f, %f, %f, alpha, abund, %f, %f, "
                 "norm=%i, resolution=%f, grid=grid, wave=wave, vrad=%f%s, ebmv=%f)" 
                 % (teff, logg, feh, wl_min, wl_max, norm_val, resolution, 
                     rv_bcor, wout, ebv))
 
     # Generating WiFeS B3000 spectra. Grid has already been broadened.
     elif grid == "B3000":
-        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
+        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, abund, %f, %f, norm=%i, "
                 "grid=grid_b, wave=wave, vrad=%f%s, ebmv=%f)" 
                 % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout,
                    ebv))
     
     # Generating WiFeS R7000 spectra. Grid has already been broadened.
     elif grid == "R7000":
-        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, CFe, %f, %f, norm=%i, "
+        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, abund, %f, %f, norm=%i, "
                 "grid=grid_r, wave=wave, vrad=%f%s, ebmv=%f)" 
                 % (teff, logg, feh, wl_min, wl_max, norm_val, rv_bcor, wout,
                    ebv))
     
+    # Mdwarf grid
+    elif grid == "m_dwarf":
+        cmd = ("spectrum = get_spec(%f, %f, %f, alpha, abund, %f, %f, "
+                "ipres=%f, norm=%i, grid=grid_mdwarf, wave=wave, vrad=%f%s, ebmv=%f)"
+                % (teff, logg, feh, wl_min, wl_max, ipres, norm_val, rv_bcor, 
+                    wout, ebv))
     else:
         raise ValueError("Invalid grid")
 
@@ -733,7 +740,7 @@ def save_synthetic_templates_fits(
     # HDU 7: table of observational information
     params = pd.DataFrame(data=params, columns=["teff", "logg", "feh", "vsini"])
     obs_tab = fits.BinTableHDU(Table.from_pandas(params))
-    obs_tab.header["EXTNAME"] = ("OBS_TAB", "Observation info table")
+    obs_tab.header["EXTNAME"] = ("PARAMS", "Stellar parameters")
     hdu.append(obs_tab)
 
     # Done, save

@@ -4,7 +4,10 @@ from __future__ import print_function, division
 import os
 import numpy as np
 import glob
-import batman as bm
+try:
+    import batman as bm
+except:
+    pass
 import pandas as pd
 import matplotlib.pylab as plt
 import matplotlib.colors as mplc
@@ -1447,7 +1450,7 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     # Plot 0 line
     plt.setp(axis.get_xticklabels(), visible=False)
-    resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0)
+    resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0, color="k",)
     
     resid_ax.set_xlabel(lit_label, fontsize="x-large")
 
@@ -2394,8 +2397,11 @@ def plot_representative_spectral_model_limitations(
 
         plt.savefig("paper/model_spectra_limitations{}{}.pdf".format(
             plot_suffix, plot_index))
+        plt.savefig("paper/model_spectra_limitations{}{}.eps".format(
+            plot_suffix, plot_index))
         plt.savefig("paper/model_spectra_limitations{}{}.png".format(
             plot_suffix, plot_index), dpi=500,)
+        
 
 
     # Plot observed data
