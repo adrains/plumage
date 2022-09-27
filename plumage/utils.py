@@ -919,7 +919,8 @@ def load_info_cat(
     unresolved_equal_mass_binary_list=[],
     unresolved_equal_mass_binary_mag_diff=0.75,
     dustmap="leike_glatzle_ensslin_2020",
-    gdr="",):
+    gdr="",
+    has_2mass=True,):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -928,24 +929,28 @@ def load_info_cat(
 
     https://ui.adsabs.harvard.edu/abs/2018ApJ...862...61S/abstract
     """
+    # We'll maintain compatability between DR2 and DR3 data, but it requires a
+    # bit of extra work
+    sid_drx = "source_id{}".format(gdr)
+
     # If loading a fits file, can't start with pandas
     if ".fits" in path:
         with fits.open(path, mode="readonly") as fits_file:
             fits_tab = Table(fits_file[1].data)
             info_cat = fits_tab.to_pandas()
 
-        info_cat["source_id"] = info_cat["source_id"].astype(str)
+        info_cat[sid_drx] = info_cat[sid_drx].astype(str)
 
     # Otherwise import using pandas
     else:
-        info_cat = pd.read_csv(path, sep="\t", dtype={"source_id":str})
+        info_cat = pd.read_csv(path, sep="\t", dtype={sid_drx:str})
 
     # Clean
     if clean:
         info_cat["observed"] = info_cat["observed"] == "yes"
-
+    
     # Set the index to be source_id
-    info_cat.set_index("source_id", inplace=True)
+    info_cat.set_index(sid_drx, inplace=True)
 
     # Make new boolean column for planet candidates or known planets
     if "TOI" in info_cat:
@@ -978,9 +983,9 @@ def load_info_cat(
 
     # Set Gaia dup column to be boolean (weird fix to this breaking is doing
     # it in multiple steps)
-    dup1 = info_cat["dup"].values.astype(int)
-    dup2 = dup1.astype(bool)
-    info_cat["dup"] = dup2
+    #dup1 = info_cat["dup{}".format(gdr)].values.astype(int)
+    #dup2 = dup1.astype(bool)
+    info_cat["dup{}".format(gdr)] = info_cat["dup{}".format(gdr)].astype(bool)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Crossmatch SkyMapper photometry
@@ -991,13 +996,13 @@ def load_info_cat(
         skymapper_phot = pd.read_csv( 
             skymapper_phot_path,
             sep=",",
-            dtype={"source_id":str},
+            dtype={sid_drx:str},
             header=0)
-        skymapper_phot.set_index("source_id", inplace=True)  
+        skymapper_phot.set_index(sid_drx, inplace=True)  
 
         info_cat = info_cat.join(
             skymapper_phot,
-            "source_id",
+            sid_drx,
             how="left",
             rsuffix="_") 
 
@@ -1016,18 +1021,22 @@ def load_info_cat(
         e_plx_off = 0.033   # mas
 
         # Incorporate the systematic
-        plx = info_cat["plx"] - plx_off
-        e_plx = np.sqrt(info_cat["e_plx"]**2 + e_plx_off**2)
+        plx = info_cat["plx{}".format(gdr)] - plx_off
+        e_plx = np.sqrt(info_cat["e_plx{}".format(gdr)]**2 + e_plx_off**2)
     
     # Not using offsets
     else:
-        plx = info_cat["plx"]
-        e_plx = info_cat["e_plx"]
+        plx = info_cat["plx{}".format(gdr)]
+        e_plx = info_cat["e_plx{}".format(gdr)]
 
     # Compute distance
     info_cat["dist"] = 1000 / plx
     info_cat["e_dist"] = np.abs(info_cat["dist"] * e_plx / plx)
     
+    # If no 2MASS, return early
+    if not has_2mass:
+        return info_cat
+
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Extinction
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1042,9 +1051,9 @@ def load_info_cat(
         info_cat["ebv"] = ebv
 
         # Correct each band individually
-        info_cat["G_mag"] -= A_G_all
-        info_cat["Bp_mag"] -= A_zeta["BP"]
-        info_cat["Rp_mag"] -= A_zeta["RP"]
+        info_cat["G_mag{}".format(gdr)] -= A_G_all
+        info_cat["BP_mag{}".format(gdr)] -= A_zeta["BP"]
+        info_cat["RP_mag{}".format(gdr)] -= A_zeta["RP"]
 
         info_cat["u_psf"] -= A_zeta["u"]
         info_cat["v_psf"] -= A_zeta["v"]
@@ -1058,27 +1067,31 @@ def load_info_cat(
         info_cat["K_mag"] -= A_zeta["K"]
 
         # Finally, calculate a corrected Bp-Rp
-        info_cat["Bp-Rp"] = info_cat["Bp_mag"] - info_cat["Rp_mag"]
+        info_cat["BP-RP{}".format(gdr)] = \
+            info_cat["BP_mag{}".format(gdr)] - info_cat["RP_mag{}".format(gdr)]
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Absolute magnitudes, and colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Absolute mags for Gaia and 2MASS photometry
-    info_cat["G_mag_abs"] = info_cat["G_mag"] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["G_mag_abs"] = \
+        info_cat["G_mag{}".format(gdr)] - 5*np.log10(info_cat["dist"]/10)
     info_cat["e_G_mag_abs"] = np.sqrt(
-        info_cat["e_G_mag"]**2
+        info_cat["e_G_mag{}".format(gdr)]**2
         + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
 
-    info_cat["Bp_mag_abs"] = info_cat["Bp_mag"] - 5*np.log10(info_cat["dist"]/10)
-    info_cat["e_Bp_mag_abs"] = np.sqrt(
-        info_cat["e_Bp_mag"]**2
+    info_cat["BP_mag_abs"] = \
+        info_cat["BP_mag{}".format(gdr)] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_BP_mag_abs"] = np.sqrt(
+        info_cat["e_BP_mag{}".format(gdr)]**2
         + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
 
-    info_cat["Rp_mag_abs"] = info_cat["Rp_mag"] - 5*np.log10(info_cat["dist"]/10)
-    info_cat["e_Rp_mag_abs"] = np.sqrt(
-        info_cat["e_Rp_mag"]**2
+    info_cat["RP_mag_abs"] = \
+        info_cat["RP_mag{}".format(gdr)] - 5*np.log10(info_cat["dist"]/10)
+    info_cat["e_RP_mag_abs"] = np.sqrt(
+        info_cat["e_RP_mag{}".format(gdr)]**2
         + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
-
+    
     info_cat["J_mag_abs"] = info_cat["J_mag"] - 5*np.log10(info_cat["dist"]/10)
     info_cat["e_J_mag_abs"] = np.sqrt(
         info_cat["e_J_mag"]**2
@@ -1095,34 +1108,34 @@ def load_info_cat(
         + (5/(info_cat["dist"]*np.log(10)))**2 * info_cat["e_dist"]**2)
 
     # Compute additional colours
-    info_cat["Rp-J"] = info_cat["Rp_mag"] - info_cat["J_mag"]
+    info_cat["RP-J"] = info_cat["RP_mag{}".format(gdr)] - info_cat["J_mag"]
     info_cat["J-H"] = info_cat["J_mag"] - info_cat["H_mag"]
     info_cat["H-K"] = info_cat["H_mag"] - info_cat["K_mag"]
 
-    info_cat["G-K"] = info_cat["G_mag"] - info_cat["K_mag"]
+    info_cat["G-K"] = info_cat["G_mag{}".format(gdr)] - info_cat["K_mag"]
     info_cat["J-K"] = info_cat["J_mag"] - info_cat["K_mag"]
 
     # Widest colour lever
-    info_cat["Bp-K"] = info_cat["Bp_mag"] - info_cat["K_mag"]
-    info_cat["Rp-K"] = info_cat["Rp_mag"] - info_cat["K_mag"]
+    info_cat["BP-K"] = info_cat["BP_mag{}".format(gdr)] - info_cat["K_mag"]
+    info_cat["RP-K"] = info_cat["RP_mag{}".format(gdr)] - info_cat["K_mag"]
 
     # Compute colour uncertainties (assuming no cross-correlation)
-    info_cat["e_Bp-Rp"] = np.sqrt(info_cat["e_Bp_mag"]**2
-                                 + info_cat["e_Rp_mag"]**2)
-    info_cat["e_Rp-J"] = np.sqrt(info_cat["e_Rp_mag"]**2 
+    info_cat["e_BP-RP"] = np.sqrt(info_cat["e_BP_mag{}".format(gdr)]**2
+                                 + info_cat["e_RP_mag{}".format(gdr)]**2)
+    info_cat["e_RP-J"] = np.sqrt(info_cat["e_RP_mag{}".format(gdr)]**2 
                                  + info_cat["e_J_mag"]**2)
     info_cat["e_J-H"] = np.sqrt(info_cat["e_J_mag"]**2 
                                  + info_cat["e_H_mag"]**2)
     info_cat["e_H-K"] = np.sqrt(info_cat["e_H_mag"]**2
                                  + info_cat["e_K_mag"]**2)
 
-    info_cat["e_Bp-K"] = np.sqrt(info_cat["e_Bp_mag"]**2
+    info_cat["e_BP-K"] = np.sqrt(info_cat["e_BP_mag{}".format(gdr)]**2
                                  + info_cat["e_K_mag"]**2)
 
-    info_cat["e_Rp-K"] = np.sqrt(info_cat["e_Rp_mag"]**2
+    info_cat["e_RP-K"] = np.sqrt(info_cat["e_RP_mag{}".format(gdr)]**2
                                  + info_cat["e_K_mag"]**2)
     
-    info_cat["e_G-K"] = np.sqrt(info_cat["e_G_mag"]**2
+    info_cat["e_G-K"] = np.sqrt(info_cat["e_G_mag{}".format(gdr)]**2
                                  + info_cat["e_K_mag"]**2)
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1130,7 +1143,7 @@ def load_info_cat(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Mann+15 teff (Bp-Rp)
     teffs, e_teffs = params.compute_mann_2015_teff(
-        info_cat["Bp-Rp"],
+        info_cat["BP-RP{}".format(gdr)],
         relation="BP - RP")
 
     info_cat["teff_m15_bprp"] = teffs
@@ -1138,7 +1151,7 @@ def load_info_cat(
 
     # Mann+15 teff (Bp-Rp, J-H)
     teffs, e_teffs = params.compute_mann_2015_teff(
-        info_cat["Bp-Rp"], 
+        info_cat["BP-RP{}".format(gdr)], 
         j_h=info_cat["J-H"],
         relation="BP - RP, J - H")
 
@@ -1223,18 +1236,18 @@ def load_info_cat(
     # Only accept stars that Gaia has not flagged as a duplicate, and those 
     # with RUWE below 1.4 - i.e. the same criteria we used when building the
     # relation to begin with
-    if "ruwe" in info_cat.columns:
+    if "ruwe{}".format(gdr) in info_cat.columns:
         valid_star_mask = np.logical_and(
-            ~info_cat["dup"].astype(bool),
-            info_cat["ruwe"] < 1.4)
+            ~info_cat["dup{}".format(gdr)].astype(bool),
+            info_cat["ruwe{}".format(gdr)] < 1.4)
     else:
         print("Warning: no RUWE!")
-        valid_star_mask = ~info_cat["dup"].astype(bool)
+        valid_star_mask = ~info_cat["dup{}".format(gdr)].astype(bool)
 
     phot_feh, e_phot_feh = params.calc_photometric_feh_with_coeff_import(
-        info_cat["Bp-K"].values,
+        info_cat["BP-K"].values,
         info_cat["K_mag_abs"].values,
-        info_cat["Bp-Rp"].values, 
+        info_cat["BP-RP{}".format(gdr)].values, 
         valid_star_mask)
 
     info_cat["phot_feh"] = phot_feh
