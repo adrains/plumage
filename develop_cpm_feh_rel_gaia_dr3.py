@@ -34,7 +34,7 @@ enforce_secondary_bp_rp_colour = True
 # Distance and velocity consistency
 enforce_parallax_consistency = True
 enforce_pm_consistency = True
-enforce_rv_consistency = False
+enforce_rv_consistency = True
 
 allow_exceptions = False
 
@@ -45,7 +45,7 @@ DELTA_RV = 5
 
 RUWE_THRESHOLD = 1.4
 BP_RP_BOUNDS_PRIM = (-100, 1.5)
-BP_RP_BOUNDS_SEC = (1.5, 4.5)
+BP_RP_BOUNDS_SEC = (2.5, 4.5)
 
 # Which colour relation to use
 c_rel = "BP-K"
@@ -135,6 +135,12 @@ m15_data = m15_data[np.logical_and(nan_mask, ruwe_mask)]
 # Now only keep pairs matching our criteria
 keep_mask = np.full(len(cpm_join), True)
 
+# And also create a mask for use when fitting the main sequence. This mask
+# doesn't need to be as strict, as we don't require the system to be associated
+# or to have good [Fe/H] values, only that we have good photometry and reliable
+# astronomy
+ms_keep_mask = np.full(len(cpm_join), True)
+
 # Enforce the system has not been marked as not useful
 if enforce_system_useful:
     keep_mask = np.logical_and(
@@ -160,10 +166,18 @@ if enforce_secondary_ruwe:
         keep_mask,
         cpm_join["ruwe_dr3"] <= RUWE_THRESHOLD)
 
+    ms_keep_mask = np.logical_and(
+        ms_keep_mask,
+        cpm_join["ruwe_dr3"] <= RUWE_THRESHOLD)
+
 # Secondary 2MASS quality
 if enforce_secondary_2mass_aaa_quality:
     keep_mask = np.logical_and(
         keep_mask,
+        cpm_join["Qflg"] == "AAA")
+    
+    ms_keep_mask = np.logical_and(
+        ms_keep_mask,
         cpm_join["Qflg"] == "AAA")
 
 # Secondary 2MASS unblended
@@ -172,12 +186,21 @@ if enforce_secondary_2mass_aaa_quality:
         keep_mask,
         cpm_join["blended_2mass"] != "yes")
 
+    ms_keep_mask = np.logical_and(
+        ms_keep_mask,
+        cpm_join["blended_2mass"] != "yes")
+
 # Secondary BP-RP colour
 if enforce_secondary_bp_rp_colour:
     bp_rp_mask = np.logical_and(
         cpm_join["BP-RP_dr3"] > BP_RP_BOUNDS_SEC[0],
         cpm_join["BP-RP_dr3"] < BP_RP_BOUNDS_SEC[1])
     keep_mask = np.logical_and(keep_mask, bp_rp_mask)
+
+    # Enforce upper bound for the main sequence mask, but not the lower one
+    ms_keep_mask = np.logical_and(
+        ms_keep_mask,
+        cpm_join["BP-RP_dr3"] > BP_RP_BOUNDS_SEC[0])
 
 # Parallaxes are consistent
 if enforce_parallax_consistency:
@@ -211,6 +234,9 @@ if allow_exceptions:
 
 # Apply mask
 cpm_selected = cpm_join[keep_mask].copy()
+
+cpm_ms_selected = cpm_selected.copy()
+#cpm_ms_selected = cpm_join[ms_keep_mask].copy()
 
 # -----------------------------------------------------------------------------
 # [Fe/H] Systematics
@@ -337,13 +363,15 @@ if only_use_m15_ms:
     e_bp_k = m15_data[e_c_rel]
     k_mag_abs = m15_data["K_mag_abs"]
     e_k_mag_abs = m15_data["e_K_mag_abs"]
+    ms_fehs = m15_data["[Fe/H]"]
     print("Using only Mann+15 sample for mean-MS, {} stars".format(len(bp_k)))
 
 else:
-    bp_k = np.concatenate((m15_data[c_rel], cpm_info_feh_corr[c_rel]))
-    e_bp_k = np.concatenate((m15_data[e_c_rel], cpm_info_feh_corr[e_c_rel]))
-    k_mag_abs = np.concatenate((m15_data["K_mag_abs"], cpm_info_feh_corr["K_mag_abs"]))
-    e_k_mag_abs = np.concatenate((m15_data["e_K_mag_abs"], cpm_info_feh_corr["e_K_mag_abs"]))
+    bp_k = np.concatenate((m15_data[c_rel], cpm_ms_selected[c_rel]))
+    e_bp_k = np.concatenate((m15_data[e_c_rel], cpm_ms_selected[e_c_rel]))
+    k_mag_abs = np.concatenate((m15_data["K_mag_abs"], cpm_ms_selected["K_mag_abs"]))
+    e_k_mag_abs = np.concatenate((m15_data["e_K_mag_abs"], cpm_ms_selected["e_K_mag_abs"]))
+    ms_fehs = np.concatenate((m15_data["[Fe/H]"], cpm_selected["feh_corr"]))
     print("Using combined sample for mean-MS, {} stars".format(len(bp_k)))
 
 # Use absolute K band magnitude as offset
@@ -368,8 +396,8 @@ main_seq = np.polynomial.polynomial.Polynomial(ms_coeff)
 
 # Now strip away the Mannn+15 targets who fall outside the Bp-Rp range
 bp_rp_mask = np.logical_and(
-    m15_data["BP-RP_dr3"] > 1.5,
-    m15_data["BP-RP_dr3"] < 3.5)
+    m15_data["BP-RP_dr3"] > BP_RP_BOUNDS_SEC[0],
+    m15_data["BP-RP_dr3"] < BP_RP_BOUNDS_SEC[1])
 m15_data = m15_data[bp_rp_mask]
 
 # -----------------------------------------------------------------------------
@@ -500,26 +528,72 @@ print("Offset Coeff:",
 # Plotting
 # -----------------------------------------------------------------------------
 plt.close("all")
+
+# Plot #1 - fit to mean main sequence
+fig_ms, ms_ax = plt.subplots(1)
+
+# Plot #2 - 3 panel results
 fig = plt.figure()
 gs = fig.add_gridspec(nrows=2, ncols=3)
 cpm_ax = fig.add_subplot(gs[0, 2])
 offset_fit_ax = fig.add_subplot(gs[1, 2])
 cpm_feh_ax = fig.add_subplot(gs[:, :2])
-#fig, (cpm_ax, offset_fit_ax, cpm_feh_ax,) = plt.subplots(1,3)
 
-fig2, (m15_ax, m15_feh_ax, m15_resid_ax) = plt.subplots(3,1)
-
-# Assign axis names
-#(cpm_ax, m15_ax, offset_fit_ax, 
-#cpm_feh_ax, m15_feh_ax, empty_ax_1, 
-#cpm_resid_ax, m15_resid_ax, empty_ax_2) = ax.flatten()
-#(cpm_ax, offset_fit_ax, cpm_feh_ax,) = ax.flatten()
-
-#empty_ax_1.set_visible(False)
-#empty_ax_2.set_visible(False)
+# Plot #3 - testing relation on Mann+15 stars
+fig_m15, m15_ax = plt.subplots(1)
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# CPM Scatter
+# Plot 1 - Mean main sequence fit
+##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+sc = ms_ax.scatter(
+    bp_k,
+    k_mag_abs,
+    c=ms_fehs,
+    zorder=2,)
+ms_ax.errorbar(
+    bp_k,
+    k_mag_abs,
+    xerr=e_bp_k,
+    yerr=e_k_mag_abs,
+    fmt=".",
+    zorder=1,)
+
+cb = fig.colorbar(sc, ax=ms_ax)
+cb.set_label(r"[Fe/H]")
+ms_ax.set_xlabel(r"$({})$".format(c_label))
+ms_ax.set_ylabel(r"$M_{K_S}$")
+
+ms_ax.set_title(
+    "Main Sequence Fit ({:0.0f}th order poly, {:0.0f} stars)".format(
+        main_seq_poly_deg, len(bp_k)))
+
+# Set limits, invert
+xlims = ms_ax.get_xlim()
+ylims = ms_ax.get_ylim()
+
+ms_ax.set_ylim(ylims[1], ylims[0])
+
+# Plot main sequence fit
+# Use absolute K band offset from MS (per Johnson & Apps 2009)
+if not use_bp_k_offset:
+    xx = np.arange(xlims[0], xlims[1], 0.1)
+    cpm_ax.plot(xx, main_seq(xx), "r--")
+    ms_ax.plot(xx, main_seq(xx), "r--")
+
+# Use (Bp-K) colour offset from MS (per Schlaufman & Laughlin 2010)
+else:
+    xx = np.arange(ylims[0], ylims[1], 0.1)
+    cpm_ax.plot(main_seq(xx), xx, "r--")
+    ms_ax.plot(main_seq(xx), xx, "r--")
+
+# Wrap up
+#fig_ms.set_size_inches(9, 4.5)
+fig_ms.tight_layout() 
+fig_ms.savefig("paper/phot_feh_rel_mean_ms.pdf")
+fig_ms.savefig("paper/phot_feh_rel_mean_ms.png", dpi=500)
+
+##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+# Plot 2, Panel #1 - Scatter about adopted mean main sequence
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 sc = cpm_ax.scatter(
     cpm_info_feh_corr[c_rel], 
@@ -547,6 +621,13 @@ cpm_ax.errorbar(
     fmt=".",
     zorder=1,)
 
+# Set limits, invert
+xlims = cpm_ax.get_xlim()
+ylims = cpm_ax.get_ylim()
+
+cpm_ax.set_xlim(xlims[0], xlims[1])
+cpm_ax.set_ylim(ylims[1], ylims[0])
+
 cb = fig.colorbar(sc, ax=cpm_ax)
 cb.set_label(r"[Fe/H]", fontsize="large")
 #cpm_ax.set_title("CPM Sample")
@@ -559,51 +640,7 @@ cpm_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
 cpm_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# Mann+15 Scatter
-##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-sc = m15_ax.scatter(
-    m15_data[c_rel], 
-    m15_data["K_mag_abs"], 
-    c=m15_data["[Fe/H]"],
-    zorder=2,)
-m15_ax.errorbar(
-    m15_data[c_rel],
-    m15_data["K_mag_abs"],
-    xerr=m15_data[e_c_rel],
-    yerr=m15_data["e_K_mag_abs"],
-    fmt=".",
-    zorder=1,)
-
-cb = fig.colorbar(sc, ax=m15_ax)
-cb.set_label(r"[Fe/H]")
-m15_ax.set_title("Mann+15")
-m15_ax.set_xlabel(r"$({})$".format(c_label))
-#m15_ax.set_ylabel(r"$M_{K_S}$")
-
-# Ensure axes have same limits
-xlims = np.array([m15_ax.get_xlim(),cpm_ax.get_xlim()])
-ylims = np.array([m15_ax.get_ylim(),cpm_ax.get_ylim()])
-
-m15_ax.set_xlim(xlims[:,0].min(), xlims[:,1].max())
-cpm_ax.set_xlim(xlims[:,0].min(), xlims[:,1].max())
-m15_ax.set_ylim(ylims[:,1].max(), ylims[:,0].min())
-cpm_ax.set_ylim(ylims[:,1].max(), ylims[:,0].min())
-
-# Plot main sequence fit
-# Use absolute K band offset from MS (per Johnson & Apps 2009)
-if not use_bp_k_offset:
-    xx = np.arange(xlims[:,0].min(), xlims[:,1].max(), 0.1)
-    cpm_ax.plot(xx, main_seq(xx), "r--")
-    m15_ax.plot(xx, main_seq(xx), "r--")
-
-# Use (Bp-K) colour offset from MS (per Schlaufman & Laughlin 2010)
-else:
-    xx = np.arange(ylims[:,0].min(), ylims[:,1].max(), 0.1)
-    cpm_ax.plot(main_seq(xx), xx, "r--")
-    m15_ax.plot(main_seq(xx), xx, "r--")
-
-##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# Bp-Ks fit
+#  Plot 2, Panel #2 - BP-Ks fit
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if not use_bp_k_offset:
     offset = cpm_info_feh_corr["K_mag_abs"] - main_seq(cpm_info_feh_corr[c_rel])
@@ -634,8 +671,10 @@ offset_fit_ax.errorbar(
 # Plot fits
 xx = np.arange(offset.min(), offset.max(), 0.01)
 offset_fit_ax.plot(xx, feh_poly(xx), "r--", label="Fit (uncorrected)")
-offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", 
-    label="Fit (adopted)")
+
+if apply_correction:
+    offset_fit_ax.plot(xx, feh_poly_corr(xx), "-.", c="cornflowerblue", 
+        label="Fit (adopted)")
 cb = fig.colorbar(sc, ax=offset_fit_ax)
 cb.set_label(r"$(BP-RP)$", fontsize="large")
 offset_fit_ax.set_ylabel("[Fe/H] (Primary)", fontsize="large")
@@ -651,7 +690,7 @@ offset_fit_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
 offset_fit_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# CPM comp
+#  Plot 2, Panel #3 - [Fe/H] recovery
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 sc = cpm_feh_ax.scatter(
     cpm_info_feh_corr["feh_corr"],
@@ -716,8 +755,6 @@ if plot_resid_trend:
     cpm_resid_ax.plot(fehs, cpm_resid_poly(fehs), "r--")
 
 cpm_resid_ax.hlines(0, -1.5, 0.5, colors="k", linestyles="--")
-#cb = fig.colorbar(sc, ax=cpm_resid_ax)
-#cb.set_label(r"$(B_P-R_P)$")
 cpm_resid_ax.set_xlabel("[Fe/H] (Primary)", fontsize="large")
 cpm_resid_ax.set_ylabel("[Fe/H] Resid", fontsize="large")
 
@@ -731,17 +768,28 @@ cpm_resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 cpm_resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
 cpm_resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
 
+# Wrap up
+fig.set_size_inches(9, 4.5)
+fig.tight_layout() 
+fig.savefig("paper/phot_feh_rel.pdf")
+fig.savefig("paper/phot_feh_rel.png", dpi=500)
+
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# Mann+15 comp
+#  Plot 3, Panel #1 - Mann+15 comp
 ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-sc = m15_feh_ax.scatter(
+# Make residual axis
+divider = make_axes_locatable(m15_ax)
+m15_resid_ax = divider.append_axes("bottom", size="30%", pad=0)
+m15_ax.figure.add_axes(m15_resid_ax, sharex=m15_ax)
+
+sc = m15_ax.scatter(
     m15_data["[Fe/H]"],
     feh_pred_m15,
     c=m15_data["BP-RP_dr3"],
     cmap="plasma",
     zorder=2)
 
-m15_feh_ax.errorbar(
+m15_ax.errorbar(
     m15_data["[Fe/H]"],
     feh_pred_m15,
     xerr=m15_data["e_[Fe/H]"],
@@ -755,13 +803,13 @@ m15_resid_poly = np.polynomial.polynomial.Polynomial(resid_m15_coeff)
 m15_resid_ax.plot(fehs, m15_resid_poly(fehs), "r--")
 
 xx = np.arange(-1.5,0.5,0.01)
-m15_feh_ax.plot(xx, xx, "k--")
-cb = fig.colorbar(sc, ax=m15_feh_ax)
+m15_ax.plot(xx, xx, "k--")
+cb = fig.colorbar(sc, ax=m15_ax)
 cb.set_label(r"$(BP-RP)$")
 #m15_feh_ax.set_xlabel("[Fe/H] (Mann+15)")
-m15_feh_ax.set_ylabel("[Fe/H] (fit)")
+m15_ax.set_ylabel("[Fe/H] (fit)")
 
-m15_feh_ax.text(
+m15_ax.text(
     x=-0.25, 
     y=-1.0, 
     s=r"$\Delta[Fe/H]={:0.2f}\pm {:0.2f}$".format(
@@ -785,16 +833,12 @@ m15_resid_ax.errorbar(
     zorder=1,)
 
 m15_resid_ax.hlines(0, -1, 0.5, colors="k", linestyles="--")
-cb = fig.colorbar(sc, ax=m15_resid_ax)
-cb.set_label(r"$(BP-RP)$")
 m15_resid_ax.set_xlabel("[Fe/H] (Mann+15)")
 m15_resid_ax.set_ylabel("[Fe/H] Resid")
 
-# Wrap up
-fig.set_size_inches(9, 4.5)
-fig.tight_layout() 
-fig.savefig("paper/phot_feh_rel.pdf")
-fig.savefig("paper/phot_feh_rel.png", dpi=500)
+fig_m15.tight_layout() 
+fig_m15.savefig("paper/phot_feh_rel_m15.pdf")
+fig_m15.savefig("paper/phot_feh_rel_m15.png", dpi=500)
 
 # -----------------------------------------------------------------------------
 # Table
