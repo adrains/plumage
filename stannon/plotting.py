@@ -620,6 +620,7 @@ def plot_theta_coefficients(
     # Plot scatter
     axes[2].plot(wave, scatter, linewidth=linewidth,)
 
+    # Overplot line list on spectrum and scatter subplots
     if line_list is not None:
         point_height_spec = 1.5
         text_height_spec = 2
@@ -728,7 +729,9 @@ def plot_spectra_comparison(
     sort_col_name=None,
     do_reverse_sort=True,
     do_plot_eps=False,
-    fig_size=(12,8),):
+    fig_size=(12,8),
+    data_plot_label="Observed",
+    data_plot_colour="k",):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
     """
@@ -792,8 +795,8 @@ def plot_spectra_comparison(
             sm.wavelengths,
             masked_spectra[bm_i] + star_i*y_offset,
             linewidth=0.2,
-            c="k",
-            label="Observed",)
+            c=data_plot_colour,
+            label=data_plot_label,)
 
         # Plot model spectrum
         ax.plot(
@@ -811,7 +814,7 @@ def plot_spectra_comparison(
             obs_join.loc[source_id][star_name_col],
             labels[0],
             labels[2],
-            obs_join.loc[source_id]["Bp-Rp"],)
+            obs_join.loc[source_id]["BP-RP"],)
 
         ax.text(
             x=x_lims[0]+(x_lims[1]-x_lims[0])/2,

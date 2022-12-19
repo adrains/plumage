@@ -3,6 +3,7 @@
 import os
 import numpy as np
 import pandas as pd
+from warnings import warn
 import astropy.units as units
 import astropy.constants as const
 from astropy.coordinates import SkyCoord
@@ -1350,10 +1351,17 @@ def calc_photometric_feh(
     bp_k, 
     k_mag_abs, 
     main_seq, 
-    use_bp_k_offset):
+    use_bp_k_offset,
+    offset_poly_order_colour=None,
+    offset_poly_order_mks=None,
+    bp_rp=None,):
     """Calculate [Fe/H] given Bp-K, M_Ks, the mean main sequence, and 
     polynomial coefficients.
     """
+    # Compute offsets
+    delta_mk = k_mag_abs - main_seq(bp_k)
+    delta_bp_k = bp_k - main_seq(k_mag_abs)
+
     # Use absolute K band offset from MS (per Johnson & Apps 2009)
     if not use_bp_k_offset:
         delta_mk = k_mag_abs - main_seq(bp_k)
@@ -1363,10 +1371,37 @@ def calc_photometric_feh(
 
     # Use (Bp-K) colour offset from MS (per Schlaufman & Laughlin 2010)
     elif use_bp_k_offset:
-        delta_bp_k = bp_k - main_seq(k_mag_abs)
+        # Do old way using only a single polynomial in colour
+        if offset_poly_order_colour is None or offset_poly_order_mks is None:
+            print("Using original method.")
+            feh_poly = np.polynomial.polynomial.Polynomial(params)
+            feh_fit = feh_poly(delta_bp_k)
 
-        feh_poly = np.polynomial.polynomial.Polynomial(params)
-        feh_fit = feh_poly(delta_bp_k)
+        # Otherwise use two polynomials
+        else:
+            # Compute the colour component of the polynomial. There is no
+            # zeroeth order term here as it is added in later.
+            if offset_poly_order_colour > 0:
+                coeff = np.concatenate(
+                    ([0], params[:offset_poly_order_colour]))
+                feh_poly_colour = np.polynomial.polynomial.Polynomial(coeff)
+                feh_poly_colour_val = feh_poly_colour(bp_k)
+            else:
+                feh_poly_colour_val = 0
+
+            # Compute the colour component of the polynomial. There is no
+            # zeroeth order term here as it is added in later.
+            if offset_poly_order_mks > 0:
+                coeff = np.concatenate(
+                    ([0], params[offset_poly_order_colour:-1]))
+                feh_poly_mks = np.polynomial.polynomial.Polynomial(coeff)
+                feh_poly_mks_val = feh_poly_mks(k_mag_abs)
+            else:
+                feh_poly_mks_val = 0
+
+            # Calculate [Fe/H] from the addition of both polynomials, plus the
+            # constant
+            feh_fit = feh_poly_colour_val + feh_poly_mks_val + params[-1]
 
     return feh_fit
 
@@ -1378,11 +1413,21 @@ def calc_feh_resid(
     feh, 
     e_feh, 
     main_seq, 
-    use_bp_k_offset):
+    use_bp_k_offset,
+    offset_poly_order_colour,
+    offset_poly_order_mks,
+    bp_rp):
     """Calculate residuals from [Fe/H] fit for optimisation
     """
     feh_fit = calc_photometric_feh(
-        params, bp_k, k_mag_abs, main_seq, use_bp_k_offset)
+        params=params, 
+        bp_k=bp_k, 
+        k_mag_abs=k_mag_abs, 
+        main_seq=main_seq, 
+        use_bp_k_offset=use_bp_k_offset,
+        offset_poly_order_colour=offset_poly_order_colour,
+        offset_poly_order_mks=offset_poly_order_mks,
+        bp_rp=bp_rp,)
 
     resid = (feh - feh_fit) / e_feh
 
@@ -1394,14 +1439,35 @@ def fit_feh_model(
     k_mag_abs, 
     feh, 
     e_feh, 
-    main_seq, 
-    offset_poly_order,
-    use_bp_k_offset):
+    main_seq,
+    use_bp_k_offset,
+    offset_poly_order=None,
+    offset_poly_order_colour=None,
+    offset_poly_order_mks=None,
+    bp_rp=None,):
     """Fit [Fe/H] model
     """
-    args = (bp_k, k_mag_abs, feh, e_feh, main_seq, use_bp_k_offset)
-    init_params = np.ones(offset_poly_order+1)
-    diff_step = np.ones(offset_poly_order+1) * 0.01
+    # For compatability, allow use of offset_poly_order
+    if offset_poly_order is not None:
+        # Warn user, then set defaults
+        warn(("'offset_poly_order' is deprecated, use "
+            "'offset_poly_order_colour' and 'offset_poly_order_mks' instead."))
+        offset_poly_order_colour = offset_poly_order
+        offset_poly_order_mks = 0
+
+        init_params = np.ones(offset_poly_order + 1)
+        
+    # Otherwise our polynomial coefficients will be composed of both colour and
+    # absolute magnitude terms.
+    else:
+        init_params = np.ones(offset_poly_order_colour + offset_poly_order_mks + 1)
+
+    # Setup parameter vector
+    args = (bp_k, k_mag_abs, feh, e_feh, main_seq, use_bp_k_offset, 
+        offset_poly_order_colour, offset_poly_order_mks, bp_rp)
+
+    
+    #diff_step = np.ones(offset_poly_order+1) * 0.01
     opt_res = least_squares(
         calc_feh_resid,
         init_params,

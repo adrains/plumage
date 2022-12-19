@@ -107,11 +107,12 @@ obs_join = obs_join.join(montes18_abund, "source_id", rsuffix="_m18")
 montes18_abund_trends = pd.read_csv("data/montes18_abundance_trends.csv") 
 
 # Prepare our labels
-label_values_all, label_sigma_all, std_mask, label_sources = stannon.prepare_labels(
-    obs_join=obs_join,
-    n_labels=n_labels,
-    abundance_labels=abundance_labels,
-    abundance_trends=montes18_abund_trends)
+label_values_all, label_sigma_all, std_mask, label_sources = \
+    stannon.prepare_labels(
+        obs_join=obs_join,
+        n_labels=n_labels,
+        abundance_labels=abundance_labels,
+        abundance_trends=montes18_abund_trends)
 
 # Grab the IDs of the selected stars
 benchmark_source_ids = obs_join[std_mask].index.values
