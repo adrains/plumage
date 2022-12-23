@@ -630,12 +630,13 @@ def load_fits_table(extension, label, path="spectra"):
         Dataframe containing information about each observation.
     """
     # List of valid extensions
-    valid_ext = ["OBS_TAB", "TRANSIT_FITS"]
+    valid_ext = ["OBS_TAB", "TRANSIT_FITS", "CANNON_INFO"]
 
     # Needed to reapply the DataFrame index, which astropy does not respect
     ext_index = {
         "OBS_TAB":"source_id",
-        "TRANSIT_FITS":"TOI"
+        "TRANSIT_FITS":"TOI",
+        "CANNON_INFO":"source_id_dr3"
     }
 
     if extension not in valid_ext:
@@ -689,7 +690,8 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
     # Dict mapping extensions to their descriptions
     valid_ext = {
         "OBS_TAB":"Observation info table", 
-        "TRANSIT_FITS":"Table of transit light curve fit results"}
+        "TRANSIT_FITS":"Table of transit light curve fit results",
+        "CANNON_INFO":"Table of obs/lit info for Cannon benchmarks"}
 
     if extension not in valid_ext.keys():
         raise ValueError("Invalid extension type. Must be in {}".format(
@@ -933,7 +935,11 @@ def load_info_cat(
     """
     # We'll maintain compatability between DR2 and DR3 data, but it requires a
     # bit of extra work
-    sid_drx = "source_id{}".format(gdr)
+    if gdr == "":
+        sid_drx = "source_id"
+    else:
+        gdr = "_{}".format(gdr)
+        sid_drx = "source_id{}".format(gdr)
 
     # If loading a fits file, can't start with pandas
     if ".fits" in path:
@@ -945,7 +951,10 @@ def load_info_cat(
 
     # Otherwise import using pandas
     else:
-        info_cat = pd.read_csv(path, sep="\t", dtype={sid_drx:str})
+        info_cat = pd.read_csv(
+            path,
+            sep="\t",
+            dtype={"source_id_dr2":str, "source_id_dr3":str})
 
     # Clean
     if clean:

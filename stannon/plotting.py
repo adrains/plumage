@@ -228,7 +228,7 @@ def plot_label_recovery_per_source(
         ticks=feh_ticks,)
 
     # CPM [Fe/H]
-    feh_mask = ~np.isnan(obs_join["feh_cpm"])
+    feh_mask = obs_join["is_cpm"].values
 
     pplt.plot_std_comp_generic(
         fig=fig,
@@ -814,7 +814,7 @@ def plot_spectra_comparison(
             obs_join.loc[source_id][star_name_col],
             labels[0],
             labels[2],
-            obs_join.loc[source_id]["BP-RP"],)
+            obs_join.loc[source_id]["BP_RP_dr3"],)
 
         ax.text(
             x=x_lims[0]+(x_lims[1]-x_lims[0])/2,

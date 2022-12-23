@@ -1,13 +1,12 @@
 """Script to generate synthetic spectra at the literature values for stellar
 standards.
+
+TODO: now requires the first half of train_stannon.py to be run. Generalise.
 """
 import numpy as np
-import plumage.utils as utils
+import plumage.utils as pu
 import plumage.synthetic as synth
 import plumage.spectra as spec
-from astropy import constants as const
-from scipy.interpolate import InterpolatedUnivariateSpline as ius
-import stannon.stannon as stannon
 
 # -----------------------------------------------------------------------------
 # Setup & Settings
@@ -24,8 +23,7 @@ else:
 label = "cannon"
 spec_path = "spectra"
 
-std_info = utils.load_info_cat("data/std_info.tsv", in_paper=True)
-spectra_b, spectra_r, observations = utils.load_fits(label, path=spec_path)
+spectra_b, spectra_r, observations = pu.load_fits(label, path=spec_path)
 
 # Initlise empty arrays to hold synthetic spectra at lit params
 all_synth_lit_b = []
@@ -54,18 +52,7 @@ band_settings_r = {
 }
 
 # Load results table
-obs_std = utils.load_fits_table("OBS_TAB", label, path="spectra")
-
-# Crossmatch fitted params with literature info
-obs_join = obs_std.join(std_info, "source_id", rsuffix="_info")
-
-# Load in our label values
-label_values_all, label_sigma_all, std_mask, label_sources = \
-    stannon.prepare_labels(
-        obs_join=obs_join,
-        n_labels=3,
-        abundance_labels=[],
-        abundance_trends=None)
+obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
 
 # Initialise IDL
 idl = synth.idl_init()
@@ -74,19 +61,17 @@ idl = synth.idl_init()
 # Generating Synthetic Spectra
 # -----------------------------------------------------------------------------
 # For every spectrum in observations, we want to get a spectrum at the 
-# lit values *if* the star has each of Teff, logg, and [Fe/H] in std_info
-for star_i, (sid, obs_info) in enumerate(observations.iterrows()):
-    # Find this ID in std_info
-    if sid not in std_info.index:
+# lit values *if* the star has each of Teff, logg, and [Fe/H].
+for star_i, (sid, obs_info) in enumerate(obs_join.iterrows()):
+    if not obs_info["has_complete_label_set"]:
         all_synth_lit_b.append(np.full(band_settings_b["n_px"], np.nan))
         all_synth_lit_r.append(np.full(band_settings_r["n_px"], np.nan))
         continue
-    else:
-        loc_i = std_info.index.get_loc(sid)
-        star_info = std_info.loc[sid]
 
     # Grab the teff, logg, and [Fe/H] for this star
-    params = label_values_all[loc_i][:3]
+    params = obs_info[[
+        "label_adopt_teff", "label_adopt_logg", "label_adopt_feh"]
+        ].values.astype(float)
 
     # Don't proceed if any of these parameters are NaNs
     if np.sum(np.isnan(params)) > 0:
@@ -163,14 +148,14 @@ all_synth_lit_b = np.stack(all_synth_lit_b)
 all_synth_lit_r = np.stack(all_synth_lit_r)
 
 # Save to the fits file
-utils.save_fits_image_hdu(
+pu.save_fits_image_hdu(
     data=all_synth_lit_b,
     extension=hdu_name,
     label=label,
     path=spec_path,
     arm="b")
 
-utils.save_fits_image_hdu(
+pu.save_fits_image_hdu(
     data=all_synth_lit_r,
     extension=hdu_name,
     label=label,
@@ -187,4 +172,4 @@ wl_br, spec_br, e_spec_br = spec.merge_wifes_arms_all(
     e_spec_r=np.ones_like(all_synth_lit_r))
 
 # Save this single spectrum
-utils.save_fits_image_hdu(spec_br, hdu_name, label, arm="br")
+pu.save_fits_image_hdu(spec_br, hdu_name, label, arm="br")
