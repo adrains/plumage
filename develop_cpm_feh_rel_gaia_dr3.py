@@ -4,7 +4,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import plumage.utils as putils
+import plumage.utils as pu
 import plumage.parameters as params
 from scipy.optimize import least_squares
 import matplotlib.ticker as plticker
@@ -94,14 +94,14 @@ tsv_secondaries = "data/cpm_secondaries_dr3.tsv"
 tsv_mann15 = "data/mann15_all_dr3.tsv"
 
 # Import primary info
-cpm_prim = putils.load_info_cat(
+cpm_prim = pu.load_info_cat(
     tsv_primaries,
     clean=False,
     allow_alt_plx=False,
     use_mann_code_for_masses=False,
     do_extinction_correction=False,
     do_skymapper_crossmatch=False,
-    gdr="_dr3",
+    gdr="dr3",
     has_2mass=False,)
 
 cpm_prim.reset_index(inplace=True)
@@ -109,27 +109,27 @@ cpm_prim.rename(columns={"source_id_dr3":"source_id_dr3_prim"}, inplace=True)
 cpm_prim.set_index("prim_name", inplace=True)
 
 # Import secondary info
-cpm_sec = putils.load_info_cat(
+cpm_sec = pu.load_info_cat(
     tsv_secondaries,
     clean=False,
     allow_alt_plx=False,
     use_mann_code_for_masses=False,
     do_extinction_correction=False,
     do_skymapper_crossmatch=False,
-    gdr="_dr3",
+    gdr="dr3",
     has_2mass=True,)
 
 # Merge on prim_name
 cpm_join = cpm_sec.join(cpm_prim, "prim_name", rsuffix="_prim")
 
 # Import Mann+15 standards
-m15_data = putils.load_info_cat(
+m15_data = pu.load_info_cat(
     tsv_mann15,
     clean=False,
     use_mann_code_for_masses=False,
     do_extinction_correction=False,
     do_skymapper_crossmatch=False,
-    gdr="_dr3",)
+    gdr="dr3",)
 
 # Remove any entries without gaia photometry or parallaxes
 nan_mask = np.logical_and(
@@ -196,7 +196,7 @@ if enforce_secondary_2mass_aaa_quality:
         cpm_join["Qflg"] == "AAA")
 
 # Secondary 2MASS unblended
-if enforce_secondary_2mass_aaa_quality:
+if enforce_secondary_2mass_unblended:
     keep_mask = np.logical_and(
         keep_mask,
         cpm_join["blended_2mass"] != "yes")
@@ -276,7 +276,7 @@ feh_offsets = {
     "C11":0.00,
     "S11":0.03,
     "N12":0.00,
-    "M18":0.035,    # Computed from cpm_selected["feh_prim_m13"]-cpm_selected["Fe_H_m18"]
+    "M18":-0.03,    # Computed from np.nanmedian(cpm_selected["[Fe/H]_vf05"]-cpm_selected["Fe_H_m18"])
     "Sou06":0.0,    # TODO Confirm this
     "Soz09":0.0,    # TODO Confirm this
     "M14":0.0,      # Probably safe to assume this is zero?
@@ -286,10 +286,10 @@ feh_offsets = {
 citations = []
 
 feh_citations = {
-    "TW":"mann_spectro-thermometry_2013",
+    "TW":"mann_prospecting_2013",
     "VF05":"valenti_spectroscopic_2005",
     "CFHT":"",
-    "C01":"",
+    "C01":"cayrel_de_strobel_catalogue_2001",
     "M04" :"mishenina_correlation_2004",
     "LH05":"luck_stars_2005",
     "T05":"",
@@ -301,9 +301,9 @@ feh_citations = {
     "S11":"da_silva_homogeneous_2011",
     "N12":"neves_metallicity_2012",
     "M18":"montes_calibrating_2018",
-    "Sou06":"",
-    "Soz09":"",
-    "M14":"",
+    "Sou06":"sousa_spectroscopic_2006",
+    "Soz09":"sozzetti_keck_2009",
+    "M14":"mann_prospecting_2014",
 }
 
 ignored = []

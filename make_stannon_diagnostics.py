@@ -17,17 +17,24 @@ label = "cannon"
 # Model settings
 wl_min_model = 4000
 wl_max_model = 7000
+wl_grating_changeover = 5400
 npx = 5024
 model_type = "label_uncertainties"
-abundance_labels = []
+abundance_labels = ["Ti_H"]
 label_names = ["teff", "logg", "feh"] + abundance_labels
 n_labels = int(len(label_names))
 
 is_cross_validated = True
-do_gaussian_spectra_normalisation = True
+do_gaussian_spec_normalisation = True
 wl_min_normalisation = 4000
 wl_broadening = 50
 poly_order = 4
+
+# Line lists to overplot against theta coefficients. Due to the density of
+# atomic features in the blue, we have a more strict threshold for labelling.
+line_list_file = "data/t3500_g+5.0_z+0.00_a+0.00_v1.00_latoms.eqw"
+ew_min_ma_b = 400
+ew_min_ma_r = 150
 
 # Import model
 model_name = "stannon_model_{}_{}label_{}px_{}.pkl".format(
@@ -39,6 +46,7 @@ sm = stannon.load_model(cannon_model_path)
 
 # Import saved reference data and mask
 obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
+
 is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
 
 # Grab our adopted labels--either from cross validation or just a quick check
@@ -83,25 +91,39 @@ splt.plot_label_recovery_per_source(
     fn_suffix=fn_label,)
 
 # And finally plot the label recovery for any abundances we might be using
-splt.plot_label_recovery_abundances(
-    label_values=sm.training_labels,
-    e_label_values=sm.training_variances**2,
-    label_pred=labels_pred,
-    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-    obs_join=obs_join[is_cannon_benchmark],
-    fn_suffix=fn_label,
-    abundance_labels=abundance_labels,
-    feh_lims=(-0.65,0.65),
-    feh_ticks=(0.4,0.2,0.2,0.1))
+if len(abundance_labels) >= 1:
+    splt.plot_label_recovery_abundances(
+        label_values=sm.training_labels,
+        e_label_values=sm.training_variances**2,
+        label_pred=labels_pred,
+        e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
+        obs_join=obs_join[is_cannon_benchmark],
+        fn_suffix=fn_label,
+        abundance_labels=abundance_labels,
+        feh_lims=(-0.65,0.65),
+        feh_ticks=(0.4,0.2,0.2,0.1))
 
 #------------------------------------------------------------------------------
 # Theta Coefficients
 #------------------------------------------------------------------------------
+# Import line lists
+line_list_b = pu.load_linelist(
+    filename=line_list_file,
+    wl_lower=wl_min_model,
+    wl_upper=wl_grating_changeover,
+    ew_min_ma=ew_min_ma_b,)
+
+line_list_r = pu.load_linelist(
+    filename=line_list_file,
+    wl_lower=wl_grating_changeover,
+    wl_upper=wl_max_model,
+    ew_min_ma=ew_min_ma_r,)
+
 # Plot theta coefficients for each WiFeS arm
 splt.plot_theta_coefficients(
     sm,
     teff_scale=1.0,
-    x_lims=(wl_min_model,5400),
+    x_lims=(wl_min_model,wl_grating_changeover),
     y_spec_lims=(0,2.25),
     y_theta_lims=(-0.25,0.25),
     y_s2_lims=(-0.0001, 0.005),
@@ -109,12 +131,13 @@ splt.plot_theta_coefficients(
     label="b",
     linewidth=0.9,
     alpha=0.8,
-    fn_suffix=fn_label,)
+    fn_suffix=fn_label,
+    line_list=line_list_b,)
 
 splt.plot_theta_coefficients(
     sm,
     teff_scale=1.0,
-    x_lims=(5400,wl_max_model),
+    x_lims=(wl_grating_changeover,wl_max_model),
     y_spec_lims=(0,2.25),
     y_theta_lims=(-0.12,0.12),
     y_s2_lims=(-0.0001, 0.005),
@@ -122,7 +145,8 @@ splt.plot_theta_coefficients(
     label="r",
     linewidth=0.9,
     alpha=0.8,
-    fn_suffix=fn_label,)
+    fn_suffix=fn_label,
+    line_list=line_list_r,)
 
 #------------------------------------------------------------------------------
 # Spectral Recovery
@@ -130,7 +154,7 @@ splt.plot_theta_coefficients(
 # Plot comparison of observed vs model spectra *at the literature  parameters*. 
 # Here we've picked a set of spectral types ranging over our BP-RP range.
 representative_stars_source_ids = [
-    #"5853498713190525696",      # M5.5, GJ 551
+    "5853498713190525696",      # M5.5, GJ 551
     "2640434056928150400",      # M5, GJ 1286
     "2595284016771502080",      # M5, LHS 3799
     "2868199402451064064",      # M4.7, GJ 1288
@@ -153,8 +177,9 @@ splt.plot_spectra_comparison(
     labels_all=sm.training_labels,
     source_ids=representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
-    x_lims=(wl_min_model,5400),
-    fn_label="b",)
+    x_lims=(wl_min_model,wl_grating_changeover),
+    data_label="b",
+    fn_label=fn_label,)
 
 # Plot model spectrum performance for WiFeS red band
 splt.plot_spectra_comparison(
@@ -165,8 +190,9 @@ splt.plot_spectra_comparison(
     labels_all=sm.training_labels,
     source_ids=representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
-    x_lims=(5400,wl_max_model),
-    fn_label="r",)
+    x_lims=(wl_grating_changeover,wl_max_model),
+    data_label="r",
+    fn_label=fn_label,)
 
 # Do the same, but across all wavelengths and for all stars
 splt.plot_spectra_comparison(
@@ -178,49 +204,53 @@ splt.plot_spectra_comparison(
     source_ids=obs_join.index,
     sort_col_name="BP_RP_dr3",
     x_lims=(wl_min_model,wl_max_model),
-    fn_label="d",
-    data_label="benchmark",)
+    data_label="d",
+    fn_label=fn_label,)
 
 # -----------------------------------------------------------------------------
 # MARCS Spectra Comparison
 # -----------------------------------------------------------------------------
-# Note: we run get_lit_param_synth.py first to already have MARCS spectra
+# Note: we run get_lit_param_synth.py first to already have MARCS spectra.
+# Since the MARCS grid doesn't have an abundance dimension, we can only make
+# this plot for a 3 label model.
+if n_labels == 3:
+    # Load in RV corrected standard spectra
+    wls = pu.load_fits_image_hdu("rest_frame_wave", label, arm="br")
+    spec_marcs_br = \
+        pu.load_fits_image_hdu("rest_frame_synth_lit", label, arm="br")
+    e_spec_marcs_br = np.ones_like(spec_marcs_br)
 
-# Load in RV corrected standard spectra
-wls = pu.load_fits_image_hdu("rest_frame_wave", label, arm="br")
-spec_marcs_br = pu.load_fits_image_hdu("rest_frame_synth_lit", label, arm="br")
-e_spec_marcs_br = np.ones_like(spec_marcs_br)
+    # TODO, HACK, replace all nan fluxes
+    for spec_i in range(len(spec_marcs_br)):
+        if np.sum(np.isnan(spec_marcs_br[spec_i])) > 1000:
+            spec_marcs_br[spec_i] = np.ones_like(spec_marcs_br[spec_i])
 
-# TODO, HACK, replace all nan fluxes
-for spec_i in range(len(spec_marcs_br)):
-    if np.sum(np.isnan(spec_marcs_br[spec_i])) > 1000:
-        spec_marcs_br[spec_i] = np.ones_like(spec_marcs_br[spec_i])
+    # Grab MARCS spectra for just our benchmarks
+    fluxes_marcs_norm, _, bad_px_mask, _, _ = \
+        stannon.prepare_cannon_spectra_normalisation(
+            wls=wls,
+            spectra=spec_marcs_br[is_cannon_benchmark],
+            e_spectra=e_spec_marcs_br[is_cannon_benchmark],
+            wl_min_model=wl_min_model,
+            wl_max_model=wl_max_model,
+            wl_min_normalisation=wl_min_normalisation,
+            wl_broadening=wl_broadening,
+            do_gaussian_spectra_normalisation=do_gaussian_spec_normalisation,
+            poly_order=poly_order)
 
-# Grab MARCS spectra for just our benchmarks
-fluxes_marcs_norm, ivars_marcs_norm, bad_px_mask, continua, adopted_wl_mask = \
-    stannon.prepare_cannon_spectra_normalisation(
-        wls=wls,
-        spectra=spec_marcs_br[is_cannon_benchmark],
-        e_spectra=e_spec_marcs_br[is_cannon_benchmark],
-        wl_min_model=wl_min_model,
-        wl_max_model=wl_max_model,
-        wl_min_normalisation=wl_min_normalisation,
-        wl_broadening=wl_broadening,
-        do_gaussian_spectra_normalisation=do_gaussian_spectra_normalisation,
-        poly_order=poly_order)
-
-# Plot Cannon vs MARCS spectra comparison over the entire spectral range
-splt.plot_spectra_comparison(
-    sm=sm,
-    obs_join=obs_join[is_cannon_benchmark],
-    fluxes=fluxes_marcs_norm,
-    bad_px_masks=bad_px_mask,
-    labels_all=sm.training_labels,
-    source_ids=representative_stars_source_ids,
-    x_lims=(4000,wl_max_model),
-    fn_label="marcs",
-    data_plot_label="MARCS",
-    data_plot_colour="b",)
+    # Plot Cannon vs MARCS spectra comparison over the entire spectral range
+    splt.plot_spectra_comparison(
+        sm=sm,
+        obs_join=obs_join[is_cannon_benchmark],
+        fluxes=fluxes_marcs_norm,
+        bad_px_masks=bad_px_mask,
+        labels_all=sm.training_labels,
+        source_ids=representative_stars_source_ids,
+        x_lims=(wl_min_model,wl_max_model),
+        fn_label=fn_label,
+        data_label="marcs",
+        data_plot_label="MARCS",
+        data_plot_colour="b",)
 
 #------------------------------------------------------------------------------
 # Tables

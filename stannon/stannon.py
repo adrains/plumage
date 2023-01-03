@@ -1121,19 +1121,21 @@ def prepare_labels(
             m18_abundance = "{}_m18".format(abundance)
             vf05_abundance = "{}_vf05".format(abundance)
             a12_abundance = "{}_a12".format(abundance)
+            
+            # Since VF05 is our base [Fe/H] reference, we'll use it as our base
+            # reference for abundances as well. It also has lower uncertainties
+            # than other references. TODO: account for abundance systematics.
+            if not np.isnan(star_info[vf05_abundance]):
+                label_values[star_i, label_i] = star_info[vf05_abundance]
+                label_sigma[star_i, label_i] = VF05_ABUND_SIGMA[abundance]
+                label_sources[star_i, label_i] = "VF05"
 
             # First check Montes+18
-            if not np.isnan(star_info[m18_abundance]):
+            elif not np.isnan(star_info[m18_abundance]):
                 label_values[star_i, label_i] = star_info[m18_abundance]
                 label_sigma[star_i, label_i] = \
                     star_info["e{}".format(m18_abundance)]
                 label_sources[star_i, label_i] = "M18"
-
-            # Then VF05
-            elif not np.isnan(star_info[vf05_abundance]):
-                label_values[star_i, label_i] = star_info[vf05_abundance]
-                label_sigma[star_i, label_i] = VF05_ABUND_SIGMA[abundance]
-                label_sources[star_i, label_i] = "VF05"
 
             # Then finally Adibekyan+2012. Note that we're currently doing what
             # is probably a physically unreasonable HACK in just averaging the

@@ -309,8 +309,12 @@ def plot_label_recovery_abundances(
         label_i = 3 + abundance_i
 
         abundance_label = "[{}/H]".format(abundance.split("_")[0])
+        
+        abund_sources = obs_join["label_source_{}".format(abundance)]
 
-        abundance_mask = ~np.isnan(obs_join[abundance])
+        abundance_mask = np.array([src != "" for src in abund_sources])
+
+        #~np.isnan(obs_join["label_adopt_{}".format(abundance)])
 
         pplt.plot_std_comp_generic(
             fig=fig,
@@ -349,7 +353,7 @@ def plot_cannon_cmd(
     y_label=r"$M_{K_S}$",
     highlight_mask=None,
     highlight_mask_label="",
-    bp_rp_cutoff=1.7,):
+    bp_rp_cutoff=1.5,):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
     stars for e.g. comparison with standards.
@@ -395,28 +399,29 @@ def plot_cannon_cmd(
     cb = fig.colorbar(scatter, ax=axis)
     cb.set_label("[Fe/H]")
 
-    # Plot science targets, makingg sure to not plot any science targets beyond
+    # Plot science targets, making sure to not plot any science targets beyond
     # the extent of our benchmarks
-    scatter = axis.scatter(
-        science_colour[science_colour > bp_rp_cutoff],
-        science_mag[science_colour > bp_rp_cutoff],
-        marker="o",
-        edgecolor="black",#"#ff7f0e",
-        facecolors="none",
-        zorder=2,
-        alpha=0.6,
-        label="Science",)
+    if len(science_colour) > 0 and len(science_mag) > 0:
+        scatter = axis.scatter(
+            science_colour[science_colour > bp_rp_cutoff],
+            science_mag[science_colour > bp_rp_cutoff],
+            marker="o",
+            edgecolor="black",#"#ff7f0e",
+            facecolors="none",
+            zorder=2,
+            alpha=0.6,
+            label="Science",)
 
     # If we've been given a highlight mask, plot for diagnostic reasons
     if highlight_mask is not None:
         scatter = axis.scatter(
-            benchmark_colour[highlight_mask][science_colour > bp_rp_cutoff],
-            benchmark_mag[highlight_mask][science_colour > bp_rp_cutoff],
+            benchmark_colour[highlight_mask][benchmark_colour > bp_rp_cutoff],
+            benchmark_mag[highlight_mask][benchmark_colour > bp_rp_cutoff],
             marker="o",
-            edgecolor="red",#"#ff7f0e",
+            edgecolor="k",#"#ff7f0e",
             facecolors="none",
-            zorder=4,
-            alpha=0.8,
+            zorder=1,
+            alpha=0.5,
             label=highlight_mask_label,)
 
     plt.legend(loc="best", fontsize="large")
@@ -844,7 +849,11 @@ def plot_spectra_comparison(
         data_label, fn_label).replace("__", "_")
 
     plt.savefig("{}.pdf".format(fn))
-    plt.savefig("{}.png".format(fn), dpi=300)
+
+    # Don't plot a PNG for the diagnostic plot of all spectra since the image
+    # dimensions will be excessively large
+    if fn_label != "d":
+        plt.savefig("{}.png".format(fn), dpi=300)
 
     if do_plot_eps:
         plt.savefig("{}.eps".format(fn))

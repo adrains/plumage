@@ -11,7 +11,7 @@ label_source_refs = {
     "D09":"demory_mass-radius_2009",
     "B12":"boyajian_stellar_2012-1",
     "RA12":"rojas-ayala_metallicity_2012",
-    "vb12":"von_braun_gj_2012",
+    "vB12":"von_braun_gj_2012",
     "G14":"gaidos_trumpeting_2014",
     "vB14":"von_braun_stellar_2014",
     "M15":"mann_how_2015",
@@ -19,6 +19,9 @@ label_source_refs = {
     "M18":"montes_calibrating_2018",
     "R19":"rabus_discontinuity_2019",
     "R21":"rains_characterization_2021",
+    "A12":"adibekyan_chemical_2012",
+    "C01":"cayrel_de_strobel_catalogue_2001",
+    "M13":"mann_prospecting_2013",
 }
 
 def make_table_benchmark_overview(
@@ -33,8 +36,9 @@ def make_table_benchmark_overview(
     """
     cols = OrderedDict([
         ("Star", ""),
-        ("Gaia DR2", ""),
+        ("Gaia DR3", ""),
         (r"$B_P$", ""),
+        #(r"$B_P-R_P$", ""),
         (r"SNR$_B$", ""),
         (r"SNR$_R$", ""),
         (r"$T_{\rm eff}$", "(K)"),
@@ -92,7 +96,10 @@ def make_table_benchmark_overview(
         table_row += "{} & ".format(source_id)
 
         # Magnitude
-        table_row += "{:0.2f} & ".format(star["Bp_mag"])
+        table_row += "{:0.2f} & ".format(star["BP_mag_dr3"])
+
+        # Colour
+        #table_row += "{:0.2f} & ".format(star["BP_RP_dr3"])
 
         # SNR
         table_row += "{:0.0f} & ".format(star["snr_b"])
@@ -127,6 +134,9 @@ def make_table_benchmark_overview(
 
         # Now do references
         refs = sorted_label_sources[star_i]
+
+        # TODO HACK: Delete
+        refs = [ref.replace("TW", "M13") for ref in refs]
 
         for ref in refs:
             if ref == "":
@@ -216,7 +226,7 @@ def make_table_parameter_fit_results(
     """
     cols = OrderedDict([
         (star_label[0], ""),
-        ("Gaia DR2", ""),
+        ("Gaia DR3", ""),
         (r"$B_P$", ""),
         (r"$B_P-R_P$", ""),
         (r"SNR$_B$", ""),
@@ -255,7 +265,7 @@ def make_table_parameter_fit_results(
     header_2.insert(2, "\\contcaption{{{}}}".format(caption))
 
     # Sort by Bp-Rp
-    ii = np.argsort(obs_tab["Bp-Rp"].values)[::-1]
+    ii = np.argsort(obs_tab["BP_RP_dr3"].values)[::-1]
     sorted_tab = obs_tab.iloc[ii]
     sorted_labels = label_fits[ii]
     sorted_e_labels = e_label_fits[ii]
@@ -269,10 +279,10 @@ def make_table_parameter_fit_results(
         table_row += "{} & ".format(source_id)
 
         # Magnitude
-        table_row += "{:0.2f} & ".format(star["Bp_mag"])
+        table_row += "{:0.2f} & ".format(star["BP_mag_dr3"])
 
         # Colour
-        table_row += "{:0.2f} & ".format(star["Bp-Rp"])
+        table_row += "{:0.2f} & ".format(star["BP_RP_dr3"])
 
         # SNR
         table_row += "{:0.0f} & ".format(star["snr_b"])
