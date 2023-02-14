@@ -11,16 +11,25 @@ import stannon.stannon as stannon
 #------------------------------------------------------------------------------
 # Parameters
 #------------------------------------------------------------------------------
-# Whether Cannon should suppress ouput (recommended True unless debugging)
-suppress_output = True
+# Suppress ouput from Stan during training (recommended True unless debugging)
+suppress_stan_output = False
+
+# Whether to initialise theta and s2 vectors for a label uncertainty model
+# using the vectors from a trained basic model. The idea is that, even though
+# these will ultimately be different, it's a better initial guess than just 
+# starting with an array of zeroes.
+init_uncertainty_model_with_basic_model = True
+
+# The maximum amount of iterations Stan will run while fitting the model
+max_iter = 100000
 
 # Whether to run leave-one-out cross validation on Cannon model
-do_cross_validation = True
+do_cross_validation = False
 
 # Whether to do sigma clipping using trained Cannon model. If True, an initial
 # Cannon model is trained and its model spectra are used to sigma clip bad 
 # pixels to not be considered for the subsequently trained and adopted model.
-do_iterative_bad_px_masking = True
+do_iterative_bad_px_masking = False
 flux_sigma_to_clip = 5
 
 # Normalisation - using using a Gaussian smoothed version of the spectrum, or 
@@ -33,8 +42,8 @@ wl_broadening = 50
 poly_order = 4
 
 # Minimum and maximum wavelengths for Cannon model
-wl_min_model = 4000
-wl_max_model = 7000
+wl_min_model = 6500
+wl_max_model = 6600
 
 # The Cannon model to use - either the 'basic' traditional Cannon model, or a
 # model with label uncertainties. If modelling abundances, the version with
@@ -55,7 +64,7 @@ std_label = "cannon"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels = ["Ti_H"]
+abundance_labels = []
 
 label_names = ["teff", "logg", "feh"] + abundance_labels
 n_labels = len(label_names)
@@ -272,7 +281,7 @@ label_values_all, label_sig_all, std_mask, label_sources_all = \
         abundance_trends=montes18_abund_trends)
 
 # Compute the variances
-label_var_all = label_sig_all**0.5
+label_var_all = label_sig_all**2
 
 # Optional for testing: run with uniform variances
 if use_label_uniform_variances:
@@ -343,6 +352,7 @@ if do_gaussian_spectra_normalisation:
     print("\twl broadening: \t\t = {:0.0f} A".format(wl_broadening))
 else:
     print("\tpoly order: \t\t = {:0.0f}".format(poly_order))
+print("\tuniform variances: \t = {}".format(use_label_uniform_variances))
 print("\tcross validation: \t = {}".format(do_cross_validation))
 print("\titerative masking: \t = {}".format(do_iterative_bad_px_masking))
 print("\n", "%"*80, "\n\n", sep="")
@@ -363,13 +373,16 @@ sm = stannon.Stannon(
 # Train model
 print("\nRunning initial training with {} benchmarks...".format(
     np.sum(is_cannon_benchmark)))
-sm.train_cannon_model(suppress_output=suppress_output)
+sm.train_cannon_model(
+    suppress_stan_output=suppress_stan_output,
+    init_uncertainty_model_with_basic_model=init_uncertainty_model_with_basic_model,
+    max_iter=max_iter,)
 
 # If we run the iterative bad px masking, train again afterwards
 if do_iterative_bad_px_masking:
     print("\nRunning iterative sigma clipping for bad px...")
     sm.make_sigma_clipped_bad_px_mask(flux_sigma_to_clip=flux_sigma_to_clip)
-    sm.train_cannon_model(suppress_output=suppress_output)
+    sm.train_cannon_model(suppress_stan_output=suppress_stan_output)
 
 # Run cross validation
 if do_cross_validation:

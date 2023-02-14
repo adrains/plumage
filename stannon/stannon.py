@@ -1,6 +1,7 @@
 """Stannon class to encapsulate Cannon functionality
 """
 import os
+import copy
 import numpy as np
 from tqdm import tqdm
 import pickle
@@ -34,6 +35,7 @@ FEH_OFFSETS = {
     "Soz09":0.0,    # TODO Confirm this
     "M14":0.0,      # Probably safe to assume this is zero?
     "RA12":0.01,   # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
+    "M13":0.0,
 }
 
 # Adopted uncertainties from VF05 Table 6
@@ -49,6 +51,7 @@ VF05_ABUND_SIGMA = {
 # Citations
 FEH_CITATIONS = {
     "TW":"mann_spectro-thermometry_2013",
+    "M13":"mann_spectro-thermometry_2013",
     "VF05":"valenti_spectroscopic_2005",
     "CFHT":"",
     "C01":"",
@@ -137,8 +140,13 @@ class Stannon(object):
             svp.parse_label_vector_description(lvec, label_names))
 
         # Initialise theta and scatter
-        self.theta = np.nan * np.ones((self.P, self.N_COEFF))
-        self.s2 = np.nan * np.ones(self.P)
+        self.theta =  np.full((self.P, self.N_COEFF), np.nan)
+        self.s2 = np.full(self.P, np.nan)
+
+        # If we're using a model with label uncertainties, initialise our
+        # 'true labels' vector that we fit for
+        if model_type == "label_uncertainties":
+            self.true_labels = np.full((self.S, self.L), np.nan)
 
         # Initialise cross validation results
         self.cross_val_labels = np.nan * np.ones_like(self.training_labels)
@@ -150,6 +158,34 @@ class Stannon(object):
         # the Cannon is trained also)
         self.initialise_masking()
         self.whiten_labels()
+
+
+    def __deepcopy__(self):
+        """Deep copy our Stannon object.
+        """
+        new_sm = Stannon(
+            training_data=copy.deepcopy(self.training_data),
+            training_data_ivar=copy.deepcopy(self.training_data_ivar),
+            training_labels=copy.deepcopy(self.training_labels),
+            training_ids=copy.deepcopy(self.training_ids),
+            label_names=copy.deepcopy(self.label_names),
+            wavelengths=copy.deepcopy(self.wavelengths),
+            model_type=copy.deepcopy(self.model_type),
+            training_variances=copy.deepcopy(self.training_variances),
+            adopted_wl_mask=copy.deepcopy(self.adopted_wl_mask),
+            data_mask=copy.deepcopy(self.data_mask),
+            bad_px_mask=copy.deepcopy(self.bad_px_mask),)
+
+        # Update theta, s2, and results of cross validation
+        new_sm.theta = copy.deepcopy(self.theta)
+        new_sm.s2 = copy.deepcopy(self.s2)
+        new_sm.cross_val_labels = copy.deepcopy(self.cross_val_labels)
+
+        # And true labels vector if applicable
+        if self.model_type == "label_uncertainties":
+            new_sm.true_labels = copy.deepcopy(self.true_labels)
+
+        return new_sm
 
     @property
     def training_data_ivar(self):
@@ -311,6 +347,19 @@ class Stannon(object):
             self._s2 = np.array(value)
 
     @property
+    def true_labels(self):
+        return self._true_labels
+
+    @true_labels.setter
+    def true_labels(self, value):
+        if value.shape != (self.S, self.L):
+            raise ValueError(
+                "Dimensions of true_labels is incorrect, must have dimensions"
+                " [n_star, n_label]")
+        else:
+            self._true_labels = np.array(value)
+
+    @property
     def cross_val_labels(self):
         return self._cross_val_labels
 
@@ -331,18 +380,27 @@ class Stannon(object):
         # Get present location
         here = os.path.dirname(__file__)
 
+        # Construct the model name
         if self.model_type == "basic":
             model_name = f"cannon-{self.L:.0f}L-O2.stan"
 
         elif self.model_type == "label_uncertainties":
-            model_name = f"cannon_model_uncertainties.stan"
+            model_name = f"cannon_model_uncertainties_{self.L:.0f}L-O2.stan"
 
         else:
             # Note that it shouldn't be possible to get to this position, but
             # force the check anyway
-            raise ValueError("Not a valid model, see Stannon.SUPPORTED_MODELS") 
+            raise ValueError("Not a valid model, see Stannon.SUPPORTED_MODELS")
 
-        model = sutils.read(os.path.join(here, model_name))
+        # Check the model file exists
+        model_path = os.path.join(here, model_name)
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                "Model file {} doesn't exist!".format(model_path))
+
+        # All good, continue
+        model = sutils.read(model_path)
 
         return model
     
@@ -385,17 +443,37 @@ class Stannon(object):
         self.masked_wl = self.wavelengths[self.adopted_wl_mask]
 
 
-    def train_cannon_model(self, suppress_output=True):
+    def train_cannon_model(
+        self,
+        suppress_stan_output=True,
+        init_uncertainty_model_with_basic_model=False,
+        suppress_training_output=False,
+        max_iter=2000,):
         """Train the Cannon model, with training per the model specified.
 
         Note that only the *masked* data is used for this.
 
         Parameters
         ----------
-        suppress_output: bool
+        suppress_stan_output: bool, default: True
             Boolean flag for whether to suppress Stan output during training.
             If yes, output is suppressed and a progress bar is displayed. Set 
             to false for debugging purposes.
+
+        init_uncertainty_model_with_basic_model: boolean, default: False
+            Only applicable to Cannon models with label uncertainties. If true,
+            we train a basic Cannon model using the same training sample and
+            use the fitting theta and s2 vectors to initialise our label
+            uncertainty model to cut down on training time.
+
+        suppress_training_output: boolean, default: False
+            Only applicable to basic Cannon model. Suppresses progress bar
+            updates when trainining. Separate to suppressing Stan output.
+
+        max_iter: int, default: 2000
+            Maximum number of fitting iterations Stan will run. Also affects
+            how frequently Stan prints fitting updates to stdout (every 1% of
+            max_iter).
         """
         # Run training steps common to all models
 
@@ -409,30 +487,65 @@ class Stannon(object):
         P = self.masked_data.shape[1]
 
         # Initialise output arrays
-        self.theta = np.nan * np.ones((P, self.N_COEFF))
-        self.s2 = np.nan * np.ones(P)
+        self.theta = np.full((P, self.N_COEFF), np.nan)
+        self.s2 = np.full(P, np.nan)
+
+        if self.model_type == "label_uncertainties":
+            self.true_labels = np.full((self.S, self.L), np.nan)
 
         # Now run specific training steps
         if self.model_type == "basic":
-            self._train_cannon_model_basic(suppress_output)
+            self._train_cannon_model_basic(
+                suppress_stan_output=suppress_stan_output,
+                suppress_training_output=suppress_training_output,
+                max_iter=max_iter,)
         
         elif self.model_type == "label_uncertainties":
-            self._train_cannon_model_label_uncertainties(suppress_output)
+            self._train_cannon_model_label_uncertainties(
+                suppress_stan_output=suppress_stan_output,
+                init_with_basic_model=init_uncertainty_model_with_basic_model,
+                max_iter=max_iter,)
 
         else:
-            raise NotImplementedError("Error: this model has not yet been " 
-                                      "implemented")
+            raise NotImplementedError(
+                "Error: this model has not yet been implemented")
 
 
-    def _train_cannon_model_basic(self, suppress_output):
+    def _train_cannon_model_basic(
+        self,
+        suppress_stan_output,
+        suppress_training_output=False,
+        max_iter=2000,):
         """Trains a basic Cannon model with no uncertainties on label values.
+
+        This model takes as input:
+         - Normalised observed fluxes             [N_star, N_lambda]
+         - Normalised observed flux variances     [N_star, N_lambda]
+         - Design matrix                          [N_star, N_coeff]
+
+        The model then fits for:
+         - Model coefficient vector               [N_coeff, N_lambda]
+         - Model intrinsic scatter vector         [N_lambda]
+
+        Note that for this model we assemble the design matrix in python using
+        the labels of our benchmark sample and pass it directly to our Stan 
+        model, rather than passing in the label vector itself.
 
         Parameters
         ----------
-        suppress_output: bool
+        suppress_stan_output: bool
             Boolean flag for whether to suppress Stan output during training.
             If yes, output is suppressed and a progress bar is displayed. Set 
             to false for debugging purposes.
+
+        suppress_training_output: boolean, default: False
+            Suppresses progress bar updates when trainining. Separate to
+            suppressing Stan output.
+
+        max_iter: int, default: 2000
+            Maximum number of fitting iterations Stan will run. Also affects
+            how frequently Stan prints fitting updates to stdout (every 1% of
+            max_iter).
         """
         # Create design matrix
         self.vectorizer = PolynomialVectorizer(self.label_names, 2)
@@ -449,104 +562,179 @@ class Stannon(object):
         # Grab our number of pixels
         n_px = self.masked_data.shape[1]
 
-        # Suppress output - default behaviour when working. Hides Stan logging
-        # and instead shows progress bar
-        if suppress_output:
+        # Train pixel-by-pixel with no output whatsoever
+        if suppress_stan_output and suppress_training_output:
+            for px_i in range(n_px):
+                # Suppress Stan output. This is dangerous!
+                with sutils.suppress_output() as sm:
+                    self._train_cannon_pixel_basic(
+                        px_i, data_dict, init_dict, max_iter,)
+
+        # Train pixel-by-pixel and show progress bar
+        elif suppress_stan_output and not suppress_training_output:
             for px_i in tqdm(range(n_px), smoothing=0.2, desc="Training"):
                 # Suppress Stan output. This is dangerous!
                 with sutils.suppress_output() as sm:
-                    self._train_cannon_pixel(px_i, data_dict, init_dict,)
+                    self._train_cannon_pixel_basic(
+                        px_i, data_dict, init_dict, max_iter,)
 
-        # Don't suppress the output when debugging to show stan logging
+        # Train pixel-by-pixel and display stan logging for debugging purposes
         else:
             for px_i in range(n_px):
-                self._train_cannon_pixel(px_i, data_dict, init_dict,)
+                self._train_cannon_pixel_basic(
+                    px_i, data_dict, init_dict, max_iter,)
 
 
-    def _train_cannon_model_label_uncertainties(self, suppress_output):
-        """Trains a Cannon model with uncertainties on label values.
-
-        TODO: currently broken
+    def _train_cannon_pixel_basic(
+        self,
+        px_i,
+        data_dict,
+        init_dict,
+        max_iter,):
+        """Train a single pixel of a Cannon model *without* label
+        uncertainties. Since the spectral pixels are all independent, we train
+        the model one pixel at a time and so P (N_px) is always 1.
 
         Parameters
         ----------
-        suppress_output: bool
-            Boolean flag for whether to suppress Stan output during training.
-            If yes, output is suppressed and a progress bar is displayed. Set 
-            to false for debugging purposes.
-        """
-        # Create design matrix
-        self.vectorizer = PolynomialVectorizer(self.label_names, 2)
-        self.design_matrix = self.vectorizer(self.whitened_labels)
+        px_i: int
+            The current spectral pixel to be trained.
+        
+        data_dict: dict
+            Dictionary containing data to fit to:
+             - data_dict["S"], int
+             - data_dict["P"], int
+             - data_dict["L"], int
+             - data_dict["C"], int
+             - data_dict["label_means"], array with [N_stars, N_labels]
+             - data_dict["label_variances"], array with [N_stars, N_labels]
 
-        # Initialise theta array
-        init_theta = np.atleast_2d(
-            np.hstack([1, np.zeros(self.theta.shape[1]-1)]))
+        init_dict: dict
+            Dictionary containing initial guesses for our matrices we're
+            fitting for. This contains:
+             - init_dict["s2"], int
+             - init_dict["theta"], array [N_coeff]
 
-        # Intialise dictionaries to pass to stan
-        data_dict = dict(
-            S=self.S,
-            P=1,
-            L=self.L,
-            C=self.N_COEFF,
-            label_means=self.whitened_labels,
-            label_variances=self.whitened_label_vars,
-            design_matrix=self.design_matrix.T)
-
-        init_dict = dict(
-            true_labels=self.whitened_labels,
-            s2=[1],
-            theta=init_theta)
-
-        # Grab our number of pixels
-        n_px = self.masked_data.shape[1]
-
-        # Suppress output - default behaviour when working. Hides Stan logging
-        # and instead shows progress bar
-        if suppress_output:
-            for px_i in tqdm(range(n_px), smoothing=0.2, desc="Training"):
-                # Suppress Stan output. This is dangerous!
-                with sutils.suppress_output() as sm:
-                    self._train_cannon_pixel(px_i, data_dict, init_dict,)
-
-        # Don't suppress the output when debugging to show stan logging
-        else:
-            for px_i in range(n_px):
-                self._train_cannon_pixel(px_i, data_dict, init_dict,)
-
-
-    def _train_cannon_pixel(self, px_i, data_dict, init_dict,):
-        """Train a single pixel of a Cannon model.
+        max_iter: int
+            Maximum number of fitting iterations Stan will run. Also affects
+            how frequently Stan prints fitting updates to stdout (every 1% of
+            max_iter).
         """
         # Update the data dictionary with flux and ivar values for the current
-        # spectral pixel
-        if self.model_type == "label_uncertainties":
-            data_dict.update(
-                y=np.atleast_2d(self.masked_data[:, px_i]).T,
-                y_var=np.atleast_2d(1/self.masked_data_ivar[:, px_i]).T)
-        else:
-            data_dict.update(
-                y=self.masked_data[:, px_i],
-                y_var=1/self.masked_data_ivar[:, px_i])
+        # spectral pixel. Note that the basic Cannon model expects 1D arrays.
+        data_dict.update(
+            y=self.masked_data[:, px_i],
+            y_var=1/self.masked_data_ivar[:, px_i])
 
-        kwds = dict(data=data_dict, init=init_dict)
+        kwds = dict(data=data_dict, init=init_dict, iter=max_iter,)
         
         p_opt = self.model.optimizing(**kwds)
+
+        # Update our master arrays with the fitted values
         if p_opt is not None:
-                self.theta[px_i] = p_opt["theta"]
-                self.s2[px_i] = p_opt["s2"]
+            self.theta[px_i] = p_opt["theta"]
+            self.s2[px_i] = p_opt["s2"]
+
+
+    def _train_cannon_model_label_uncertainties(
+        self,
+        suppress_stan_output,
+        init_with_basic_model=False,
+        max_iter=2000,):
+        """Trains a Cannon model with uncertainties on label values. For this
+        model our spectral pixels are not entirely independent as we have a
+        single global 'true' label matrix, and so we cannot train our Cannon
+        model one pixel at a time.
+
+        This model takes as input:
+         - Normalised observed fluxes             [N_star, N_lambda]
+         - Normalised observed flux variances     [N_star, N_lambda]
+         - Whitened label values                  [N_star, N_label]
+         - Whitened label variances               [N_star, N_label]
+
+        The model then fits for:
+         - Model coefficient vector               [N_coeff, N_lambda]
+         - Model intrinsic scatter vector         [N_lambda]
+         - 'True' label vector                    [N_star, N_label]
+
+        Note that for this model pass Stan the label values and uncertainties
+        and it assembles the design matrix--we do not do so ourselves in Python
+        as we do for the basic model.
+
+        Parameters
+        ----------
+        suppress_stan_output: bool
+            Boolean flag for whether to suppress Stan output during training.
+            If yes, output is suppressed. Set to false for debugging purposes.
+
+        init_with_basic_model: boolean, default: False
+            If true, we train a basic Cannon model using the same training 
+            sample and use the fitting theta and s2 vectors to initialise our
+            label uncertainty model to cut down on training time.
+
+        max_iter: int, default: 2000
+            Maximum number of fitting iterations Stan will run. Also affects
+            how frequently Stan prints fitting updates to stdout (every 1% of
+            max_iter).
         """
-        try:
+        # If we're initialising our theta and s2 arrays using those computed
+        # from a basic Stannon model, we need to initialise train that model.
+        if init_with_basic_model:
+            basic_sm = self.__deepcopy__()
+            basic_sm.model_type = "basic"
+            basic_sm.model = basic_sm.get_stannon_model()
+            basic_sm.train_cannon_model(
+                suppress_stan_output=True,
+                suppress_training_output=False,)
+
+            # Grab theta and s2 from this model
+            init_theta = basic_sm.theta
+            init_s2 = basic_sm.s2
+        
+        # Otherwise we just initialise our vectors with zeroes
+        else:
+            # Initialise theta array with 1s in the first column, and zeroes
+            # everywhere else.
+            init_theta = np.hstack(
+                [np.ones((self.P, 1)), np.zeros((self.P, self.N_COEFF-1))])
+
+            # Intialise scatter array
+            init_s2 = np.ones(self.P)
+
+        # Initialise 'true' label array as just out whitened labels
+        init_true_labels = self.whitened_labels.copy()
+
+        # Intialise data dictionary (things our model fits *to*)
+        data_dict = dict(
+            S=self.S,
+            P=self.P,
+            L=self.L,
+            label_means=self.whitened_labels,
+            label_variances=self.whitened_label_vars,
+            y=self.masked_data,                         # Possible .T needed
+            y_var=1/self.masked_data_ivar,)             # Possible .T needed
+
+        # Initialise our dictionary of fitted *for* matrices
+        init_dict = dict(
+            theta=init_theta,
+            s2=init_s2,
+            true_labels=init_true_labels,)
+
+        kwds = dict(data=data_dict, init=init_dict, iter=max_iter,)
+
+        # Hides Stan logging--default behaviour when working. Dangerous!
+        if suppress_stan_output:
+            with sutils.suppress_output() as sm:
+                p_opt = self.model.optimizing(**kwds)
+
+        # Don't suppress the output when debugging
+        else:
             p_opt = self.model.optimizing(**kwds)
 
-        except:
-            logging.exception("Exception occurred when optimizing"
-                                f"pixel index {px_i}")
-        else:
-            if p_opt is not None:
-                self.theta[px_i] = p_opt["theta"]
-                self.s2[px_i] = p_opt["s2"]
-        """
+        # Finished training, save results
+        self.theta = p_opt["theta"]
+        self.s2 = p_opt["s2"]
+        self.true_labels = p_opt["true_labels"]
 
 
     def infer_labels(self, test_data, test_data_ivars):
@@ -677,7 +865,7 @@ class Stannon(object):
             self.data_mask[std_i] = False
 
             # Run fitting
-            self.train_cannon_model(suppress_output=True)
+            self.train_cannon_model(suppress_stan_output=True)
 
             # Predict labels for the missing standard
             labels_pred, _, _ = self.infer_labels(

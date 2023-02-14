@@ -56,6 +56,16 @@ else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
 
+# Adopted label uncertainties and systematics based on cross validation
+# performance on the benchmark set. Quoted systematics are fit - lit, meaning
+# that a positive systematic means the Cannon has *overestimated* the value 
+# (and thus the systematic should be substracted). The temperature systematic 
+# and uncertainty will be adopted from just the interferometric set, whereas
+# logg and [Fe/H] will be taken from the complete sample. 
+# TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
+adopted_label_systematics = np.array([15.63, 0.0, 0.03, -0.01,])
+adopted_label_uncertainties = np.array([60.18, 0.04, 0.11, 0.12])
+
 #------------------------------------------------------------------------------
 # Label Recovery
 #------------------------------------------------------------------------------
@@ -253,14 +263,43 @@ if n_labels == 3:
         data_plot_colour="b",)
 
 #------------------------------------------------------------------------------
+# Label Prediction
+#------------------------------------------------------------------------------
+# Reset data mask just in case (TODO: this should be fixed going forward)
+sm.data_mask = np.full(sm.S, True)
+sm.initialise_masking()
+
+# Predict labels
+labels_pred, e_labels_pred, chi2_all = sm.infer_labels(
+    test_data=sm.masked_data,
+    test_data_ivars=sm.masked_data_ivar)
+
+# Correct labels for systematics
+systematic_vector = np.tile(adopted_label_systematics, np.sum(sm.data_mask))
+systematic_vector = systematic_vector.reshape([np.sum(sm.data_mask), n_labels])
+labels_pred -= systematic_vector
+
+# Create uncertainties vector. TODO: do this in quadrature with those output
+# from infer_labels
+cross_val_sigma = np.tile(adopted_label_uncertainties, np.sum(sm.data_mask))
+cross_val_sigma = cross_val_sigma.reshape([np.sum(sm.data_mask), n_labels])
+e_labels_pred = np.sqrt(e_labels_pred**2 + cross_val_sigma**2)
+
+# Round our uncertainties, and check to see if the uncertainties are unique
+
+#------------------------------------------------------------------------------
 # Tables
 #------------------------------------------------------------------------------
+# Fit using fully trained Cannon
 label_source_cols = ["label_source_{}".format(label) for label in label_names]
 
-# Tabulate our adopted benchmark parameters
+# Tabulate our adopted and benchmark parameters
 st.make_table_benchmark_overview(
     obs_tab=obs_join[is_cannon_benchmark],
-    labels=sm.training_labels,
-    e_labels=sm.training_variances**2,
+    labels_adopt=sm.training_labels,
+    sigmas_adopt=sm.training_variances**2,
+    labels_fit=labels_pred,
     label_sources=obs_join[label_source_cols].values[is_cannon_benchmark],
-    abundance_labels=abundance_labels,)
+    abundance_labels=abundance_labels,
+    synth_logg_col="logg_synth",
+    aberrant_logg_threshold=0.15,)
