@@ -1,4 +1,4 @@
-"""
+"""Functions dealing with the computation of stellar parameters or photometry.
 """
 import os
 import numpy as np
@@ -18,9 +18,74 @@ from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
 from dustmaps.leike_ensslin_2019 import LeikeEnsslin2019Query
 from dustmaps.leike2020 import Leike2020Query
+from numpy.polynomial.polynomial import Polynomial
 
 LOCAL_BUBBLE_DIST_PC = 70
 
+# -----------------------------------------------------------------------------
+# Benchmark star systematics, uncertainties, and citations
+# -----------------------------------------------------------------------------
+# TODO Import this from a file rather than having it globally here
+# [Fe/H] offsets from Mann+13
+FEH_OFFSETS = {
+    "TW":0.0,
+    "VF05":0.0,
+    "CFHT":0.0,
+    "C01":0.02,
+    "M04" :0.04,
+    "LH05":0.02,
+    "T05":0.01,
+    "B06":0.07,
+    "Ra07":0.08,
+    "Ro07":0.00,
+    "F08":0.03,
+    "C11":0.00,
+    "S11":0.03,
+    "N12":0.00,
+    "M18":-0.03,    # Computed from np.nanmedian(cpm_selected["[Fe/H]_vf05"]-cpm_selected["Fe_H_m18"])
+    "Sou06":0.0,    # TODO Confirm this
+    "Soz09":0.0,    # TODO Confirm this
+    "M14":0.0,      # Probably safe to assume this is zero?
+    "RA12":0.01,   # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
+    "M13":0.0,
+}
+
+# Adopted uncertainties from VF05 Table 6
+VF05_ABUND_SIGMA = {
+    "M_H":0.029,
+    "Na_H":0.032,
+    "Si_H":0.019,
+    "Ti_H":0.046,
+    "Fe_H":0.03,
+    "Si_H":0.03,
+}
+
+# Citations
+FEH_CITATIONS = {
+    "TW":"mann_spectro-thermometry_2013",
+    "M13":"mann_spectro-thermometry_2013",
+    "VF05":"valenti_spectroscopic_2005",
+    "CFHT":"",
+    "C01":"",
+    "M04" :"mishenina_correlation_2004",
+    "LH05":"luck_stars_2005",
+    "T05":"",
+    "B06":"bean_accurate_2006",
+    "Ra07":"ramirez_oxygen_2007",
+    "Ro07":"robinson_n2k_2007",
+    "F08":"fuhrmann_nearby_2008",
+    "C11":"casagrande_new_2011",
+    "S11":"da_silva_homogeneous_2011",
+    "N12":"neves_metallicity_2012",
+    "M18":"montes_calibrating_2018",
+    "Sou06":"sousa_spectroscopic_2006",
+    "Soz09":"sozzetti_keck_2009",
+    "M14":"mann_prospecting_2014",
+}
+
+# -----------------------------------------------------------------------------
+# Spectrum comparison. TODO: unsure if these are used anymore.
+# -----------------------------------------------------------------------------
 def compare_to_standard_spectrum(spec_sci, spec_std):
     """
     """
@@ -490,6 +555,268 @@ def compute_casagrande_2020_teff(
     e_teff = c20_teff.loc[relation]["sigma_teff"]
 
     return teff, e_teff
+
+
+# -----------------------------------------------------------------------------
+# Label preparation for benchmark stars
+# -----------------------------------------------------------------------------
+def prepare_labels(
+    obs_join,
+    n_labels=3,
+    e_teff_quad=60,
+    max_teff=4200,
+    abundance_labels=[],
+    abundance_trends=None,):
+    """Prepare our set of training labels using our hierarchy of parameter 
+    source preferences.
+
+    Teff: Prefer interferometric measurements, otherwise take the uniform Teff
+    scale from Rains+21 which has been benchmarked to the interferometric Teff
+    scale. Add Rains+21 uncertainties in quadrature with standard M+15 
+    uncertainties to ensure that interferometric benchmarks are weighted more
+    highly. Enforce a max Teff limit to avoid warmer stars.
+
+    Logg: uniform Logg from Rains+21 (Mann+15 intial guess, updated from fit)
+
+    [Fe/H]: Prefer CPM binary benchmarks, then M+15, then RA+12, then [Fe/H]
+    from other NIR relations (e.g. T+15, G+14), then just default for Solar 
+    Neighbourhood with large uncertainties.
+
+    Systematics, uncertainties, and citations are pulled from FEH_OFFSETS, 
+    VF05_ABUND_SIGMA, and FEH_CITATIONS at the top of the file respectively.
+
+    Parameters
+    ----------
+    obs_join: pandas DataFrame
+        Pandas dataframe crossmatch containing observation information, Gaia
+        2MASS, and benchmark information.
+
+    n_labels: int, default: 3
+        The number of labels for the Cannon model.
+
+    e_teff_quad: int, default: 60
+        Teff uncertainty to add in quadrature with the statistical 
+        uncertainties.
+
+    max_teff: int, default: 4200
+        Maximum allowable benchmark temperature.
+
+    abundance_labels: list, default: []
+        List of string abundances (e.g. 'Ti_H') to use.
+
+    abundance_trends: pandas DataFrame, default: None
+        Polynomial coefficients of [X/H] abundance trend w.r.t [Fe/H] for each
+        of [Na_H,Mg_H,Al_H,Si_H,Ca_H,Sc_H,Ti_H,V_H,Cr_H,Mn_H,Co_H,Ni_H] fitted
+        to the Montes+18 sample where the abundances are columns and the rows
+        are polyomial coefficents. Only linear trends have been tested.
+
+    Returns
+    -------
+    label_values, label_sigma: float array
+        Float array of shape [N_star, N_label] containing the adopted label
+        values or uncertainties respectively. Missing values default to NaN.
+    
+    std_mask: boolean array
+        Boolean mask of shape [N_star] which is True where a star is useful as
+        a benchmark and has appropriate labels. 
+    
+     label_sources: string array
+        String array containing paper abbreviations denoting the source of each
+        adopted label.
+    """
+    # Intialise mask
+    std_mask = np.full(len(obs_join), True)
+
+    # Initialise label vector
+    label_values = np.full( (len(obs_join), n_labels), np.nan)
+    label_sigma = np.full( (len(obs_join), n_labels), np.nan)
+
+    # Initialise record of label source/s
+    label_sources = np.full( (len(obs_join), n_labels), "").astype(object)
+
+    # Go through one star at a time and select labels
+    for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
+        # Only accept properly vetted stars with consistent Teffs
+        if not star_info["in_paper"]:
+            std_mask[star_i] = False
+            continue
+
+        # Only accept interferometric, M+15, RA+12, NIR other, & CPM standards
+        elif not (~np.isnan(star_info["teff_int"]) 
+            or ~np.isnan(star_info["teff_m15"])
+            or ~np.isnan(star_info["teff_ra12"])
+            or ~np.isnan(star_info["feh_nir"])
+            or star_info["is_cpm"]):
+            std_mask[star_i] = False
+            continue
+        
+        # Enforce our max temperature for interferometric standards
+        elif star_info["teff_int"] > max_teff:
+            std_mask[star_i] = False
+            continue
+
+        # Teff: interferometric > Rains+21
+        if not np.isnan(star_info["teff_int"]):
+            label_values[star_i, 0] = star_info["teff_int"]
+            label_sigma[star_i, 0] = star_info["e_teff_int"]
+            label_sources[star_i, 0] = star_info["int_source"]
+
+        else:
+            label_values[star_i, 0] = star_info["teff_synth"]
+            label_sigma[star_i, 0] = (
+                star_info["e_teff_synth"]**2 + e_teff_quad**2)**0.5
+            label_sources[star_i, 0] = "R21"
+
+        # logg: Rains+21
+        label_values[star_i, 1] = star_info["logg_synth"]
+        label_sigma[star_i, 1] = star_info["e_logg_synth"]
+        label_sources[star_i, 1] = "R21"
+
+        # [Fe/H]: CPM > M+15 > RA+12 > NIR other > Rains+21 > default
+        if star_info["is_cpm"]:
+            # We have a CPM target, go through our hierarchy for these
+            # Mann+13 scale was set to VF05, so check this first
+            if ~np.isnan(star_info["Fe_H_vf05"]):
+                ref = "VF05"
+                feh_corr = star_info["Fe_H_vf05"] + FEH_OFFSETS[ref]
+                e_feh_corr = VF05_ABUND_SIGMA["Fe_H"]
+                citation = FEH_CITATIONS[ref]
+
+            # Now check Mann+13
+            elif ~np.isnan(star_info["feh_prim_m13"]):
+                ref = star_info["ref_feh_prim_m13"]
+                feh_corr = star_info["feh_prim_m13"] + FEH_OFFSETS[ref]
+                e_feh_corr = star_info["e_feh_prim_m13"]
+                citation = FEH_CITATIONS[ref]
+
+            # Then check those from Newton+14
+            elif ~np.isnan(star_info["feh_prim_n14"]):
+                ref = star_info["feh_prim_ref_n14"]
+                feh_corr = star_info["feh_prim_n14"] + FEH_OFFSETS["VF05"]
+                e_feh_corr = star_info["e_feh_prim_n14"]
+                citation = FEH_CITATIONS[star_info["feh_prim_ref_n14"]]
+            
+            # Now grab from Montes+2018
+            elif ~np.isnan(star_info["Fe_H_m18"]):
+                ref = "M18"
+                feh_corr = star_info["Fe_H_m18"] + FEH_OFFSETS[ref]
+                e_feh_corr = star_info["eFe_H_m18"]
+                citation = FEH_CITATIONS["M18"]
+
+            # Then check Mann+2014 for VLM dwarfs
+            elif ~np.isnan(star_info["feh_m14"]):
+                ref = "M14"
+                feh_corr = star_info["feh_m14"] + FEH_OFFSETS[ref]
+                e_feh_corr = star_info["e_feh_m14"]
+                citation = FEH_CITATIONS["M18"]
+
+            # Then check other entries
+            elif star_info["feh_prim_ref_other"] == "Ra07":
+                ref = "Ra07"
+                feh_corr = star_info["feh_prim_other"] + FEH_OFFSETS[ref]
+                e_feh_corr = star_info["e_feh_prim_other"]
+                citation = FEH_CITATIONS["Ra07"]
+            
+            # In case we're missing a value, alert
+            else:
+                print("Missing CPM value")
+
+            # Take final value
+            label_values[star_i, 2] = feh_corr
+            label_sigma[star_i, 2] = e_feh_corr
+            label_sources[star_i, 2] = ref
+
+        # Now move onto non-CPM [Fe/H] sources
+        elif not np.isnan(star_info["feh_m15"]):
+            label_values[star_i, 2] = star_info["feh_m15"]
+            label_sigma[star_i, 2] = star_info["e_feh_m15"]
+            label_sources[star_i, 2] = "M15"
+
+        elif not np.isnan(star_info["feh_ra12"]):
+            label_values[star_i, 2] = \
+                star_info["feh_ra12"] + FEH_OFFSETS["RA12"]
+            label_sigma[star_i, 2] = star_info["e_feh_ra12"]
+            label_sources[star_i, 2] = "RA12"
+
+        elif not np.isnan(star_info["feh_nir"]):
+            label_values[star_i, 2] = star_info["feh_nir"]
+            label_sigma[star_i, 2] = star_info["e_feh_nir"]
+            label_sources[star_i, 2] = star_info["nir_source"]
+
+        elif not np.isnan(star_info["phot_feh"]):
+            label_values[star_i, 2] = star_info["phot_feh"]
+            label_sigma[star_i, 2] = star_info["e_phot_feh"]
+            label_sources[star_i, 2] = "R21"
+
+        else:
+            label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood
+            label_sigma[star_i, 2] = 2.0    # Default uncertainty
+            print("Assigned default [Fe/H] to {}".format(source_id))
+
+        # Note the adopted [Fe/H]
+        feh_adopted = label_values[star_i, 2]
+
+        # Finally setup [X/H] one element at a time. We bypass this loop if we
+        # don't have any abundances.
+        for abundance_i, abundance in enumerate(abundance_labels):
+            label_i = 3 + abundance_i
+
+            # Only allow supported abundances
+            SUPPORTED_ABUNDANCES = ["Ti_H"]
+
+            if abundance not in SUPPORTED_ABUNDANCES:
+                raise ValueError("Unsupported abundance!")
+
+            m18_abundance = "{}_m18".format(abundance)
+            vf05_abundance = "{}_vf05".format(abundance)
+            a12_abundance = "{}_a12".format(abundance)
+            
+            # Since VF05 is our base [Fe/H] reference, we'll use it as our base
+            # reference for abundances as well. It also has lower uncertainties
+            # than other references. TODO: account for abundance systematics.
+            if not np.isnan(star_info[vf05_abundance]):
+                label_values[star_i, label_i] = star_info[vf05_abundance]
+                label_sigma[star_i, label_i] = VF05_ABUND_SIGMA[abundance]
+                label_sources[star_i, label_i] = "VF05"
+
+            # First check Montes+18
+            elif not np.isnan(star_info[m18_abundance]):
+                label_values[star_i, label_i] = star_info[m18_abundance]
+                label_sigma[star_i, label_i] = \
+                    star_info["e{}".format(m18_abundance)]
+                label_sources[star_i, label_i] = "M18"
+
+            # Then finally Adibekyan+2012. Note that we're currently doing what
+            # is probably a physically unreasonable HACK in just averaging the
+            # Ti I/H and Ti II/H abundances.
+            elif not np.isnan(star_info["Fe_H_a12"]):
+                if abundance == "Ti_H":
+                    ti_i_abund = a12_abundance.replace("_H_", "I_H_")
+                    ti_ii_abund = a12_abundance.replace("_H_", "II_H_")
+
+                    abund = \
+                        (star_info[ti_i_abund] + star_info[ti_ii_abund])/2
+                    e_abund = np.sqrt(
+                        star_info["e_{}".format(ti_i_abund)]**2
+                        + star_info["e_{}".format(ti_ii_abund)]**2)
+                else:
+                    abund = star_info[a12_abundance]
+                    e_abund = star_info["e_{}".format(a12_abundance)]
+
+                label_values[star_i, label_i] = abund
+                label_sigma[star_i, label_i] = e_abund
+                label_sources[star_i, label_i] = "A12"
+            
+            # Otherwise default to the solar neighbourhood abundance trend so 
+            # that we have a physically motivated initial guess.
+            else:
+                poly = Polynomial(
+                    abundance_trends[abundance.replace("_m18", "")].values)
+                X_H = poly(feh_adopted)
+                label_values[star_i, label_i] = X_H
+                label_sigma[star_i, label_i] = 2.0
+
+    return label_values, label_sigma, std_mask, label_sources
 
 
 # -----------------------------------------------------------------------------

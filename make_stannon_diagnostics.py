@@ -1,6 +1,12 @@
 """Script to run after train_stannon.py to generate diagnostic and results 
 plots. For the MARCS spectra comparison to work, synthetic spectra at 
 literature parameters should be generated using get_lit_param_synth.py.
+
+This script is part of a series of Cannon scripts. The main sequence is:
+ 1) prepare_stannon_training_sample.py     --> label preparation
+ 2) train_stannon.py                       --> training and cross validation
+ 3) make_stannon_diagnostics.py            --> diagnostic plots + result tables
+ 4) run_stannon.py                         --> running on science spectra
 """
 import os
 import numpy as np

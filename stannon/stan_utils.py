@@ -268,37 +268,3 @@ def infer_labels(theta, scatter, fluxes, ivars, lbl_mean, lbl_std, n_labels=3):
         errs_all[star_i,:] = np.sqrt(cov.diagonal()) * lbl_std
 
     return labels_all, errs_all, chi2_all
-
-
-def compare_labels(labels_real, labels_pred):
-    """
-    Compare Cannon predicted labels of the training set with the actual values,
-    and plot a comparison Teff-logg diagram.
-
-    Parameters
-    ----------
-    labels_real: 
-        Real labels of the training set  (de-whitened), of shape 
-        [n_spectra, n_label]. 
-
-    labels_pred: float array
-        Cannon predicted labels (de-whitened), of shape [n_spectra, n_label].
-    """
-    offsets = labels_real - labels_pred
-
-    mean_offsets = np.nanmean(np.abs(offsets), axis=0)
-    median_offsets = np.nanmedian(np.abs(offsets), axis=0)
-
-    print("Mean errors:", mean_offsets)
-    print("Median errors:", median_offsets)
-
-    plt.close("all")
-    plt.errorbar(labels_real[:,0], labels_real[:,1], fmt=".", 
-                 xerr=offsets[:,0], yerr=offsets[:,1], elinewidth=0.1, 
-                 ecolor="black")
-
-    plt.xlabel(r"T$_{\rm eff}$")
-    plt.ylabel(r"$\log g$")
-
-    plt.xlim([6000, 3500])
-    plt.ylim([5,-1])
