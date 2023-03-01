@@ -262,6 +262,7 @@ if n_labels == 3:
         bad_px_masks=bad_px_mask,
         labels_all=sm.training_labels,
         source_ids=representative_stars_source_ids,
+        sort_col_name="BP_RP_dr3",
         x_lims=(wl_min_model,wl_max_model),
         fn_label=fn_label,
         data_label="marcs",
@@ -298,6 +299,9 @@ e_labels_pred = np.sqrt(e_labels_pred**2 + cross_val_sigma**2)
 #------------------------------------------------------------------------------
 # Fit using fully trained Cannon
 label_source_cols = ["label_source_{}".format(label) for label in label_names]
+
+# Table summarising benchmark sample
+st.make_table_sample_summary(obs_join)
 
 # Tabulate our adopted and benchmark parameters
 st.make_table_benchmark_overview(

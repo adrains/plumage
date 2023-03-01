@@ -224,7 +224,7 @@ if allow_exceptions:
 montes18_abund_trends = pd.read_csv("data/montes18_abundance_trends.csv") 
 
 # Prepare our labels
-label_values_all, label_sig_all, std_mask, label_sources_all = \
+label_values, label_sigmas, std_mask, label_sources, label_nondefault = \
     params.prepare_labels(
         obs_join=obs_join,
         n_labels=n_labels,
@@ -232,16 +232,17 @@ label_values_all, label_sig_all, std_mask, label_sources_all = \
         abundance_trends=montes18_abund_trends)
 
 # Compute the variances
-label_var_all = label_sig_all**2
+label_var_all = label_sigmas**2
 
 # Add the mask and adopted labels to the dataframe
 obs_join["has_complete_label_set"] = std_mask
 
 for lbl_i, lbl in enumerate(label_names):
-    obs_join["label_adopt_{}".format(lbl)] = label_values_all[:,lbl_i]
-    obs_join["label_adopt_sigma_{}".format(lbl)] = label_sig_all[:,lbl_i]
+    obs_join["label_adopt_{}".format(lbl)] = label_values[:,lbl_i]
+    obs_join["label_adopt_sigma_{}".format(lbl)] = label_sigmas[:,lbl_i]
     obs_join["label_adopt_var_{}".format(lbl)] = label_var_all[:,lbl_i]
-    obs_join["label_source_{}".format(lbl)] = label_sources_all[:,lbl_i]
+    obs_join["label_source_{}".format(lbl)] = label_sources[:,lbl_i]
+    obs_join["label_nondefault_{}".format(lbl)] = label_nondefault[:,lbl_i]
 
 # And combine masks to get adopted benchmarks
 is_cannon_benchmark = np.logical_and(

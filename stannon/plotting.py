@@ -239,7 +239,7 @@ def plot_label_recovery_per_source(
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
         fit_label=r"[Fe/H] (Cannon)",
-        lit_label=r"[Fe/H] (CPM)",
+        lit_label=r"[Fe/H] (F/G/K Primary)",
         cb_label=r"$T_{\rm eff}\,$K (Literature)",
         x_lims=feh_lims,
         y_lims=feh_lims,

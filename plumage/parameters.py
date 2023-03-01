@@ -634,6 +634,9 @@ def prepare_labels(
     # Initialise record of label source/s
     label_sources = np.full( (len(obs_join), n_labels), "").astype(object)
 
+    # And initialise record of whether we've assigned a default parameter
+    label_nondefault = np.full( (len(obs_join), n_labels), False)
+
     # Go through one star at a time and select labels
     for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         # Only accept properly vetted stars with consistent Teffs
@@ -660,17 +663,20 @@ def prepare_labels(
             label_values[star_i, 0] = star_info["teff_int"]
             label_sigma[star_i, 0] = star_info["e_teff_int"]
             label_sources[star_i, 0] = star_info["int_source"]
+            label_nondefault[star_i, 0] = True
 
         else:
             label_values[star_i, 0] = star_info["teff_synth"]
             label_sigma[star_i, 0] = (
                 star_info["e_teff_synth"]**2 + e_teff_quad**2)**0.5
             label_sources[star_i, 0] = "R21"
+            label_nondefault[star_i, 0] = True
 
         # logg: Rains+21
         label_values[star_i, 1] = star_info["logg_synth"]
         label_sigma[star_i, 1] = star_info["e_logg_synth"]
         label_sources[star_i, 1] = "R21"
+        label_nondefault[star_i, 1] = True
 
         # [Fe/H]: CPM > M+15 > RA+12 > NIR other > Rains+21 > default
         if star_info["is_cpm"]:
@@ -725,32 +731,38 @@ def prepare_labels(
             label_values[star_i, 2] = feh_corr
             label_sigma[star_i, 2] = e_feh_corr
             label_sources[star_i, 2] = ref
+            label_nondefault[star_i, 2] = True
 
         # Now move onto non-CPM [Fe/H] sources
         elif not np.isnan(star_info["feh_m15"]):
             label_values[star_i, 2] = star_info["feh_m15"]
             label_sigma[star_i, 2] = star_info["e_feh_m15"]
             label_sources[star_i, 2] = "M15"
+            label_nondefault[star_i, 2] = True
 
         elif not np.isnan(star_info["feh_ra12"]):
             label_values[star_i, 2] = \
                 star_info["feh_ra12"] + FEH_OFFSETS["RA12"]
             label_sigma[star_i, 2] = star_info["e_feh_ra12"]
             label_sources[star_i, 2] = "RA12"
+            label_nondefault[star_i, 2] = True
 
         elif not np.isnan(star_info["feh_nir"]):
             label_values[star_i, 2] = star_info["feh_nir"]
             label_sigma[star_i, 2] = star_info["e_feh_nir"]
             label_sources[star_i, 2] = star_info["nir_source"]
+            label_nondefault[star_i, 2] = True
 
         elif not np.isnan(star_info["phot_feh"]):
             label_values[star_i, 2] = star_info["phot_feh"]
             label_sigma[star_i, 2] = star_info["e_phot_feh"]
             label_sources[star_i, 2] = "R21"
+            label_nondefault[star_i, 2] = True
 
         else:
             label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood
             label_sigma[star_i, 2] = 2.0    # Default uncertainty
+            label_nondefault[star_i, 2] = False
             print("Assigned default [Fe/H] to {}".format(source_id))
 
         # Note the adopted [Fe/H]
@@ -778,6 +790,7 @@ def prepare_labels(
                 label_values[star_i, label_i] = star_info[vf05_abundance]
                 label_sigma[star_i, label_i] = VF05_ABUND_SIGMA[abundance]
                 label_sources[star_i, label_i] = "VF05"
+                label_nondefault[star_i, label_i] = True
 
             # First check Montes+18
             elif not np.isnan(star_info[m18_abundance]):
@@ -785,6 +798,7 @@ def prepare_labels(
                 label_sigma[star_i, label_i] = \
                     star_info["e{}".format(m18_abundance)]
                 label_sources[star_i, label_i] = "M18"
+                label_nondefault[star_i, label_i] = True
 
             # Then finally Adibekyan+2012. Note that we're currently doing what
             # is probably a physically unreasonable HACK in just averaging the
@@ -806,6 +820,7 @@ def prepare_labels(
                 label_values[star_i, label_i] = abund
                 label_sigma[star_i, label_i] = e_abund
                 label_sources[star_i, label_i] = "A12"
+                label_nondefault[star_i, label_i] = True
             
             # Otherwise default to the solar neighbourhood abundance trend so 
             # that we have a physically motivated initial guess.
@@ -815,8 +830,9 @@ def prepare_labels(
                 X_H = poly(feh_adopted)
                 label_values[star_i, label_i] = X_H
                 label_sigma[star_i, label_i] = 2.0
+                label_nondefault[star_i, label_i] = False
 
-    return label_values, label_sigma, std_mask, label_sources
+    return label_values, label_sigma, std_mask, label_sources, label_nondefault
 
 
 # -----------------------------------------------------------------------------
