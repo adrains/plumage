@@ -72,6 +72,10 @@ else:
 adopted_label_systematics = np.array([15.63, 0.0, 0.03, -0.01,])
 adopted_label_uncertainties = np.array([60.18, 0.04, 0.11, 0.12])
 
+# Which species to overplot on our theta plot. It gets very busy the more
+# species we plot, so it's currently limited to the most prominent species.
+species_to_plot = ["Ca 1", "Ti 1", "Fe 1",] 
+
 #------------------------------------------------------------------------------
 # Label Recovery
 #------------------------------------------------------------------------------
@@ -148,7 +152,8 @@ splt.plot_theta_coefficients(
     linewidth=0.9,
     alpha=0.8,
     fn_suffix=fn_label,
-    line_list=line_list_b,)
+    line_list=line_list_b,
+    species_to_plot=species_to_plot,)
 
 splt.plot_theta_coefficients(
     sm,
@@ -162,7 +167,8 @@ splt.plot_theta_coefficients(
     linewidth=0.9,
     alpha=0.8,
     fn_suffix=fn_label,
-    line_list=line_list_r,)
+    line_list=line_list_r,
+    species_to_plot=species_to_plot,)
 
 #------------------------------------------------------------------------------
 # Spectral Recovery
@@ -313,3 +319,13 @@ st.make_table_benchmark_overview(
     abundance_labels=abundance_labels,
     synth_logg_col="logg_synth",
     aberrant_logg_threshold=0.15,)
+
+#------------------------------------------------------------------------------
+# Benchmark CMD
+#------------------------------------------------------------------------------
+splt.plot_cannon_cmd(
+    benchmark_colour=obs_join[is_cannon_benchmark]["BP_RP_dr3"],
+    benchmark_mag=obs_join[is_cannon_benchmark]["K_mag_abs"],
+    benchmark_feh=sm.training_labels[:,2],
+    highlight_mask=obs_join[is_cannon_benchmark]["is_cpm"].values,
+    highlight_mask_label="Binary Benchmark",)

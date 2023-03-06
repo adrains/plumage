@@ -6,6 +6,7 @@ import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import plumage.plotting as pplt
 import matplotlib.ticker as plticker
+from collections import OrderedDict
 
 def plot_label_recovery(
     label_values,
@@ -239,7 +240,7 @@ def plot_label_recovery_per_source(
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
         fit_label=r"[Fe/H] (Cannon)",
-        lit_label=r"[Fe/H] (F/G/K Primary)",
+        lit_label=r"[Fe/H] (Binary Primary)",
         cb_label=r"$T_{\rm eff}\,$K (Literature)",
         x_lims=feh_lims,
         y_lims=feh_lims,
@@ -347,13 +348,13 @@ def plot_cannon_cmd(
     benchmark_colour,
     benchmark_mag,
     benchmark_feh,
-    science_colour,
-    science_mag,
+    science_colour=None,
+    science_mag=None,
     x_label=r"$BP-RP$",
     y_label=r"$M_{K_S}$",
     highlight_mask=None,
     highlight_mask_label="",
-    bp_rp_cutoff=1.5,):
+    bp_rp_cutoff=0,):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
     stars for e.g. comparison with standards.
@@ -401,13 +402,14 @@ def plot_cannon_cmd(
 
     # Plot science targets, making sure to not plot any science targets beyond
     # the extent of our benchmarks
-    if len(science_colour) > 0 and len(science_mag) > 0:
+    if (science_colour is not None and science_mag is not None 
+        and len(science_colour) > 0 and len(science_mag) > 0):
         scatter = axis.scatter(
             science_colour[science_colour > bp_rp_cutoff],
             science_mag[science_colour > bp_rp_cutoff],
             marker="o",
             edgecolor="black",#"#ff7f0e",
-            facecolors="none",
+            #facecolors="none",
             zorder=2,
             alpha=0.6,
             label="Science",)
@@ -415,13 +417,13 @@ def plot_cannon_cmd(
     # If we've been given a highlight mask, plot for diagnostic reasons
     if highlight_mask is not None:
         scatter = axis.scatter(
-            benchmark_colour[highlight_mask][benchmark_colour > bp_rp_cutoff],
-            benchmark_mag[highlight_mask][benchmark_colour > bp_rp_cutoff],
+            benchmark_colour[highlight_mask],
+            benchmark_mag[highlight_mask],
             marker="o",
-            edgecolor="k",#"#ff7f0e",
-            facecolors="none",
+            c=benchmark_feh[highlight_mask],
+            edgecolor="k",
+            linewidths=1.2,
             zorder=1,
-            alpha=0.5,
             label=highlight_mask_label,)
 
     plt.legend(loc="best", fontsize="large")
@@ -520,8 +522,13 @@ def plot_theta_coefficients(
     alpha=0.9,
     label="",
     fn_suffix="",
-    leg_loc="best",
-    line_list=None,):
+    leg_loc="upper center",
+    line_list=None,
+    line_list_cm="cubehelix",
+    species_to_plot=[],
+    species_line_width=0.75,
+    species_line_lims_spec=(1.6,2.0),
+    species_line_lims_scatter=(0.003,0.004),):
     """Plot fluxes, values of first order theta coefficients for Teff, logg,
     and [Fe/H], as well as model scatter - all against wavelength.
 
@@ -626,43 +633,63 @@ def plot_theta_coefficients(
     axes[2].plot(wave, scatter, linewidth=linewidth,)
 
     # Overplot line list on spectrum and scatter subplots
-    if line_list is not None:
-        point_height_spec = 1.5
-        text_height_spec = 2
+    if line_list is not None and len(species_to_plot) > 0:
+        # Remove any species not in our list
+        species_mask = np.isin(line_list["ion"].values, species_to_plot)
+        line_list_adopt = line_list[species_mask].copy()
 
-        point_height_scatter = 0.003
-        text_height_scatter = 0.004
+        # Count how many unique species are in the line list
+        unique_species = list(set(line_list_adopt["ion"].values))
+        unique_species.sort()
+        n_unique_species = len(unique_species)
+        colour_i = np.arange(len(unique_species))/n_unique_species
+        species_mapping_dict = OrderedDict(zip(unique_species, colour_i))
 
+        # Get the colour map for our lines
+        cmap = cm.get_cmap(line_list_cm)
+
+        # Only print those in our wavelength range
         line_mask = np.logical_and(
-            line_list["wl"] > x_lims[0],
-            line_list["wl"] < x_lims[1],)
+            line_list_adopt["wl"].values > x_lims[0],
+            line_list_adopt["wl"].values < x_lims[1],)
 
-        for line_i, line_data in line_list[line_mask].iterrows():
+        for line_i, line_data in line_list_adopt[line_mask].iterrows():
+            # Label lines on spectral plot
+            axes[0].vlines(
+                x=line_data["wl"],
+                ymin=species_line_lims_spec[0],
+                ymax=species_line_lims_spec[1],
+                linewidth=species_line_width,
+                colors=cmap(species_mapping_dict[line_data["ion"]]),
+                label=line_data["ion"],)
+            
+            # Label lines on scatter plot
+            axes[2].vlines(
+                x=line_data["wl"],
+                ymin=species_line_lims_scatter[0],
+                ymax=species_line_lims_scatter[1],
+                linewidth=species_line_width,
+                colors=cmap(species_mapping_dict[line_data["ion"]]),
+                label=line_data["ion"],)
 
-            if line_i % 2 == 0:
-                offset_spec = (text_height_spec - point_height_spec)/4
-                offset_scatter = (text_height_scatter - point_height_scatter)/4
-            else:
-                offset_spec = 0
-                offset_scatter = 0
-
-            # Plot text and arrow for each line
-            axes[0].annotate(
-                s=line_data["ion"],
-                xy=(line_data["wl"], point_height_spec),
-                xytext=(line_data["wl"], text_height_spec + offset_spec),
-                horizontalalignment="center",
-                fontsize=5,
-                arrowprops=dict(arrowstyle='->',lw=0.2),)
-
-            axes[2].annotate(
-                s=line_data["ion"],
-                xy=(line_data["wl"], point_height_scatter),
-                xytext=(line_data["wl"], text_height_scatter + offset_scatter),
-                horizontalalignment="center",
-                fontsize=5,
-                arrowprops=dict(arrowstyle='->',lw=0.2),)
-
+        # Legends (without duplicate entries)
+        handles, labels = axes[0].get_legend_handles_labels()
+        by_label = OrderedDict(zip(labels, handles))
+        axes[0].legend(
+            handles=by_label.values(),
+            labels=by_label.keys(),
+            loc=leg_loc,
+            ncol=n_unique_species,
+            fontsize="small",)
+        
+        handles, labels = axes[2].get_legend_handles_labels()
+        by_label = OrderedDict(zip(labels, handles))
+        axes[2].legend(
+            handles=by_label.values(),
+            labels=by_label.keys(),
+            loc=leg_loc,
+            ncol=n_unique_species,
+            fontsize="small",)
 
     # Now mask out emission and telluric regions
     pplt.shade_excluded_regions(

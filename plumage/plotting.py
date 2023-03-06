@@ -1452,11 +1452,11 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     plt.setp(axis.get_xticklabels(), visible=False)
     resid_ax.hlines(0, lim_min, lim_max, linestyles="--", zorder=0, color="k",)
     
-    resid_ax.set_xlabel(lit_label, fontsize="x-large")
+    resid_ax.set_xlabel(lit_label, fontsize="large")
 
     if fit_label != "":
-        axis.set_ylabel(fit_label, fontsize="x-large")
-        resid_ax.set_ylabel("resid", fontsize="x-large")
+        axis.set_ylabel(fit_label, fontsize="large")
+        resid_ax.set_ylabel(r"${\rm lit}-{\rm fit}$", fontsize="large")
 
     axis.set_xlim(x_lims)
     resid_ax.set_xlim(x_lims)
@@ -1495,8 +1495,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
     axis.yaxis.set_major_locator(plticker.MultipleLocator(base=ticks[0]))
     
-    axis.tick_params(axis='both', which='major', labelsize="large")
-    resid_ax.tick_params(axis='x', which='major', labelsize="large")
+    axis.tick_params(axis='both', which='major', labelsize="medium")
+    resid_ax.tick_params(axis='x', which='major', labelsize="medium")
 
     # Set limits on y residuals if given
     if resid_y_lims is not None:
@@ -2401,9 +2401,6 @@ def plot_representative_spectral_model_limitations(
             plot_suffix, plot_index))
         plt.savefig("paper/model_spectra_limitations{}{}.png".format(
             plot_suffix, plot_index), dpi=500,)
-        
-
-
     # Plot observed data
     plt.close("all")
     plt.plot(wl_br, spec_br, linewidth=lw, label="Observed", alpha=0.7, zorder=2)
