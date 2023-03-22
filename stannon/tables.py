@@ -2,6 +2,7 @@
 """
 import numpy as np
 import pandas as pd
+import plumage.parameters as params
 from collections import OrderedDict
 
 label_source_refs = {
@@ -32,6 +33,7 @@ def make_table_sample_summary(obs_tab,):
         "Label",
         "Sample",
         r"Median $\sigma_{\rm label}$",
+        r"Offset",
         r"$N_{\rm with}$",
         r"$N_{\rm without}$",
         r"$N_{\rm adopted}$"
@@ -46,7 +48,7 @@ def make_table_sample_summary(obs_tab,):
     header.append("\\centering")
     header.append("\\caption{Benchmark sample summary}")
 
-    col_format = "cccccc"
+    col_format = "ccccccc"
 
     header.append(r"\resizebox{\columnwidth}{!}{%")
     header.append("\\begin{tabular}{%s}" % col_format)
@@ -62,15 +64,18 @@ def make_table_sample_summary(obs_tab,):
     is_cannon_benchmark = obs_tab["is_cannon_benchmark"].values
     benchmarks = obs_tab[is_cannon_benchmark]
 
-    # -----------------
+    teff_syst = 0
+    logg_syst = 0
+
+    # -------------------------------------------------------------------------
     # Teff
-    # -----------------
+    # -------------------------------------------------------------------------
     # All teffs
     has_default_teff = ~benchmarks["label_nondefault_teff"].values
     median_teff_sigma = \
         np.median(benchmarks[~has_default_teff]["label_adopt_sigma_teff"])
     teff_row = \
-        r"$T_{{\rm eff}}$ & All & {:0.0f}\,K & {:d} & {:d} & {:d} \\".format(
+        r"$T_{{\rm eff}}$ & All & {:0.0f}\,K & - & {:d} & {:d} & {:d} \\".format(
             median_teff_sigma,              # median sigma
             np.sum(~has_default_teff),      # with
             np.sum(has_default_teff),       # without
@@ -81,7 +86,7 @@ def make_table_sample_summary(obs_tab,):
     median_teff_int_sigma = \
         np.median(benchmarks[has_interferometry]["label_adopt_sigma_teff"])
     teff_int_row = \
-        r"& Interferometry & {:0.0f}\,K & {:d} & {:d} & {:d} \\".format(
+        r"& Interferometry & {:0.0f}\,K & - & {:d} & {:d} & {:d} \\".format(
             median_teff_int_sigma,          # median sigma
             np.sum(has_interferometry),     # with
             np.sum(~has_interferometry),    # without
@@ -93,21 +98,21 @@ def make_table_sample_summary(obs_tab,):
     median_teff_r21_sigma = \
         np.median(benchmarks[adopted_21]["label_adopt_sigma_teff"])
     teff_r21_row = \
-        r"& Rains+21 & {:0.0f}\,K & {:d} & {:d} & {:d} \\".format(
+        r"& Rains+21 & {:0.0f}\,K & - & {:d} & {:d} & {:d} \\".format(
             median_teff_r21_sigma,          # median sigma
             np.sum(has_r21),                # with
             np.sum(~has_r21),               # without
             np.sum(adopted_21),)            # adopted
 
-    # -----------------
+    # -------------------------------------------------------------------------
     # logg
-    # -----------------
+    # -------------------------------------------------------------------------
     # All loggs
     has_default_logg = ~benchmarks["label_nondefault_logg"].values
     median_logg_sigma = \
         np.median(benchmarks[~has_default_logg]["label_adopt_sigma_logg"])
     logg_row = \
-        r"$\log g$ & All & {:0.2f}\,dex & {:d} & {:d} & {:d}\\".format(
+        r"$\log g$ & All & {:0.2f}\,dex & - & {:d} & {:d} & {:d}\\".format(
         median_logg_sigma,              # median sigma
         np.sum(~has_default_logg),      # with
         np.sum(has_default_logg),       # without
@@ -119,47 +124,75 @@ def make_table_sample_summary(obs_tab,):
     median_logg_r21_sigma = \
         np.median(benchmarks[adopted_r21]["label_adopt_sigma_logg"])
     logg_r21_row = \
-        r"& Rains+21 & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
+        r"& Rains+21 & {:0.2f}\,dex & - & {:d} & {:d} & {:d} \\".format(
         median_logg_r21_sigma,          # median sigma
         np.sum(has_r21),                # with
         np.sum(~has_r21),               # without
         np.sum(adopted_r21),)           # adopted
 
-    # -----------------
+    # -------------------------------------------------------------------------
     # [Fe/H]
-    # -----------------
+    # -------------------------------------------------------------------------
+    feh_row_fmt = \
+        r"& {} & {:0.2f}\,dex & {:+0.2f}\,dex & {:d} & {:d} & {:d} \\"
+
     has_default_feh = ~benchmarks["label_nondefault_feh"].values
     median_feh_sigma = \
         np.nanmedian(
             benchmarks[~has_default_feh]["label_adopt_sigma_feh"].values)
     feh_row = \
-        r"[Fe/H] & All & {:0.2f}\,dex & {:d} & {:d} & {:d}\\".format(
+        r"[Fe/H] & All & {:0.2f}\,dex & - & {:d} & {:d} & {:d}\\".format(
             median_feh_sigma,               # median sigma
             np.sum(~has_default_feh),       # with
             np.sum(has_default_feh),        # without
             np.sum(~has_default_feh))       # adopted
+            
+    # Valenti Fischer 2005
+    has_vf05 = ~np.isnan(benchmarks["Fe_H_vf05"].values)
+    adopted_vf05 = benchmarks["label_source_feh"].values == "VF05"
+    median_feh_vf05_sigma = \
+        np.nanmedian(benchmarks[adopted_vf05]["label_adopt_sigma_feh"].values)
+    feh_vf05_row = feh_row_fmt.format(
+            "Valenti \& Fischer 2005",       # label
+            median_feh_vf05_sigma,           # median sigma
+            params.FEH_OFFSETS["VF05"],      # offset
+            np.sum(has_vf05),                # with
+            np.sum(~has_vf05),               # without
+            np.sum(adopted_vf05))            # Adopted
+    
+    # Montes+2018
+    has_m18 = ~np.isnan(benchmarks["Fe_H_lit_m18"].values)
+    adopted_m18 = benchmarks["label_source_feh"].values == "M18"
+    median_feh_m18_sigma = \
+        np.nanmedian(benchmarks[adopted_m18]["label_adopt_sigma_feh"].values)
+    feh_m18_row = feh_row_fmt.format(
+            "Montes+2018",                  # label
+            median_feh_m18_sigma,           # median sigma
+            params.FEH_OFFSETS["M18"],      # offset
+            np.sum(has_m18),                # with
+            np.sum(~has_m18),               # without
+            np.sum(adopted_m18))            # Adopted
 
-    # Binary
-    has_binary = benchmarks["is_cpm"].values
-    adopted_binary = benchmarks["is_cpm"].values
-    median_feh_binary_sigma = \
-        np.nanmedian(
-            benchmarks[adopted_binary]["label_adopt_sigma_feh"].values)
-    feh_binary_row = \
-        r"& Binary & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
-            median_feh_binary_sigma,        # median sigma
-            np.sum(has_binary),             # with
-            np.sum(~has_binary),            # without
-            np.sum(adopted_binary))         # adopted
-
+    # Sousa+2008 - TODO incomplete crossmatch ATM
+    adopted_s08 = benchmarks["label_source_feh"].values == "Sou08"
+    median_feh_s08_sigma = \
+        np.nanmedian(benchmarks[adopted_s08]["label_adopt_sigma_feh"].values)
+    feh_s08_row = \
+        r"& {} & {:0.2f}\,dex & {:0.2f}\,dex & - & - & {:d} \\".format(
+            "Sousa+2008",                   # label
+            median_feh_s08_sigma,           # median sigma
+            params.FEH_OFFSETS["Sou08"],    # offset
+            np.sum(adopted_s08))            # Adopted
+    
     # Mann+2015
     has_m15 = ~np.isnan(benchmarks["feh_m15"].values)
     adopted_m15 = benchmarks["label_source_feh"].values == "M15"
     median_feh_m15_sigma = \
         np.nanmedian(benchmarks[adopted_m15]["label_adopt_sigma_feh"].values)
-    feh_m15_row = \
-        r"& Mann+2015 & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
+    feh_m15_row = feh_row_fmt.format(
+            "Mann+2015",                    # label
             median_feh_m15_sigma,           # median sigma
+            params.FEH_OFFSETS["M13"],      # offset
             np.sum(has_m15),                # with
             np.sum(~has_m15),               # without
             np.sum(adopted_m15))            # Adopted
@@ -169,9 +202,10 @@ def make_table_sample_summary(obs_tab,):
     adopted_ra12 = benchmarks["label_source_feh"].values == "RA12"
     median_feh_ra12_sigma = \
         np.nanmedian(benchmarks[adopted_ra12]["label_adopt_sigma_feh"].values)
-    feh_ra12_row = \
-        r"& Rojas-Ayala+2012 & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
+    feh_ra12_row = feh_row_fmt.format(
+            "Rojas-Ayala+2012",             # label
             median_feh_ra12_sigma,          # median sigma
+            params.FEH_OFFSETS["RA12"],     # offset
             np.sum(has_ra12),               # with
             np.sum(~has_ra12),              # without
             np.sum(adopted_ra12))           # adopted
@@ -184,7 +218,7 @@ def make_table_sample_summary(obs_tab,):
     median_feh_other_sigma = \
         np.nanmedian(benchmarks[adopted_other]["label_adopt_sigma_feh"].values)
     feh_other_row = \
-        r"& Other NIR & {:0.2f}\,dex & - & - & {:d} \\".format(
+        r"& Other NIR & {:0.2f}\,dex & - & - & - & {:d} \\".format(
             median_feh_other_sigma,          # median sigma
             np.sum(adopted_other))           # adopted
 
@@ -194,38 +228,67 @@ def make_table_sample_summary(obs_tab,):
     median_feh_photometric_sigma = \
         np.nanmedian(
             benchmarks[adopted_photometric]["label_adopt_sigma_feh"].values)
-    feh_photometric_row = \
-        r"& Photometric & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
+    feh_photometric_row = feh_row_fmt.format(
+            "Photometric",                   # label
             median_feh_photometric_sigma,    # median sigma
+            params.FEH_OFFSETS["R21"],       # offset
             np.sum(has_photometric),         # with
             np.sum(~has_photometric),        # without
             np.sum(adopted_photometric))     # adopted
 
-    # -----------------
+    # -------------------------------------------------------------------------
     # [Ti/H]
-    # -----------------
+    # -------------------------------------------------------------------------
     has_default_ti = ~benchmarks["label_nondefault_Ti_H"].values
     median_ti_sigma = \
         np.nanmedian(
             benchmarks[~has_default_ti]["label_adopt_sigma_Ti_H"].values)
     ti_row = \
-        r"[Ti/Fe] & All & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
+        r"[Ti/Fe] & All & {:0.2f}\,dex & - & {:d} & {:d} & {:d} \\".format(
             median_ti_sigma,
             np.sum(~has_default_ti), 
             np.sum(has_default_ti),
             np.sum(~has_default_ti))
 
-    # Binary
-    has_binary = benchmarks["is_cpm"].values
-    adopted_binary = benchmarks["is_cpm"].values
-    median_tih_binary_sigma = \
-        np.median(benchmarks[adopted_binary]["label_adopt_sigma_Ti_H"])
-    ti_binary_row = \
-        r"& Binary & {:0.2f}\,dex & {:d} & {:d} & {:d} \\".format(
-            median_tih_binary_sigma,        # median sigma
-            np.sum(has_binary),             # with
-            np.sum(~has_binary),            # without
-            np.sum(adopted_binary),)        # adopted
+    # Valenti Fischer 2005
+    has_tih_vf05 = ~np.isnan(benchmarks["Ti_H_vf05"].values)
+    adopted_tih_vf05 = benchmarks["label_source_Ti_H"].values == "VF05"
+    median_tih_vf05_sigma = \
+        np.median(benchmarks[adopted_tih_vf05]["label_adopt_sigma_Ti_H"])
+    ti_vf05_row = feh_row_fmt.format(
+            "Valenti \& Fischer 2005",       # label
+            median_tih_vf05_sigma,          # median sigma
+            params.TIH_OFFSETS["VF05"],     # offset
+            np.sum(has_tih_vf05),           # with
+            np.sum(~has_tih_vf05),          # without
+            np.sum(adopted_tih_vf05),)      # adopted
+    
+    # Montes+2018
+    has_tih_m18 = ~np.isnan(benchmarks["Ti_H_m18"].values)
+    adopted_tih_m18 = benchmarks["label_source_Ti_H"].values == "M18"
+    median_tih_m18_sigma = \
+        np.median(benchmarks[adopted_tih_m18]["label_adopt_sigma_Ti_H"])
+    ti_m18_row = feh_row_fmt.format(
+            "Montes+2018",                  # label
+            median_tih_m18_sigma,           # median sigma
+            params.TIH_OFFSETS["M18"],      # offset
+            np.sum(has_tih_m18),            # with
+            np.sum(~has_tih_m18),           # without
+            np.sum(adopted_tih_m18),)       # adopted
+    
+    # Adibekyan+2012 (TODO: incomplete cross-match)
+    has_tih_a12 = ~np.isnan(benchmarks["TiI_H_a12"].values)
+    adopted_tih_a12 = benchmarks["label_source_Ti_H"].values == "A12"
+    median_tih_a12_sigma = \
+        np.median(benchmarks[adopted_tih_a12]["label_adopt_sigma_Ti_H"])
+    ti_a12_row = \
+        r"& {} & {:0.2f}\,dex & - & - & - & {:d} \\".format(
+            "Adibekyan+2012",               # label
+            median_tih_a12_sigma,           # median sigma
+            #params.TIH_OFFSETS["A12"],      # offset
+            #np.sum(has_tih_a12),            # with
+            #np.sum(~has_tih_a12),           # without
+            np.sum(adopted_tih_a12),)       # adopted
     
     # Put all rows together
     table_rows = [
@@ -237,14 +300,18 @@ def make_table_sample_summary(obs_tab,):
         logg_r21_row,
         "\hline",
         feh_row,
-        feh_binary_row,
+        feh_vf05_row,
+        feh_m18_row,
+        feh_s08_row,
         feh_m15_row,
         feh_ra12_row,
         feh_other_row,
         feh_photometric_row,
         "\hline",
         ti_row,
-        ti_binary_row,]
+        ti_vf05_row,
+        ti_m18_row,
+        ti_a12_row,]
          
     # Finish the table
     footer.append("\\hline")

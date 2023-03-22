@@ -44,10 +44,12 @@ FEH_OFFSETS = {
     "N12":0.00,
     "M18":-0.03,    # Computed from np.nanmedian(cpm_selected["[Fe/H]_vf05"]-cpm_selected["Fe_H_m18"])
     "Sou06":0.0,    # TODO Confirm this
+    "Sou08":0.0,    # TODO Confirm this
     "Soz09":0.0,    # TODO Confirm this
     "M14":0.0,      # Probably safe to assume this is zero?
     "RA12":0.01,   # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
     "M13":0.0,
+    "R21":0.0,      # Photometric. Assumed = 0 since built from binaries.
 }
 
 # Adopted uncertainties from VF05 Table 6
@@ -58,6 +60,13 @@ VF05_ABUND_SIGMA = {
     "Ti_H":0.046,
     "Fe_H":0.03,
     "Si_H":0.03,
+}
+
+# [Ti/H] offsets --> TODO
+TIH_OFFSETS = {
+    "VF05":0.0,
+    "M18":0.0,
+    "A12":0.00,
 }
 
 # Citations
@@ -79,6 +88,7 @@ FEH_CITATIONS = {
     "N12":"neves_metallicity_2012",
     "M18":"montes_calibrating_2018",
     "Sou06":"sousa_spectroscopic_2006",
+    "Sou08":"sousa_spectroscopic_2008",
     "Soz09":"sozzetti_keck_2009",
     "M14":"mann_prospecting_2014",
 }
@@ -657,7 +667,10 @@ def prepare_labels(
         elif star_info["teff_int"] > max_teff:
             std_mask[star_i] = False
             continue
-
+        
+        # ---------------------------------------------------------------------
+        # Teff
+        # ---------------------------------------------------------------------
         # Teff: interferometric > Rains+21
         if not np.isnan(star_info["teff_int"]):
             label_values[star_i, 0] = star_info["teff_int"]
@@ -672,49 +685,64 @@ def prepare_labels(
             label_sources[star_i, 0] = "R21"
             label_nondefault[star_i, 0] = True
 
+        # ---------------------------------------------------------------------
+        # logg
+        # ---------------------------------------------------------------------
         # logg: Rains+21
         label_values[star_i, 1] = star_info["logg_synth"]
         label_sigma[star_i, 1] = star_info["e_logg_synth"]
         label_sources[star_i, 1] = "R21"
         label_nondefault[star_i, 1] = True
 
-        # [Fe/H]: CPM > M+15 > RA+12 > NIR other > Rains+21 > default
+        # ---------------------------------------------------------------------
+        # [Fe/H] - binary
+        # ---------------------------------------------------------------------
+        # VF+05 > M18 > others
         if star_info["is_cpm"]:
-            # We have a CPM target, go through our hierarchy for these
-            # Mann+13 scale was set to VF05, so check this first
+            # Valenti & Fischer 2005 --> Mann+15 base [Fe/H] scale
             if ~np.isnan(star_info["Fe_H_vf05"]):
                 ref = "VF05"
                 feh_corr = star_info["Fe_H_vf05"] + FEH_OFFSETS[ref]
                 e_feh_corr = VF05_ABUND_SIGMA["Fe_H"]
                 citation = FEH_CITATIONS[ref]
 
-            # Now check Mann+13
-            elif ~np.isnan(star_info["feh_prim_m13"]):
-                ref = star_info["ref_feh_prim_m13"]
-                feh_corr = star_info["feh_prim_m13"] + FEH_OFFSETS[ref]
-                e_feh_corr = star_info["e_feh_prim_m13"]
-                citation = FEH_CITATIONS[ref]
-
-            # Then check those from Newton+14
-            elif ~np.isnan(star_info["feh_prim_n14"]):
-                ref = star_info["feh_prim_ref_n14"]
-                feh_corr = star_info["feh_prim_n14"] + FEH_OFFSETS["VF05"]
-                e_feh_corr = star_info["e_feh_prim_n14"]
-                citation = FEH_CITATIONS[star_info["feh_prim_ref_n14"]]
-            
-            # Now grab from Montes+2018
+            # Montes+2018
             elif ~np.isnan(star_info["Fe_H_m18"]):
                 ref = "M18"
                 feh_corr = star_info["Fe_H_m18"] + FEH_OFFSETS[ref]
                 e_feh_corr = star_info["eFe_H_m18"]
                 citation = FEH_CITATIONS["M18"]
 
-            # Then check Mann+2014 for VLM dwarfs
+            # Sousa+08 (this is the base sample for Adibekyan+12 abundances)
+            elif ~np.isnan(star_info["feh_s08"]):
+                ref = "Sou08"
+                feh_corr = star_info["feh_s08"] + FEH_OFFSETS[ref]
+                e_feh_corr = star_info["e_feh_s08"]
+                citation = FEH_CITATIONS["Sou08"]
+
+            # Mann+2014 for VLM dwarfs
             elif ~np.isnan(star_info["feh_m14"]):
                 ref = "M14"
                 feh_corr = star_info["feh_m14"] + FEH_OFFSETS[ref]
                 e_feh_corr = star_info["e_feh_m14"]
-                citation = FEH_CITATIONS["M18"]
+                citation = FEH_CITATIONS[ref]
+
+            # -----------------------------------------------------------------
+            # Note that after here things are a bit ~misc~
+
+            # Mann+13
+            elif ~np.isnan(star_info["feh_prim_m13"]):
+                ref = star_info["ref_feh_prim_m13"]
+                feh_corr = star_info["feh_prim_m13"] + FEH_OFFSETS[ref]
+                e_feh_corr = star_info["e_feh_prim_m13"]
+                citation = FEH_CITATIONS[ref]
+
+            # Newton+14
+            elif ~np.isnan(star_info["feh_prim_n14"]):
+                ref = star_info["feh_prim_ref_n14"]
+                feh_corr = star_info["feh_prim_n14"] + FEH_OFFSETS["VF05"]
+                e_feh_corr = star_info["e_feh_prim_n14"]
+                citation = FEH_CITATIONS[star_info["feh_prim_ref_n14"]]
 
             # Then check other entries
             elif star_info["feh_prim_ref_other"] == "Ra07":
@@ -733,13 +761,18 @@ def prepare_labels(
             label_sources[star_i, 2] = ref
             label_nondefault[star_i, 2] = True
 
-        # Now move onto non-CPM [Fe/H] sources
+        # ---------------------------------------------------------------------
+        # [Fe/H] - single star
+        # ---------------------------------------------------------------------
+        # M+15 > RA+12 > NIR other > Rains+21 > default
+        # Mann+15
         elif not np.isnan(star_info["feh_m15"]):
             label_values[star_i, 2] = star_info["feh_m15"]
             label_sigma[star_i, 2] = star_info["e_feh_m15"]
             label_sources[star_i, 2] = "M15"
             label_nondefault[star_i, 2] = True
 
+        # Rojas-Ayala+2012
         elif not np.isnan(star_info["feh_ra12"]):
             label_values[star_i, 2] = \
                 star_info["feh_ra12"] + FEH_OFFSETS["RA12"]
@@ -747,18 +780,21 @@ def prepare_labels(
             label_sources[star_i, 2] = "RA12"
             label_nondefault[star_i, 2] = True
 
+        # Other NIR relations
         elif not np.isnan(star_info["feh_nir"]):
             label_values[star_i, 2] = star_info["feh_nir"]
             label_sigma[star_i, 2] = star_info["e_feh_nir"]
             label_sources[star_i, 2] = star_info["nir_source"]
             label_nondefault[star_i, 2] = True
 
+        # Rains+21 photometric [Fe/H]
         elif not np.isnan(star_info["phot_feh"]):
             label_values[star_i, 2] = star_info["phot_feh"]
             label_sigma[star_i, 2] = star_info["e_phot_feh"]
             label_sources[star_i, 2] = "R21"
             label_nondefault[star_i, 2] = True
 
+        # Solar neighbourhood default
         else:
             label_values[star_i, 2] = -0.14 # Mean for Solar Neighbourhood
             label_sigma[star_i, 2] = 2.0    # Default uncertainty
@@ -768,6 +804,9 @@ def prepare_labels(
         # Note the adopted [Fe/H]
         feh_adopted = label_values[star_i, 2]
 
+        # ---------------------------------------------------------------------
+        # Abundances
+        # ---------------------------------------------------------------------
         # Finally setup [X/H] one element at a time. We bypass this loop if we
         # don't have any abundances.
         for abundance_i, abundance in enumerate(abundance_labels):
@@ -792,7 +831,7 @@ def prepare_labels(
                 label_sources[star_i, label_i] = "VF05"
                 label_nondefault[star_i, label_i] = True
 
-            # First check Montes+18
+            # Montes+18
             elif not np.isnan(star_info[m18_abundance]):
                 label_values[star_i, label_i] = star_info[m18_abundance]
                 label_sigma[star_i, label_i] = \
@@ -800,9 +839,9 @@ def prepare_labels(
                 label_sources[star_i, label_i] = "M18"
                 label_nondefault[star_i, label_i] = True
 
-            # Then finally Adibekyan+2012. Note that we're currently doing what
-            # is probably a physically unreasonable HACK in just averaging the
-            # Ti I/H and Ti II/H abundances.
+            # Adibekyan+2012. Note that we're currently doing what is probably
+            # a hysically unreasonable HACK in just averaging the Ti I/H and 
+            # Ti II/H abundances.
             elif not np.isnan(star_info["Fe_H_a12"]):
                 if abundance == "Ti_H":
                     ti_i_abund = a12_abundance.replace("_H_", "I_H_")
