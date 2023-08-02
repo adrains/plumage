@@ -13,7 +13,7 @@ data {
 }
 
 parameters {
-    matrix[P, 10] theta; // spectral derivatives
+    matrix[P, 15] theta; // spectral derivatives
     real<lower=0> s2[P]; // intrinsic variance at each pixel
 
     matrix[S, L] true_labels; // true values of the labels
@@ -61,7 +61,7 @@ model {
     // Priors on the labels
     for (s in 1:S) {
         for (l in 1:L) {
-            label_means[s, l] ~ normal(true_labels[s], pow(label_variances[s, l], 0.5));
+            label_means[s, l] ~ normal(true_labels[s, l], pow(label_variances[s, l], 0.5));
         }
     }
 

@@ -357,6 +357,7 @@ class Stannon(object):
                                 - self.mean_labels) / self.std_labels
 
         # Whiten the uncertainties, then convert back to variances
+        # TODO: properly propagate logarithmic
         if self.training_variances is not None:
             self.whitened_label_vars = \
                 (self.masked_variances**0.5 / self.std_labels)**2
@@ -380,7 +381,8 @@ class Stannon(object):
 
         # Now mask out wavelength regions we've excluded
         self.masked_data = masked_data[self.data_mask][:, self.adopted_wl_mask]
-        self.masked_data_ivar = masked_data_ivar[self.data_mask][:, self.adopted_wl_mask]
+        self.masked_data_ivar = \
+            masked_data_ivar[self.data_mask][:, self.adopted_wl_mask]
         self.masked_wl = self.wavelengths[self.adopted_wl_mask]
 
 
@@ -409,7 +411,7 @@ class Stannon(object):
 
         suppress_training_output: boolean, default: False
             Only applicable to basic Cannon model. Suppresses progress bar
-            updates when trainining. Separate to suppressing Stan output.
+            updates when training. Separate to suppressing Stan output.
 
         max_iter: int, default: 2000
             Maximum number of fitting iterations Stan will run. Also affects
@@ -522,6 +524,9 @@ class Stannon(object):
         # Train pixel-by-pixel and display stan logging for debugging purposes
         else:
             for px_i in range(n_px):
+                print("\n", "-"*100,)
+                print("Training pixel #{}/{}".format(px_i+1, n_px))
+                print("-"*100,)
                 self._train_cannon_pixel_basic(
                     px_i, data_dict, init_dict, max_iter,)
 
@@ -621,6 +626,7 @@ class Stannon(object):
         # If we're initialising our theta and s2 arrays using those computed
         # from a basic Stannon model, we need to initialise train that model.
         if init_with_basic_model:
+            print("Training basic Cannon model for theta initialisation...")
             basic_sm = self.__deepcopy__()
             basic_sm.model_type = "basic"
             basic_sm.model = basic_sm.get_stannon_model()
@@ -642,7 +648,7 @@ class Stannon(object):
             # Intialise scatter array
             init_s2 = np.ones(self.P)
 
-        # Initialise 'true' label array as just out whitened labels
+        # Initialise 'true' label array as just our whitened labels
         init_true_labels = self.whitened_labels.copy()
 
         # Intialise data dictionary (things our model fits *to*)
@@ -688,13 +694,13 @@ class Stannon(object):
         
         Parameters
         ----------
-        fluxes: float array
+        test_data: float array
             Science fluxes to infer labels for, of shape [n_spectra, n_pixels].
             Must be normalised the same as training spectra.
 
-        ivars: float array
+        test_data_ivars: float array
             Science flux inverse variances, of shape [n_spectra, n_pixels].
-             Must be normalised the same as training spectra.
+            Must be normalised the same as training spectra.
 
         Returns
         -------
@@ -716,7 +722,7 @@ class Stannon(object):
         lbl = "Inferring labels"
 
         for star_i, (flux, ivar) in enumerate(
-            zip(tqdm(test_data, desc=lbl), test_data_ivars)):
+            zip(tqdm(test_data, desc=lbl, leave=False), test_data_ivars)):
             # Where the ivar == 0, set normalized flux to 1 and sigma to 100
             bad = ivar == 0
             flux[bad] = 1.0
@@ -760,69 +766,113 @@ class Stannon(object):
             # Add the observed + model pixel uncertainty in quadrature. Note
             # std^2 is just the variance.
             std_px = np.sqrt(
-                1/self.training_data_ivar[bm_i][self.adopted_wl_mask] + self.s2)
+                1/self.training_data_ivar[bm_i][self.adopted_wl_mask]+self.s2)
             
             # Compute the difference
-            diff = np.abs(self.training_data[bm_i][self.adopted_wl_mask] - spec_gen)
+            diff = np.abs(
+                self.training_data[bm_i][self.adopted_wl_mask] - spec_gen)
 
             # Sigma clip
-            new_bad_px_mask[bm_i, self.adopted_wl_mask] = diff > std_px*flux_sigma_to_clip
+            new_bad_px_mask[bm_i, self.adopted_wl_mask] = \
+                diff > std_px*flux_sigma_to_clip
 
         # Save
         self.bad_px_mask = np.logical_or(self.bad_px_mask, new_bad_px_mask)
 
 
-    def run_cross_validation(self, show_timing=True):
-        """Runs leave-one-out cross validation for the current training set.
+    def run_cross_validation(
+        self,
+        suppress_stan_output,
+        init_uncertainty_model_with_basic_model,
+        max_iter,
+        show_timing=True,):
+        """Runs leave-one-out cross validation for the current training set,
+        and saves the N predicted labels as self.cross_val_labels.
 
-        TODO: parallelise
+        To do this, we initialise a new Stannon model with the data from N-1
+        objects, train it, and use it to predict the value of the missing
+        benchmark. We then repreat this for all N benchmarks.
+
+        TODO: parallelise.
+
+        Parameters
+        ----------
+        suppress_stan_output: bool
+            Boolean flag for whether to suppress Stan output during training.
+            If yes, output is suppressed. Set to false for debugging purposes.
+
+        init_uncertainty_model_with_basic_model: boolean, default: False
+            If true, we train a basic Cannon model using the same training 
+            sample and use the fitting theta and s2 vectors to initialise our
+            label uncertainty model to cut down on training time.
+
+        max_iter: int
+            Maximum number of fitting iterations Stan will run. Also affects
+            how frequently Stan prints fitting updates to stdout (every 1% of
+            max_iter).
+
+        show_timing: boolean, default True
+            Whether to show the duration of cross-validation when finished.
         """
+        print("\n", "%"*100, "%"*100, sep="\n",)
+        print("\n\t\t\t\t\tRunning cross validation\n",)
+        print("%"*100, "%"*100, "\n", sep="\n",)
         start_time = datetime.now()
-
-        # Save trained theta and s2 values if we already have them
-        trained_theta = self.theta.copy()
-        trained_s2 = self.s2.copy()
-
-        # Decrement number of training standards temporarily so we only train
-        # on N-1 for the cross validation
-        self.S -= 1
 
         # Initialise output array
         self.cross_val_labels = np.ones_like(self.training_labels) * np.nan
 
-        # Keep initial masked data, as it'll get overwritten each loop
-        masked_data = self.masked_data.copy()
-        masked_data_ivar = self.masked_data_ivar.copy()
+        # Do leave-one-out training and testing for all. To do this, we create
+        # a duplicate object containing data on N-1 benchmarks, train, and test
+        for std_i in range(self.S):
+            print("\n\n", "-"*100, sep="",)
+            print("Leave one out validation {:0.0f}/{:0.0f}".format(
+                std_i+1, self.S+1),)
+            print("-"*100,)
 
-        # Do leave-one-out training and testing for all 
-        for std_i in range(self.S+1):
-            print("\nLeave one out validation {:0.0f}/{:0.0f}".format(
-                std_i+1, self.S+1))
-
-            # Make a mask
-            self.data_mask = np.full(self.S+1, True)
+            # Make a mask with which we will mask out the std_i'th benchmark
+            dm = np.full(self.S, True)
 
             # Mask out the standard to be left out
-            self.data_mask[std_i] = False
+            dm[std_i] = False
 
-            # Run fitting
-            self.train_cannon_model(suppress_stan_output=True)
+            # Duplicate the object. Since the best approach is to initialise
+            # the object with one fewer benchmark, the easiest solution is to
+            # just initialise a new object rather than using the deep copy
+            # function to make sure all the changes cascade properly. As such,
+            # this new object will have S = N-1.
+            cv_sm = Stannon(
+                training_data=copy.deepcopy(self.training_data[dm]),
+                training_data_ivar=copy.deepcopy(self.training_data_ivar[dm]),
+                training_labels=copy.deepcopy(self.training_labels[dm]),
+                training_ids=copy.deepcopy(self.training_ids[dm]),
+                label_names=copy.deepcopy(self.label_names),
+                wavelengths=copy.deepcopy(self.wavelengths),
+                model_type=copy.deepcopy(self.model_type),
+                training_variances=copy.deepcopy(self.training_variances[dm]),
+                adopted_wl_mask=copy.deepcopy(self.adopted_wl_mask),
+                data_mask=copy.deepcopy(self.data_mask[dm]),
+                bad_px_mask=copy.deepcopy(self.bad_px_mask[dm]),)
 
-            # Predict labels for the missing standard
-            labels_pred, _, _ = self.infer_labels(
-                masked_data[~self.data_mask],
-                masked_data_ivar[~self.data_mask])
+            # Train this new Cannon model on N-1 benchmarks
+            cv_sm.train_cannon_model(
+                suppress_stan_output=suppress_stan_output,
+                init_uncertainty_model_with_basic_model=\
+                    init_uncertainty_model_with_basic_model,
+                max_iter=max_iter,)
 
+            # Predict labels for the missing standard using the newly trained
+            # Cannon model.
+            labels_pred, _, _ = cv_sm.infer_labels(
+                self.masked_data[~dm],
+                self.masked_data_ivar[~dm])
+
+            # Add the predicted label to our master list of cross_val labels
             self.cross_val_labels[std_i] = labels_pred
 
-        # Reset theta, s2, and S
-        self.theta = trained_theta
-        self.s2 = trained_s2
-        self.S += 1
-
         if show_timing:
-            time_elapsed = datetime.now() - start_time
-            print("\nValidation duration (hh:mm:ss.ms) {}".format(time_elapsed))
+            t_elapsed = datetime.now() - start_time
+            print("\nValidation duration (hh:mm:ss.ms) {}".format(t_elapsed))
 
 
     def generate_spectra(self, labels):
@@ -859,6 +909,9 @@ class Stannon(object):
             "cross_val_labels":self.cross_val_labels,
             "bad_px_mask":self.bad_px_mask,
         }
+
+        if self.model_type == "label_uncertainties":
+            class_dict["true_labels"] = self.true_labels
 
         # Construct filename
         filename = os.path.join(
@@ -904,6 +957,12 @@ def load_model(filename):
         sm.theta = class_dict["theta"]
         sm.s2 = class_dict["s2"]
         sm.cross_val_labels = class_dict["cross_val_labels"]
+
+        if class_dict["model_type"] == "label_uncertainties":
+            if "true_labels" in class_dict:
+                sm.true_labels = class_dict["true_labels"]
+            else:
+                print("Warning, using old model: no true_labels")
 
     return sm
 
@@ -983,7 +1042,7 @@ def prepare_cannon_spectra_normalisation(
     wl_broadening=50,
     do_gaussian_spectra_normalisation=True,
     poly_order=5,):
-    """Prepares spectra for Cannon input using one of two normalisation methods.
+    """Prepares spectra for Cannon input using one of two normalisation methods
     """
     # Construct mask for emission regions - useful regions are *TRUE*
     adopted_wl_mask = spec.make_wavelength_mask(
@@ -993,12 +1052,13 @@ def prepare_cannon_spectra_normalisation(
         mask_edges=True,)
 
     # Enforce minimum and maximum wavelengths
-    adopted_wl_mask = adopted_wl_mask * (wls > wl_min_model) * (wls < wl_max_model)
+    adopted_wl_mask = \
+        adopted_wl_mask * (wls > wl_min_model) * (wls < wl_max_model)
 
     # Normalise using a Gaussian
     if do_gaussian_spectra_normalisation:
-        # Convert uncertainties to inverse variances, get an initial bad pixel mask
-        # flagging nan pixels for each spectrum.
+        # Convert uncertainties to inverse variances, get an initial bad pixel
+        # msdk flagging nan pixels for each spectrum.
         fluxes, flux_ivar, bad_px_mask = prepare_fluxes(
             spectra,
             e_spectra,)

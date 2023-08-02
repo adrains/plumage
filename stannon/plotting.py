@@ -1,12 +1,12 @@
 """Plotting functions related to Stannon
 """
-from ctypes import alignment
 import numpy as np
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import plumage.plotting as pplt
 import matplotlib.ticker as plticker
 from collections import OrderedDict
+from stannon.vectorizer import PolynomialVectorizer
 
 def plot_label_recovery(
     label_values,
@@ -115,7 +115,7 @@ def plot_label_recovery(
         show_offset=show_offset,
         ticks=feh_ticks,)
 
-    # Save Teff plot
+    # Save plot
     fig.set_size_inches(12, 3)
     fig.tight_layout()
     fig.savefig("paper/cannon_param_recovery{}.pdf".format(fn_suffix))
@@ -520,7 +520,7 @@ def plot_theta_coefficients(
     x_ticks=(500,100),
     linewidth=0.5,
     alpha=0.9,
-    label="",
+    fn_label="",
     fn_suffix="",
     leg_loc="upper center",
     line_list=None,
@@ -528,40 +528,28 @@ def plot_theta_coefficients(
     species_to_plot=[],
     species_line_width=0.75,
     species_line_lims_spec=(1.6,2.0),
-    species_line_lims_scatter=(0.003,0.004),):
+    species_line_lims_scatter=(0.003,0.004),
+    only_plot_first_order_coeff=True,):
     """Plot fluxes, values of first order theta coefficients for Teff, logg,
     and [Fe/H], as well as model scatter - all against wavelength.
 
     TODO
     """
+    # -------------------------------------------------------------------------
+    # Setup
+    # -------------------------------------------------------------------------
     plt.close("all")
-    # Initialise axes
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 8))
+    # Three axes if plotting only spectra, first order coeff, and the scatter
+    if only_plot_first_order_coeff:
+        fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 8))
+    
+    # Five axes if we're plotting all theta coefficients
+    else:
+        fig, axes = plt.subplots(5, 1, sharex=True, figsize=(16, 12))
+
     fig.subplots_adjust(hspace=0.001, wspace=0.001)
 
     axes = axes.flatten()
-
-    # Initialise teff colours
-    cmap = cm.get_cmap("magma")
-    teff_min = np.min(sm.training_labels[:,0])
-    teff_max = np.max(sm.training_labels[:,0])
-
-    # Do bad px masking
-    masked_spectra = sm.training_data.copy()
-    masked_spectra[sm.bad_px_mask] = np.nan
-
-    # First plot spectra
-    for star_i, star in enumerate(masked_spectra):
-        teff = sm.training_labels[star_i, 0]
-        colour = cmap((teff-teff_min)/(teff_max-teff_min))
-
-        axes[0].plot(sm.wavelengths, star, linewidth=0.2, c=colour)
-
-    # Only show teff_scale if != 1.0
-    if teff_scale == 1.0:
-        teff_label =  r"$T_{\rm eff}$"
-    else:
-        teff_label =  r"$T_{\rm eff} \times$" + "{:0.1f}".format(teff_scale)
 
     # We want to avoid plotting lines across the gaps we've excluded, so we're
     # going to insert nans in the breaks so that matplotlib leaves a gap. This
@@ -592,26 +580,76 @@ def plot_theta_coefficients(
     theta = np.concatenate(theta)
     scatter = np.concatenate(scatter)
 
-    # Plot first order coefficients
-    axes[1].plot(
-        wave,
-        theta[:,1]*teff_scale,
-        linewidth=linewidth,
-        alpha=alpha,
-        label=teff_label,)
+    # Adjust scale
+    theta[:,1] *= teff_scale
 
-    axes[1].plot(
-        wave,
-        theta[:,2],
-        linewidth=linewidth,
-        alpha=alpha,
-        label=r"$\log g$")
+    # Grab each set of coefficients (linear, quadratic, cross-term) and format
+    # as appropriate for plotting
+    vectorizer = PolynomialVectorizer(sm.label_names, 2)
+    theta_lvec = vectorizer.get_human_readable_label_vector()
 
-    axes[1].plot(
-        wave,
-        theta[:,3],
-        linewidth=linewidth,
-        label="[Fe/H]")
+    # Format for plotting
+    theta_lvec = theta_lvec.replace("teff", r"$T_{eff}$")
+    theta_lvec = theta_lvec.replace("logg", r"$\log g$")
+    theta_lvec = theta_lvec.replace("feh", "[Fe/H]")
+
+    if sm.L > 3:
+        for abundance_i, abundance in enumerate(sm.label_names[3:]):
+            label_i = 4 + abundance_i
+            
+            abundance_label = "[{}/H]".format(abundance.split("_")[0])
+
+            theta_lvec =  \
+                theta_lvec.replace(abundance, abundance_label)
+    
+    theta_lvec = theta_lvec.replace("*", r"$\times$")
+    theta_lvec =  theta_lvec.replace("^2", r"$^2$")
+    
+    theta_lvec = theta_lvec.split(" + ")
+
+    linear_term_ii = np.arange(sm.L) + 1
+    quad_term_ii = np.array(
+        [i for i in range(len(theta_lvec)) if "^" in theta_lvec[i]])
+    cross_term_ii = np.array(
+        [i for i in range(len(theta_lvec)) if "times" in theta_lvec[i]])
+
+    # -------------------------------------------------------------------------
+    # Panel 1: Spectra
+    # -------------------------------------------------------------------------
+    # Initialise teff colours
+    cmap = cm.get_cmap("magma")
+    teff_min = np.min(sm.training_labels[:,0])
+    teff_max = np.max(sm.training_labels[:,0])
+
+    # Do bad px masking
+    masked_spectra = sm.training_data.copy()
+    masked_spectra[sm.bad_px_mask] = np.nan
+
+    # First plot spectra
+    for star_i, star in enumerate(masked_spectra):
+        teff = sm.training_labels[star_i, 0]
+        colour = cmap((teff-teff_min)/(teff_max-teff_min))
+
+        axes[0].plot(sm.wavelengths, star, linewidth=0.2, c=colour)
+
+    # Only show teff_scale if != 1.0
+    if teff_scale == 1.0:
+        teff_label =  r"$T_{\rm eff}$"
+    else:
+        teff_label =  r"$T_{\rm eff} \times$" + "{:0.1f}".format(teff_scale)
+
+    # -------------------------------------------------------------------------
+    # Panel 2: First Order Coefficients
+    # -------------------------------------------------------------------------
+    labels = [teff_label, r"$\log g$", "[Fe/H]"]
+
+    for label_i in linear_term_ii:
+        axes[1].plot(
+            wave,
+            theta[:,label_i],
+            linewidth=linewidth,
+            alpha=alpha,
+            label=theta_lvec[label_i],)
 
     # And first order abundance coefficients if we have it
     if sm.L > 3:
@@ -629,9 +667,14 @@ def plot_theta_coefficients(
 
     axes[1].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
 
-    # Plot scatter
+    # -------------------------------------------------------------------------
+    # Panel 3: Scatter
+    # -------------------------------------------------------------------------
     axes[2].plot(wave, scatter, linewidth=linewidth,)
 
+    # -------------------------------------------------------------------------
+    # [Optional] Atomic line plot
+    # -------------------------------------------------------------------------
     # Overplot line list on spectrum and scatter subplots
     if line_list is not None and len(species_to_plot) > 0:
         # Remove any species not in our list
@@ -672,66 +715,68 @@ def plot_theta_coefficients(
                 colors=cmap(species_mapping_dict[line_data["ion"]]),
                 label=line_data["ion"],)
 
-        # Legends (without duplicate entries)
-        handles, labels = axes[0].get_legend_handles_labels()
+    else:
+        n_unique_species = 0
+
+    # -------------------------------------------------------------------------
+    # [Optional] Panel 4 + 5: Quadratic + cross term coefficients
+    # -------------------------------------------------------------------------
+    if not only_plot_first_order_coeff:
+        # Plot quadratic coefficents
+        for quad_coeff_i in quad_term_ii:
+            axes[3].plot(
+                wave,
+                theta[:,quad_coeff_i],
+                linewidth=linewidth,
+                alpha=alpha,
+                label=theta_lvec[quad_coeff_i],)
+
+        # Plos cross-term coefficients
+        for cross_coeff_i in cross_term_ii:
+            axes[4].plot(
+                wave,
+                theta[:,cross_coeff_i],
+                linewidth=linewidth,
+                alpha=alpha,
+                label=theta_lvec[cross_coeff_i],)
+        
+        axes[3].set_ylabel(r"$\theta_{\rm Quadratic}$")
+        axes[4].set_ylabel(r"$\theta_{\rm Cross}$")
+
+    # -------------------------------------------------------------------------
+    # Final Setup
+    # -------------------------------------------------------------------------
+    for axis in axes:
+        # Mask emission and telluric regions for all panels
+        pplt.shade_excluded_regions(
+            wave=sm.wavelengths,
+            bad_px_mask=~sm.adopted_wl_mask,
+            axis=axis,
+            res_ax=None,
+            colour="red",
+            alpha=0.25,
+            hatch=None)
+        
+        # Legend
+        handles, labels = axis.get_legend_handles_labels()
         by_label = OrderedDict(zip(labels, handles))
-        axes[0].legend(
+        leg = axis.legend(
             handles=by_label.values(),
             labels=by_label.keys(),
             loc=leg_loc,
-            ncol=n_unique_species,
+            ncol=np.max([sm.L, n_unique_species]),
             fontsize="small",)
         
-        handles, labels = axes[2].get_legend_handles_labels()
-        by_label = OrderedDict(zip(labels, handles))
-        axes[2].legend(
-            handles=by_label.values(),
-            labels=by_label.keys(),
-            loc=leg_loc,
-            ncol=n_unique_species,
-            fontsize="small",)
-
-    # Now mask out emission and telluric regions
-    pplt.shade_excluded_regions(
-        wave=sm.wavelengths,
-        bad_px_mask=~sm.adopted_wl_mask,
-        axis=axes[0],
-        res_ax=None,
-        colour="red",
-        alpha=0.25,
-        hatch=None)
-
-    pplt.shade_excluded_regions(
-        wave=sm.wavelengths,
-        bad_px_mask=~sm.adopted_wl_mask,
-        axis=axes[1],
-        res_ax=None,
-        colour="red",
-        alpha=0.25,
-        hatch=None)
-
-    pplt.shade_excluded_regions(
-        wave=sm.wavelengths,
-        bad_px_mask=~sm.adopted_wl_mask,
-        axis=axes[2],
-        res_ax=None,
-        colour="red",
-        alpha=0.25,
-        hatch=None)
+        for legobj in leg.legendHandles:
+            legobj.set_linewidth(1.5)
 
     axes[0].set_xlim(x_lims)
     axes[0].set_ylim(y_spec_lims)
     axes[1].set_ylim(y_theta_lims)
     axes[2].set_ylim(y_s2_lims)
 
-    leg = axes[1].legend(ncol=sm.L, loc=leg_loc,)
-
-    # Update width of legend objects
-    for legobj in leg.legendHandles:
-        legobj.set_linewidth(1.5)
-
     axes[0].set_ylabel(r"Flux")
-    axes[1].set_ylabel(r"$\theta_{{1-{:0.0f}}}$".format(sm.L))
+    axes[1].set_ylabel(r"$\theta_{\rm Linear}$")
     axes[2].set_ylabel(r"Scatter")
 
     axes[2].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
@@ -740,8 +785,8 @@ def plot_theta_coefficients(
     plt.xlabel("Wavelength (A)")
     
     plt.tight_layout()
-    plt.savefig("paper/theta_coefficients_{}{}.pdf".format(label, fn_suffix))
-    plt.savefig("paper/theta_coefficients_{}{}.png".format(label, fn_suffix),
+    plt.savefig("paper/theta_coefficients_{}{}.pdf".format(fn_label, fn_suffix))
+    plt.savefig("paper/theta_coefficients_{}{}.png".format(fn_label, fn_suffix),
         dpi=200)
 
 
@@ -884,3 +929,184 @@ def plot_spectra_comparison(
 
     if do_plot_eps:
         plt.savefig("{}.eps".format(fn))
+
+
+def plot_label_uncertainty_adopted_vs_true_labels(
+    sm,
+    n_bins=20,
+    fn_label="",):
+    """Function to plot histograms comparing the adopted and true label
+    distributions (+the difference between them) at the conclusion of training
+    a label uncertainties model. Currently works for three parameter and four
+    parameter models.
+
+    Parameters
+    ----------
+    sm: Stannon Model
+        Trained *label uncertainties* Stannon model.
+
+    n_bins: float, default: 20
+
+    fn_label: string, default: ""
+        Label of the filename.
+    """
+    if sm.model_type != "label_uncertainties":
+        raise ValueError("Stannon model must be label_uncertainties.")
+    
+    labels_adopt = sm.masked_labels.copy()
+    labels_true = (sm.true_labels * sm.std_labels + sm.mean_labels).copy()
+
+    delta_labels = labels_adopt - labels_true
+
+    med_dl = np.median(delta_labels, axis=0)
+    std_dl = np.std(delta_labels, axis=0)
+
+    plt.close("all")
+    if sm.L == 3:
+        fig, ((ax_t, ax_g, ax_f), (ax_dt, ax_dg, ax_df)) = \
+            plt.subplots(2, 3, figsize=(9, 6))
+    else:
+        fig, ((ax_t, ax_g, ax_f, ax_ti), (ax_dt, ax_dg, ax_df, ax_dti)) = \
+            plt.subplots(2, 4, figsize=(12, 6))
+
+    # -------------------------------------------------------------------------
+    # Teff
+    # -------------------------------------------------------------------------
+    # Plot histogram for adopted and true labels
+    _ = ax_t.hist(
+        labels_adopt[:,0],
+        bins=n_bins,
+        alpha=0.5,
+        label=r"$T_{\rm eff, adopt}$")
+    
+    _ = ax_t.hist(
+        labels_true[:,0],
+        bins=n_bins,
+        alpha=0.5,
+        label=r"$T_{\rm eff, true}$")
+    
+    ax_t.legend(loc="best")
+    ax_t.set_xlabel(r"$T_{\rm eff}$")
+
+    # Plot histogram of the *difference* between these two sets of labels
+    _ = ax_dt.hist(delta_labels[:,0], bins=n_bins, alpha=0.5)
+    ax_dt.set_xlabel(r"${\Delta}T_{\rm eff}$")
+
+    # Plot text for median +/- std
+    x_lims = ax_dt.get_xlim()
+    y_lims = ax_dt.get_ylim()
+    text = r"${:0.0f}\pm{:0.0f}\,K$".format(med_dl[0], std_dl[0])
+    ax_dt.text(
+        x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
+        y=0.5*(y_lims[1]-y_lims[0])+y_lims[0],
+        s=text,
+        horizontalalignment="center",)
+
+    # -------------------------------------------------------------------------
+    # logg
+    # -------------------------------------------------------------------------
+    # Plot histogram for adopted and true labels
+    _ = ax_g.hist(
+        labels_adopt[:,1],
+        bins=n_bins,
+        alpha=0.5,
+        label=r"$\log g_{\rm adopt}$")
+    
+    _ = ax_g.hist(
+        labels_true[:,1],
+        bins=n_bins,
+        alpha=0.5,
+        label=r"$\log g_{\rm true}$")
+    
+    ax_g.legend(loc="best")
+    ax_g.set_xlabel(r"$\log g$")
+
+    # Plot histogram of the *difference* between these two sets of labels
+    _ = ax_dg.hist(delta_labels[:,1], bins=n_bins, alpha=0.5)
+    ax_dg.set_xlabel(r"$\Delta\log g$")
+
+    # Plot text for median +/- std
+    x_lims = ax_dg.get_xlim()
+    y_lims = ax_dg.get_ylim()
+    text = r"${:0.3f}\pm{:0.3f}\,$dex".format(med_dl[1], std_dl[1])
+    ax_dg.text(
+        x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
+        y=0.5*(y_lims[1]-y_lims[0])+y_lims[0],
+        s=text,
+        horizontalalignment="center",)
+
+    # -------------------------------------------------------------------------
+    # [Fe/H]
+    # -------------------------------------------------------------------------
+    # Plot histogram for adopted and true labels
+    _ = ax_f.hist(
+        labels_adopt[:,2],
+        bins=n_bins,
+        alpha=0.5,
+        label=r"[Fe/H]$_{adopt}$")
+    
+    _ = ax_f.hist(
+        labels_true[:,2],
+        bins=n_bins,
+        alpha=0.5,
+        label=r"[Fe/H]$_{true}$")
+    
+    ax_f.legend(loc="best")
+    ax_f.set_xlabel(r"[Fe/H]]")
+
+    # Plot histogram of the *difference* between these two sets of labels
+    _ = ax_df.hist(delta_labels[:,2], bins=n_bins, alpha=0.5)
+    ax_df.set_xlabel(r"$\Delta$[Fe/H]")
+
+    # Plot text for median +/- std
+    x_lims = ax_df.get_xlim()
+    y_lims = ax_df.get_ylim()
+    text = r"${:0.3f}\pm{:0.3f}\,$dex".format(med_dl[2], std_dl[2])
+    ax_df.text(
+        x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
+        y=0.5*(y_lims[1]-y_lims[0])+y_lims[0],
+        s=text,
+        horizontalalignment="center",)
+
+    # -------------------------------------------------------------------------
+    # [Ti/H]
+    # -------------------------------------------------------------------------
+    # Plot histogram for adopted and true labels
+    if sm.L == 4:
+        _ = ax_ti.hist(
+            labels_adopt[:,3],
+            bins=n_bins,
+            alpha=0.5,
+            label=r"[Ti/H]$_{adopt}$")
+        
+        _ = ax_ti.hist(
+            labels_true[:,3],
+            bins=n_bins,
+            alpha=0.5,
+            label=r"[Ti/H]$_{true}$")
+        
+        ax_ti.legend(loc="best")
+        ax_ti.set_xlabel(r"[Ti/H]]")
+
+        # Plot histogram of the *difference* between these two sets of labels
+        _ = ax_dti.hist(delta_labels[:,3], bins=n_bins, alpha=0.5)
+        ax_dti.set_xlabel(r"$\Delta$[Ti/H]")
+
+    # Plot text for median +/- std
+    x_lims = ax_dti.get_xlim()
+    y_lims = ax_dti.get_ylim()
+    text = r"${:0.3f}\pm{:0.3f}\,$dex".format(med_dl[3], std_dl[3])
+    ax_dti.text(
+        x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
+        y=0.5*(y_lims[1]-y_lims[0])+y_lims[0],
+        s=text,
+        horizontalalignment="center",)
+
+    # -------------------------------------------------------------------------
+    # Tidy up and save
+    # -------------------------------------------------------------------------
+    plt.tight_layout()
+
+    plt.savefig("paper/adopted_vs_true_label_hists{}.pdf".format(fn_label))
+    plt.savefig("paper/adopted_vs_true_label_hists{}.png".format(fn_label),
+                dpi=200)

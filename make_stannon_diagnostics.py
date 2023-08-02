@@ -21,10 +21,10 @@ import stannon.tables as st
 label = "cannon"
 
 # Model settings
-wl_min_model = 4000
-wl_max_model = 7000
+wl_min_model = 6400
+wl_max_model = 6800
 wl_grating_changeover = 5400
-npx = 5024
+npx = 852
 model_type = "label_uncertainties"
 abundance_labels = ["Ti_H"]
 label_names = ["teff", "logg", "feh"] + abundance_labels
@@ -35,6 +35,8 @@ do_gaussian_spec_normalisation = True
 wl_min_normalisation = 4000
 wl_broadening = 50
 poly_order = 4
+
+only_plot_first_order_coeff = True
 
 # Line lists to overplot against theta coefficients. Due to the density of
 # atomic features in the blue, we have a more strict threshold for labelling.
@@ -90,10 +92,10 @@ fn_label = "_{}_{}_label_{}".format(
 # Label recovery for Teff, logg, and [Fe/H]
 splt.plot_label_recovery(
     label_values=sm.training_labels,
-    e_label_values=sm.training_variances**2,
+    e_label_values=sm.training_variances**0.5,
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-    obs_join=[is_cannon_benchmark],
+    obs_join=obs_join[is_cannon_benchmark],
     fn_suffix=fn_label,
     teff_lims=(2750,4300),
     teff_ticks=(500,250,200,100),
@@ -104,7 +106,7 @@ splt.plot_label_recovery(
 # Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
 splt.plot_label_recovery_per_source( 
     label_values=sm.training_labels, 
-    e_label_values=sm.training_variances**2, 
+    e_label_values=sm.training_variances**0.5, 
     label_pred=labels_pred, 
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L), 
     obs_join=obs_join[is_cannon_benchmark],
@@ -114,7 +116,7 @@ splt.plot_label_recovery_per_source(
 if len(abundance_labels) >= 1:
     splt.plot_label_recovery_abundances(
         label_values=sm.training_labels,
-        e_label_values=sm.training_variances**2,
+        e_label_values=sm.training_variances**0.5,
         label_pred=labels_pred,
         e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
         obs_join=obs_join[is_cannon_benchmark],
@@ -148,12 +150,13 @@ splt.plot_theta_coefficients(
     y_theta_lims=(-0.25,0.25),
     y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
-    label="b",
+    fn_label="b",
     linewidth=0.9,
     alpha=0.8,
     fn_suffix=fn_label,
     line_list=line_list_b,
-    species_to_plot=species_to_plot,)
+    species_to_plot=species_to_plot,
+    only_plot_first_order_coeff=only_plot_first_order_coeff,)
 
 splt.plot_theta_coefficients(
     sm,
@@ -163,12 +166,13 @@ splt.plot_theta_coefficients(
     y_theta_lims=(-0.12,0.12),
     y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
-    label="r",
+    fn_label="r",
     linewidth=0.9,
     alpha=0.8,
     fn_suffix=fn_label,
     line_list=line_list_r,
-    species_to_plot=species_to_plot,)
+    species_to_plot=species_to_plot,
+    only_plot_first_order_coeff=only_plot_first_order_coeff,)
 
 #------------------------------------------------------------------------------
 # Spectral Recovery
