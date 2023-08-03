@@ -43,6 +43,12 @@ init_with_basic_model = False
 # to converge, so max_iter isn't really relevant here.
 max_iter = 50000
 
+# By default Stan only logs a fitting update once every max_iter/10 iterations.
+# For large max_iter values, this might not be frequent enough--especially when
+# testing--so this can be updated here. 
+refresh_rate_frac = 1000
+log_refresh_step = int(max_iter / refresh_rate_frac)
+
 # Whether to run leave-one-out cross validation on Cannon model. If yes, the
 # cross validation is done using the same suppress_stan_output, 
 # init_with_basic_model, and max_iter settings as the original training.
@@ -213,7 +219,8 @@ print("-"*100, "\n\n", sep="",)
 sm.train_cannon_model(
     suppress_stan_output=suppress_stan_output,
     init_uncertainty_model_with_basic_model=init_with_basic_model,
-    max_iter=max_iter,)
+    max_iter=max_iter,
+    log_refresh_step=log_refresh_step,)
 
 # If we run the iterative bad px masking, train again afterwards
 if do_iterative_bad_px_masking:
@@ -224,14 +231,16 @@ if do_iterative_bad_px_masking:
     sm.train_cannon_model(
         suppress_stan_output=suppress_stan_output,
         init_uncertainty_model_with_basic_model=init_with_basic_model,
-        max_iter=max_iter,)
+        max_iter=max_iter,
+        log_refresh_step=log_refresh_step,)
 
 # Run cross validation
 if do_cross_validation:
     sm.run_cross_validation(
         suppress_stan_output=suppress_stan_output,
         init_uncertainty_model_with_basic_model=init_with_basic_model,
-        max_iter=max_iter,)
+        max_iter=max_iter,
+        log_refresh_step=log_refresh_step,)
 
     labels_pred = sm.cross_val_labels
 

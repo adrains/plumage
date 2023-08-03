@@ -391,8 +391,11 @@ class Stannon(object):
         suppress_stan_output=True,
         init_uncertainty_model_with_basic_model=False,
         suppress_training_output=False,
-        max_iter=2000,):
-        """Train the Cannon model, with training per the model specified.
+        max_iter=2000,
+        log_refresh_step=None,):
+        """Train the Cannon model, with training per the model specified. We
+        use Stan < 2.18's optimizing function to do this, see:
+            https://pystan2.readthedocs.io/en/latest/_modules/pystan/model.html
 
         Note that only the *masked* data is used for this.
 
@@ -414,9 +417,14 @@ class Stannon(object):
             updates when training. Separate to suppressing Stan output.
 
         max_iter: int, default: 2000
-            Maximum number of fitting iterations Stan will run. Also affects
-            how frequently Stan prints fitting updates to stdout (every 1% of
-            max_iter).
+            Maximum number of fitting iterations Stan will run, regardless of
+            whether the model has converged or not.
+
+        log_refresh_step: int or None
+            Determines after how many iterations Stan prints a fitting update
+            to the terminal. If None, we default to the stan default of 
+            max_iter/10, otherwise we update every log_refresh_step
+            iterations.
         """
         # Run training steps common to all models
 
@@ -441,13 +449,15 @@ class Stannon(object):
             self._train_cannon_model_basic(
                 suppress_stan_output=suppress_stan_output,
                 suppress_training_output=suppress_training_output,
-                max_iter=max_iter,)
+                max_iter=max_iter,
+                log_refresh_step=log_refresh_step,)
         
         elif self.model_type == "label_uncertainties":
             self._train_cannon_model_label_uncertainties(
                 suppress_stan_output=suppress_stan_output,
                 init_with_basic_model=init_uncertainty_model_with_basic_model,
-                max_iter=max_iter,)
+                max_iter=max_iter,
+                log_refresh_step=log_refresh_step,)
 
         else:
             raise NotImplementedError(
@@ -458,7 +468,8 @@ class Stannon(object):
         self,
         suppress_stan_output,
         suppress_training_output=False,
-        max_iter=2000,):
+        max_iter=2000,
+        log_refresh_step=None,):
         """Trains a basic Cannon model with no uncertainties on label values.
 
         This model takes as input:
@@ -486,9 +497,8 @@ class Stannon(object):
             suppressing Stan output.
 
         max_iter: int, default: 2000
-            Maximum number of fitting iterations Stan will run. Also affects
-            how frequently Stan prints fitting updates to stdout (every 1% of
-            max_iter).
+            Maximum number of fitting iterations Stan will run, regardless of
+            whether the model has converged or not.
         """
         # Create design matrix
         self.vectorizer = PolynomialVectorizer(self.label_names, 2)
@@ -511,7 +521,7 @@ class Stannon(object):
                 # Suppress Stan output. This is dangerous!
                 with sutils.suppress_output() as sm:
                     self._train_cannon_pixel_basic(
-                        px_i, data_dict, init_dict, max_iter,)
+                        px_i, data_dict, init_dict, max_iter, log_refresh_step)
 
         # Train pixel-by-pixel and show progress bar
         elif suppress_stan_output and not suppress_training_output:
@@ -519,7 +529,7 @@ class Stannon(object):
                 # Suppress Stan output. This is dangerous!
                 with sutils.suppress_output() as sm:
                     self._train_cannon_pixel_basic(
-                        px_i, data_dict, init_dict, max_iter,)
+                        px_i, data_dict, init_dict, max_iter, log_refresh_step)
 
         # Train pixel-by-pixel and display stan logging for debugging purposes
         else:
@@ -536,7 +546,8 @@ class Stannon(object):
         px_i,
         data_dict,
         init_dict,
-        max_iter,):
+        max_iter,
+        log_refresh_step,):
         """Train a single pixel of a Cannon model *without* label
         uncertainties. Since the spectral pixels are all independent, we train
         the model one pixel at a time and so P (N_px) is always 1.
@@ -562,17 +573,33 @@ class Stannon(object):
              - init_dict["theta"], array [N_coeff]
 
         max_iter: int
-            Maximum number of fitting iterations Stan will run. Also affects
-            how frequently Stan prints fitting updates to stdout (every 1% of
-            max_iter).
+            Maximum number of fitting iterations Stan will run, regardless of
+            whether the model has converged or not.
+
+        log_refresh_step: int or None
+            Determines after how many iterations Stan prints a fitting update
+            to the terminal. If None, we default to the stan default of 
+            max_iter/10, otherwise we update every log_refresh_step
+            iterations.
         """
+        # Assign a default logging step if required.
+        if log_refresh_step is None:
+            log_refresh_step = np.max([int(max_iter)/10, 1])
+        else:
+            log_refresh_step = \
+                np.max([int(log_refresh_step), 1])
+            
         # Update the data dictionary with flux and ivar values for the current
         # spectral pixel. Note that the basic Cannon model expects 1D arrays.
         data_dict.update(
             y=self.masked_data[:, px_i],
             y_var=1/self.masked_data_ivar[:, px_i])
 
-        kwds = dict(data=data_dict, init=init_dict, iter=max_iter,)
+        kwds = dict(
+            data=data_dict,
+            init=init_dict,
+            iter=max_iter,
+            log_refresh_step=log_refresh_step,)
         
         p_opt = self.model.optimizing(**kwds)
 
@@ -586,7 +613,8 @@ class Stannon(object):
         self,
         suppress_stan_output,
         init_with_basic_model=False,
-        max_iter=2000,):
+        max_iter=2000,
+        log_refresh_step=None,):
         """Trains a Cannon model with uncertainties on label values. For this
         model our spectral pixels are not entirely independent as we have a
         single global 'true' label matrix, and so we cannot train our Cannon
@@ -619,10 +647,22 @@ class Stannon(object):
             label uncertainty model to cut down on training time.
 
         max_iter: int, default: 2000
-            Maximum number of fitting iterations Stan will run. Also affects
-            how frequently Stan prints fitting updates to stdout (every 1% of
-            max_iter).
+            Maximum number of fitting iterations Stan will run, regardless of
+            whether the model has converged or not.
+
+        log_refresh_step: int, default: None
+            Determines after how many iterations Stan prints a fitting update
+            to the terminal. If None, we default to the stan default of 
+            max_iter/10, otherwise we update every log_refresh_step
+            iterations.
         """
+        # Assign a default logging step if required.
+        if log_refresh_step is None:
+            log_refresh_step = np.max([int(max_iter)/10, 1])
+        else:
+            log_refresh_step = \
+                np.max([int(log_refresh_step), 1])
+        
         # If we're initialising our theta and s2 arrays using those computed
         # from a basic Stannon model, we need to initialise train that model.
         if init_with_basic_model:
@@ -667,7 +707,11 @@ class Stannon(object):
             s2=init_s2,
             true_labels=init_true_labels,)
 
-        kwds = dict(data=data_dict, init=init_dict, iter=max_iter,)
+        kwds = dict(
+            data=data_dict,
+            init=init_dict,
+            iter=max_iter,
+            refresh=log_refresh_step,)
 
         # Hides Stan logging--default behaviour when working. Dangerous!
         if suppress_stan_output:
@@ -785,6 +829,7 @@ class Stannon(object):
         suppress_stan_output,
         init_uncertainty_model_with_basic_model,
         max_iter,
+        log_refresh_step,
         show_timing=True,):
         """Runs leave-one-out cross validation for the current training set,
         and saves the N predicted labels as self.cross_val_labels.
@@ -807,9 +852,14 @@ class Stannon(object):
             label uncertainty model to cut down on training time.
 
         max_iter: int
-            Maximum number of fitting iterations Stan will run. Also affects
-            how frequently Stan prints fitting updates to stdout (every 1% of
-            max_iter).
+            Maximum number of fitting iterations Stan will run, regardless of
+            whether the model has converged or not.
+
+        log_refresh_step: int or None
+            Determines after how many iterations Stan prints a fitting update
+            to the terminal. If None, we default to the stan default of 
+            max_iter/10, otherwise we update every log_refresh_step
+            iterations.
 
         show_timing: boolean, default True
             Whether to show the duration of cross-validation when finished.
@@ -859,7 +909,8 @@ class Stannon(object):
                 suppress_stan_output=suppress_stan_output,
                 init_uncertainty_model_with_basic_model=\
                     init_uncertainty_model_with_basic_model,
-                max_iter=max_iter,)
+                max_iter=max_iter,
+                log_refresh_step=log_refresh_step,)
 
             # Predict labels for the missing standard using the newly trained
             # Cannon model.
