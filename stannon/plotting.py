@@ -1092,15 +1092,15 @@ def plot_label_uncertainty_adopted_vs_true_labels(
         _ = ax_dti.hist(delta_labels[:,3], bins=n_bins, alpha=0.5)
         ax_dti.set_xlabel(r"$\Delta$[Ti/H]")
 
-    # Plot text for median +/- std
-    x_lims = ax_dti.get_xlim()
-    y_lims = ax_dti.get_ylim()
-    text = r"${:0.3f}\pm{:0.3f}\,$dex".format(med_dl[3], std_dl[3])
-    ax_dti.text(
-        x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
-        y=0.5*(y_lims[1]-y_lims[0])+y_lims[0],
-        s=text,
-        horizontalalignment="center",)
+        # Plot text for median +/- std
+        x_lims = ax_dti.get_xlim()
+        y_lims = ax_dti.get_ylim()
+        text = r"${:0.3f}\pm{:0.3f}\,$dex".format(med_dl[3], std_dl[3])
+        ax_dti.text(
+            x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 
+            y=0.5*(y_lims[1]-y_lims[0])+y_lims[0],
+            s=text,
+            horizontalalignment="center",)
 
     # -------------------------------------------------------------------------
     # Tidy up and save

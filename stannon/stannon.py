@@ -599,7 +599,7 @@ class Stannon(object):
             data=data_dict,
             init=init_dict,
             iter=max_iter,
-            log_refresh_step=log_refresh_step,)
+            refresh=log_refresh_step,)
         
         p_opt = self.model.optimizing(**kwds)
 
