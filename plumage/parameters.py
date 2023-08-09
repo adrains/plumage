@@ -16,8 +16,8 @@ from collections import OrderedDict
 from scipy.optimize import least_squares
 from numpy.polynomial.polynomial import polyval as polyval
 from scipy.interpolate import LinearNDInterpolator
-from dustmaps.leike_ensslin_2019 import LeikeEnsslin2019Query
-from dustmaps.leike2020 import Leike2020Query
+#from dustmaps.leike_ensslin_2019 import LeikeEnsslin2019Query
+#from dustmaps.leike2020 import Leike2020Query
 from numpy.polynomial.polynomial import Polynomial
 
 LOCAL_BUBBLE_DIST_PC = 70
@@ -576,7 +576,8 @@ def prepare_labels(
     e_teff_quad=60,
     max_teff=4200,
     abundance_labels=[],
-    abundance_trends=None,):
+    abundance_trends=None,
+    calc_x_fe_abund=False,):
     """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
@@ -619,6 +620,9 @@ def prepare_labels(
         of [Na_H,Mg_H,Al_H,Si_H,Ca_H,Sc_H,Ti_H,V_H,Cr_H,Mn_H,Co_H,Ni_H] fitted
         to the Montes+18 sample where the abundances are columns and the rows
         are polyomial coefficents. Only linear trends have been tested.
+
+    calc_x_fe_abund: boolean, default: False
+        Indicates whether to determine [X/Fe] (True) or [X/H] (False).
 
     Returns
     -------
@@ -822,6 +826,9 @@ def prepare_labels(
             vf05_abundance = "{}_vf05".format(abundance)
             a12_abundance = "{}_a12".format(abundance)
             
+            # Boolean to check if we have assigned a lit abundance
+            lit_abund_assigned = False
+
             # Since VF05 is our base [Fe/H] reference, we'll use it as our base
             # reference for abundances as well. It also has lower uncertainties
             # than other references. TODO: account for abundance systematics.
@@ -831,6 +838,8 @@ def prepare_labels(
                 label_sources[star_i, label_i] = "VF05"
                 label_nondefault[star_i, label_i] = True
 
+                lit_abund_assigned = True
+
             # Montes+18
             elif not np.isnan(star_info[m18_abundance]):
                 label_values[star_i, label_i] = star_info[m18_abundance]
@@ -838,6 +847,8 @@ def prepare_labels(
                     star_info["e{}".format(m18_abundance)]
                 label_sources[star_i, label_i] = "M18"
                 label_nondefault[star_i, label_i] = True
+
+                lit_abund_assigned = True
 
             # Adibekyan+2012. Note that we're currently doing what is probably
             # a hysically unreasonable HACK in just averaging the Ti I/H and 
@@ -860,10 +871,47 @@ def prepare_labels(
                 label_sigma[star_i, label_i] = e_abund
                 label_sources[star_i, label_i] = "A12"
                 label_nondefault[star_i, label_i] = True
+
+                lit_abund_assigned = True
             
-            # Otherwise default to the solar neighbourhood abundance trend so 
-            # that we have a physically motivated initial guess.
-            else:
+            # If we've assigned a literature abundance and we're producing
+            # [X/Fe] then caculate [X/Fe] and propagate uncertainties
+            if lit_abund_assigned and calc_x_fe_abund:
+                # Grab labels
+                fe_h_log10 = label_values[star_i, 2]
+                e_fe_h_log10 = label_sigma[star_i, 2]
+
+                x_h_log10 = label_values[star_i, label_i]
+                e_x_h_log10 = label_sigma[star_i, label_i]
+
+                # Unlog
+                fe_h = 10**fe_h_log10
+                e_fe_h = fe_h * np.log(10) * e_fe_h_log10
+
+                x_h = 10**x_h_log10
+                e_x_h = x_h * np.log(10) * e_x_h_log10
+
+                # Calculate [X/Fe]
+                x_fe = x_h / fe_h
+                e_x_fe = x_fe * np.sqrt((e_x_h/x_h)**2+(e_fe_h/fe_h)**2)
+
+                # Relog, save
+                # TODO: this overwrites our existing adopted labels.
+                label_values[star_i, label_i] = np.log10(x_fe)
+                label_sigma[star_i, label_i] = e_x_fe / (x_fe * np.log(10))
+                label_nondefault[star_i, label_i] = False
+
+            # If we've *not* assigned a literature abundance, but we're
+            # producing [X/Fe] values, calculate a default [X/Fe] value
+            elif not lit_abund_assigned and calc_x_fe_abund:
+                # Note: this is specically for [Ti/Fe] as fitted to GALAH DR2
+                label_values[star_i, label_i] = -0.332 * feh_adopted + 0.078
+                label_sigma[star_i, label_i] = 0.16
+                label_nondefault[star_i, label_i] = False
+
+            # If we've not assigned a literature abundance, but we're opting to
+            # work in [X/H] space, produce a default [X/H] value
+            elif not lit_abund_assigned and not calc_x_fe_abund:
                 poly = Polynomial(
                     abundance_trends[abundance.replace("_m18", "")].values)
                 X_H = poly(feh_adopted)
@@ -871,6 +919,11 @@ def prepare_labels(
                 label_sigma[star_i, label_i] = 2.0
                 label_nondefault[star_i, label_i] = False
 
+            # If we've assigned a literature abundance and are working in [X/H]
+            # space, we don't need to do anything.
+            elif lit_abund_assigned and not calc_x_fe_abund:
+                continue
+                
     return label_values, label_sigma, std_mask, label_sources, label_nondefault
 
 

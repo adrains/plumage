@@ -18,6 +18,10 @@ import plumage.parameters as params
 # Fits file to load from plumage/spectra
 std_label = "cannon"
 
+# If True, we calculate [X/Fe] and our Cannon model will work in [X/Fe] space.
+# Otherwise, we calculate [X/H] and model in [X/H] space.
+calc_x_fe_abund = True
+
 # At the moment we're only supporting Ti_H. Eventually this will be more
 # generic.
 abundance_labels = ["Ti_H"]
@@ -229,7 +233,8 @@ label_values, label_sigmas, std_mask, label_sources, label_nondefault = \
         obs_join=obs_join,
         n_labels=n_labels,
         abundance_labels=abundance_labels,
-        abundance_trends=montes18_abund_trends)
+        abundance_trends=montes18_abund_trends,
+        calc_x_fe_abund=calc_x_fe_abund,)
 
 # Compute the variances
 label_var_all = label_sigmas**2

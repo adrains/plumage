@@ -538,7 +538,7 @@ class Stannon(object):
                 print("Training pixel #{}/{}".format(px_i+1, n_px))
                 print("-"*100,)
                 self._train_cannon_pixel_basic(
-                    px_i, data_dict, init_dict, max_iter,)
+                    px_i, data_dict, init_dict, max_iter, log_refresh_step)
 
 
     def _train_cannon_pixel_basic(
