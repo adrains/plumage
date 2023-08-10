@@ -35,7 +35,7 @@ init_with_basic_model = False
 # know for testing purposes to save time. Note that the basic model is trained
 # pixel-by-pixel with each pixel taking approximately a few hundred iterations
 # to converge, so max_iter isn't really relevant here.
-max_iter = 20000
+max_iter = 100000
 
 # By default Stan only logs a fitting update once every max_iter/10 iterations.
 # For large max_iter values, this might not be frequent enough--especially when
@@ -88,12 +88,14 @@ model_type = "label_uncertainties"
 use_label_uniform_variances = False
 uniform_var_frac_error = 0.01
 
-# Also for testing we can rescale the literature uncertainties by a constant
-# amount. For instance, lit_std_scale_fac = 0.1 means that we adopt
-# uncertainties 10x smaller than observed. This only takes effect if 
-# use_label_uniform_variances is set to False. Set to 1.0 if we don't want to
-# scale the uncertainties.
-lit_std_scale_fac = 0.1
+# To constrain the parameter space (or just for testing) when using the label
+# uncertainties model, we can rescale the literature uncertainties by a
+# constant amount on a per-label basis. For instance, setting 
+# lit_std_scale_fac = [0.1, 0.1, 0.1, 0.1] means that we adopt
+# uncertainties 10x smaller than observed for each label of a four label model.
+# This only takes effect if use_label_uniform_variances is set to False. Set to 
+# an array of ones if we don't want to scale the uncertainties.
+lit_std_scale_fac = [1, 1, 1, 1]
 
 model_save_path = "spectra"
 std_label = "cannon"
@@ -103,7 +105,7 @@ std_label = "cannon"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels = []
+abundance_labels = ["Ti_H"]
 
 label_names = ["teff", "logg", "feh"] + abundance_labels
 n_labels = len(label_names)
@@ -113,7 +115,7 @@ n_labels = len(label_names)
 #------------------------------------------------------------------------------
 # Models are currently saved  with N_px in the filename.
 # TODO: come up with a more informative/robust labelling scheme.
-npx = 3283
+npx = 454
 
 # The grating at which the WiFeS B3000 spectra transition to R7000 spectra to
 # use when plotting separate 'b' and 'r' plots.

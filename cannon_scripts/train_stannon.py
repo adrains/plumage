@@ -19,6 +19,7 @@ import numpy as np
 import plumage.utils as pu
 import stannon.stannon as stannon
 import stannon.plotting as splt
+from datetime import datetime
 
 # This is our settings file
 import cannon_settings as cs
@@ -40,7 +41,13 @@ for lbl_i, lbl in enumerate(cs.label_names):
     label_var_cols.append("label_adopt_var_{}".format(lbl))
 
 label_values_all = obs_join[label_value_cols].values
-label_var_all = obs_join[label_var_cols].values * cs.lit_std_scale_fac**2
+label_var_all = obs_join[label_var_cols].values
+
+# Scale our uncertainties by the constant per-label factors we've defined in
+# our settings file.
+n_std =len(obs_join)
+label_var_all *= \
+    np.tile(cs.lit_std_scale_fac, n_std).reshape((cs.n_labels, n_std)).T**2
 
 # Optional for testing: run with uniform variances
 if cs.use_label_uniform_variances:
@@ -123,16 +130,25 @@ sm = stannon.Stannon(
     adopted_wl_mask=adopted_wl_mask,
     bad_px_mask=bad_px_mask,)
 
+# Timing
+start_time = datetime.now()
+
 # Train model
 print("\n\n", "-"*100, sep="",)
 print("\nFitting initial Cannon model with {} benchmarks\n".format(
     np.sum(is_cannon_benchmark)))
 print("-"*100, "\n\n", sep="",)
+print("Fitting started: {}\n".format(start_time.ctime()))
 sm.train_cannon_model(
     suppress_stan_output=cs.suppress_stan_output,
     init_uncertainty_model_with_basic_model=cs.init_with_basic_model,
     max_iter=cs.max_iter,
     log_refresh_step=cs.log_refresh_step,)
+
+finish_time = datetime.now()
+time_elapsed = finish_time - start_time
+print("\nFitting finished: {}\n".format(finish_time.ctime()))
+print("Duration (hh:mm:ss.ms) {}\n".format(time_elapsed))
 
 # If we run the iterative bad px masking, train again afterwards
 if cs.do_iterative_bad_px_masking:
