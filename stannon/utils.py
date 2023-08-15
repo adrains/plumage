@@ -4,11 +4,10 @@ originally written by Dr Andy Casey.
 import os
 import logging
 import pickle
-
+import yaml
 import numpy as np
 import pystan as stan
 import pystan.plots as plots
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from tempfile import mkstemp
 from scipy.optimize import curve_fit
@@ -268,3 +267,52 @@ def infer_labels(theta, scatter, fluxes, ivars, lbl_mean, lbl_std, n_labels=3):
         errs_all[star_i,:] = np.sqrt(cov.diagonal()) * lbl_std
 
     return labels_all, errs_all, chi2_all
+
+
+def load_cannon_settings(yaml_path):
+    """Import our Cannon settings YAML file as a dictionary and return the
+    object equivalent.
+
+    Parameters
+    ----------
+    yaml_path: string
+        Path to the saved YAML file.
+
+    Returns
+    -------
+    cs: CannonSettings object
+        CannonSettings object with attributes equivalent to YAML keys.
+    """
+    # Load in YAML file as dictionary
+    with open(yaml_path) as yaml_file:
+        yaml_dict = yaml.safe_load(yaml_file)
+    
+    # Add in missing keywods
+    yaml_dict["label_names"] = \
+        yaml_dict["base_labels"] + yaml_dict["abundance_labels"]
+    
+    yaml_dict["n_labels"] = len(yaml_dict["label_names"])
+
+    yaml_dict["log_refresh_step"] = \
+        int(yaml_dict["max_iter"] / yaml_dict["refresh_rate_frac"])
+    
+    yaml_dict["is_cross_validated"] = yaml_dict["do_cross_validation"]
+
+    # Finally convert to our wrapper object form and return
+    cs = CannonSettings(yaml_dict)
+
+    return cs
+
+
+class CannonSettings:
+    """Wrapper object for Cannon parameters stored in YAML file and opened with
+    load_cannon_settings. Has attributes equivalent to keys in dict/YAML file.
+    """
+    def __init__(self, param_dict):
+        for key, value in param_dict.items():
+            setattr(self, key, value)
+
+        self.param_dict = param_dict
+
+    def __repr__(self):
+        return self.param_dict.__repr__()

@@ -5,7 +5,7 @@ import copy
 import numpy as np
 from tqdm import tqdm
 import pickle
-import stannon.stan_utils as sutils
+import stannon.utils as su
 from datetime import datetime
 import plumage.spectra as spec
 from scipy.optimize import curve_fit
@@ -340,7 +340,7 @@ class Stannon(object):
                 "Model file {} doesn't exist!".format(model_path))
 
         # All good, continue
-        model = sutils.read(model_path)
+        model = su.read(model_path)
 
         return model
     
@@ -519,7 +519,7 @@ class Stannon(object):
         if suppress_stan_output and suppress_training_output:
             for px_i in range(n_px):
                 # Suppress Stan output. This is dangerous!
-                with sutils.suppress_output() as sm:
+                with su.suppress_output() as sm:
                     self._train_cannon_pixel_basic(
                         px_i, data_dict, init_dict, max_iter, log_refresh_step)
 
@@ -527,7 +527,7 @@ class Stannon(object):
         elif suppress_stan_output and not suppress_training_output:
             for px_i in tqdm(range(n_px), smoothing=0.2, desc="Training"):
                 # Suppress Stan output. This is dangerous!
-                with sutils.suppress_output() as sm:
+                with su.suppress_output() as sm:
                     self._train_cannon_pixel_basic(
                         px_i, data_dict, init_dict, max_iter, log_refresh_step)
 
@@ -715,7 +715,7 @@ class Stannon(object):
 
         # Hides Stan logging--default behaviour when working. Dangerous!
         if suppress_stan_output:
-            with sutils.suppress_output() as sm:
+            with su.suppress_output() as sm:
                 p_opt = self.model.optimizing(**kwds)
 
         # Don't suppress the output when debugging

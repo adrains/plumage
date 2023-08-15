@@ -19,10 +19,14 @@ import numpy as np
 import plumage.utils as pu
 import stannon.stannon as stannon
 import stannon.plotting as splt
+import stannon.utils as su
 from datetime import datetime
 
-# This is our settings file
-import cannon_settings as cs
+#------------------------------------------------------------------------------
+# Import Settings
+#------------------------------------------------------------------------------
+cannon_settings_yaml = "cannon_scripts/cannon_settings.yml"
+cs = su.load_cannon_settings(cannon_settings_yaml)
 
 #------------------------------------------------------------------------------
 # Training labels
@@ -85,6 +89,10 @@ fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
         do_gaussian_spectra_normalisation=cs.do_gaussian_spectra_normalisation,
         poly_order=cs.poly_order)
 
+# Similar to how we can optionally scale the uncertainties on our labels, we
+# can do the same for the uncertainties on our spectra.
+ivars_norm *= 1/(cs.spectra_std_scale_fac**2)
+
 #------------------------------------------------------------------------------
 # Make and train model
 #------------------------------------------------------------------------------
@@ -114,6 +122,7 @@ print("\n\tTesting Params:\n\t", "-"*21, sep="")
 print("\tuniform variances:\t = {}".format(cs.use_label_uniform_variances))
 print("\tuniform var scale fac:\t = {}".format(cs.uniform_var_frac_error))
 print("\tlit std scale fac:\t = {}".format(cs.lit_std_scale_fac))
+print("\tspec std scale fac:\t = {}".format(cs.spectra_std_scale_fac))
 
 print("\n", "%"*80, "\n\n", sep="")
 

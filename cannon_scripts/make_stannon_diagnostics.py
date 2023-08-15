@@ -17,9 +17,13 @@ import plumage.utils as pu
 import stannon.stannon as stannon
 import stannon.plotting as splt
 import stannon.tables as st
+import stannon.utils as su
 
-# This is our settings file
-import cannon_settings as cs
+#------------------------------------------------------------------------------
+# Import Settings
+#------------------------------------------------------------------------------
+cannon_settings_yaml = "cannon_scripts/cannon_settings.yml"
+cs = su.load_cannon_settings(cannon_settings_yaml)
 
 #------------------------------------------------------------------------------
 # Parameters and Setup
@@ -108,7 +112,7 @@ if len(cs.abundance_labels) >= 1:
         obs_join=obs_join[is_cannon_benchmark],
         fn_suffix=fn_label,
         abundance_labels=cs.abundance_labels,
-        feh_lims=(-0.65,0.65),
+        feh_lims=(-0.3,0.8),
         feh_ticks=(0.4,0.2,0.2,0.1))
 
 #------------------------------------------------------------------------------
@@ -304,7 +308,7 @@ st.make_table_sample_summary(obs_join)
 st.make_table_benchmark_overview(
     obs_tab=obs_join[is_cannon_benchmark],
     labels_adopt=sm.training_labels,
-    sigmas_adopt=sm.training_variances**2,
+    sigmas_adopt=sm.training_variances**0.5,
     labels_fit=labels_pred,
     label_sources=obs_join[label_source_cols].values[is_cannon_benchmark],
     abundance_labels=cs.abundance_labels,
