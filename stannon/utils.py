@@ -286,7 +286,7 @@ def load_cannon_settings(yaml_path):
     # Load in YAML file as dictionary
     with open(yaml_path) as yaml_file:
         yaml_dict = yaml.safe_load(yaml_file)
-    
+
     # Add in missing keywods
     yaml_dict["label_names"] = \
         yaml_dict["base_labels"] + yaml_dict["abundance_labels"]
@@ -297,6 +297,10 @@ def load_cannon_settings(yaml_path):
         int(yaml_dict["max_iter"] / yaml_dict["refresh_rate_frac"])
     
     yaml_dict["is_cross_validated"] = yaml_dict["do_cross_validation"]
+
+    # Do a consistency check
+    if len(yaml_dict["lit_std_scale_fac"]) != yaml_dict["n_labels"]:
+        raise ValueError("Cannon setting lit_std_scale_fac length != n_labels")
 
     # Finally convert to our wrapper object form and return
     cs = CannonSettings(yaml_dict)

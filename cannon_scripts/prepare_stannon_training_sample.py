@@ -8,26 +8,14 @@ This script is part of a series of Cannon scripts. The main sequence is:
  4) run_stannon.py                         --> running on science spectra
 """
 import numpy as np
-import pandas as pd
 import plumage.utils as pu
-import plumage.parameters as params
+import stannon.parameters as params
 
 #------------------------------------------------------------------------------
 # Setup
 #------------------------------------------------------------------------------
 # Fits file to load from plumage/spectra
 std_label = "cannon"
-
-# If True, we calculate [X/Fe] and our Cannon model will work in [X/Fe] space.
-# Otherwise, we calculate [X/H] and model in [X/H] space.
-calc_x_fe_abund = True
-
-# At the moment we're only supporting Ti_H. Eventually this will be more
-# generic.
-abundance_labels = ["Ti_H"]
-
-label_names = ["teff", "logg", "feh"] + abundance_labels
-n_labels = len(label_names)
 
 #------------------------------------------------------------------------------
 # Imports
@@ -223,39 +211,8 @@ if allow_exceptions:
 #------------------------------------------------------------------------------
 # Setup training labels
 #------------------------------------------------------------------------------
-# Import Montes+18 abundance trends to have a better naive guess at abundances
-# for stars with unknown abundances
-montes18_abund_trends = pd.read_csv("data/montes18_abundance_trends.csv") 
-
-# Prepare our labels
-label_values, label_sigmas, std_mask, label_sources, label_nondefault = \
-    params.prepare_labels(
-        obs_join=obs_join,
-        n_labels=n_labels,
-        abundance_labels=abundance_labels,
-        abundance_trends=montes18_abund_trends,
-        calc_x_fe_abund=calc_x_fe_abund,)
-
-# Compute the variances
-label_var_all = label_sigmas**2
-
-# Add the mask and adopted labels to the dataframe
-obs_join["has_complete_label_set"] = std_mask
-
-for lbl_i, lbl in enumerate(label_names):
-    obs_join["label_adopt_{}".format(lbl)] = label_values[:,lbl_i]
-    obs_join["label_adopt_sigma_{}".format(lbl)] = label_sigmas[:,lbl_i]
-    obs_join["label_adopt_var_{}".format(lbl)] = label_var_all[:,lbl_i]
-    obs_join["label_source_{}".format(lbl)] = label_sources[:,lbl_i]
-    obs_join["label_nondefault_{}".format(lbl)] = label_nondefault[:,lbl_i]
-
-# And combine masks to get adopted benchmarks
-is_cannon_benchmark = np.logical_and(
-    obs_join["passed_quality_cuts"],
-    obs_join["has_complete_label_set"]
-)
-
-obs_join["is_cannon_benchmark"] = is_cannon_benchmark
+# Prepare our labels (update DataFrame in place)
+params.prepare_labels(obs_join=obs_join)
 
 # Format our dataframe so it will save correctly
 for col in obs_join.columns.values:

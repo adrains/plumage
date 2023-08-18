@@ -515,7 +515,9 @@ def plot_theta_coefficients(
     teff_scale=0.3,
     x_lims=(5700,6400),
     y_spec_lims=(0,2.5),
-    y_theta_lims=(-0.1,0.1),
+    y_theta_linear_lims=(-0.1,0.1),
+    y_theta_quadratic_lims=(-0.1,0.1),
+    y_theta_cross_lims=(-0.1,0.1),
     y_s2_lims=(-0.001,0.01),
     x_ticks=(500,100),
     linewidth=0.5,
@@ -743,6 +745,9 @@ def plot_theta_coefficients(
         axes[3].set_ylabel(r"$\theta_{\rm Quadratic}$")
         axes[4].set_ylabel(r"$\theta_{\rm Cross}$")
 
+        axes[3].set_ylim(y_theta_quadratic_lims)
+        axes[4].set_ylim(y_theta_cross_lims)
+
     # -------------------------------------------------------------------------
     # Final Setup
     # -------------------------------------------------------------------------
@@ -764,7 +769,7 @@ def plot_theta_coefficients(
             handles=by_label.values(),
             labels=by_label.keys(),
             loc=leg_loc,
-            ncol=np.max([sm.L, n_unique_species]),
+            ncol=np.max([sm.L+2, n_unique_species]),
             fontsize="small",)
         
         for legobj in leg.legendHandles:
@@ -772,7 +777,7 @@ def plot_theta_coefficients(
 
     axes[0].set_xlim(x_lims)
     axes[0].set_ylim(y_spec_lims)
-    axes[1].set_ylim(y_theta_lims)
+    axes[1].set_ylim(y_theta_linear_lims)
     axes[2].set_ylim(y_s2_lims)
 
     axes[0].set_ylabel(r"Flux")

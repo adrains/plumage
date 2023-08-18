@@ -1,15 +1,16 @@
-#This file contains the common set of parameters used to train and plot 
-#diagnostic plots for a Cannon model.
+# This file contains the common set of parameters used to train and plot 
+# diagnostic plots for a Cannon model.
 #
-#This is part of a series of Cannon scripts. The main sequence is:
-# 1) prepare_stannon_training_sample.py     --> label preparation
-# 2) train_stannon.py                       --> training and cross validation
-# 3) make_stannon_diagnostics.py            --> diagnostic plots + result tables
-# 4) run_stannon.py                         --> running on science spectra
+# This is part of a series of Cannon scripts. The main sequence is:
+# 1) prepare_stannon_training_sample.py    --> label preparation
+# 2) train_stannon.py                      --> training and cross validation
+# 3) make_stannon_diagnostics.py           --> diagnostic plots + result tables
+# 4) run_stannon.py                        --> running on science spectra
 #
 # Where the values in this file currently apply to items 2) and 3).
 #
 # YAML specifications: https://yaml.org/spec/1.2.2/
+
 #------------------------------------------------------------------------------
 # Model Settings
 #------------------------------------------------------------------------------
@@ -64,7 +65,7 @@ wl_broadening: 50
 poly_order: 4
 
 # Minimum and maximum wavelengths for Cannon model
-wl_min_model: 5400
+wl_min_model: 4000
 wl_max_model: 7000
 
 # The Cannon model to use - either the 'basic' traditional Cannon model, or a
@@ -75,7 +76,7 @@ wl_max_model: 7000
 # increases to ~33 min when training a 4 term model with [Ti/H]. Note that
 # these numbers are for a *single* model, and that cross validation increases
 # the runtime by a factor of N_stars. TODO: update these numbers.
-model_type: "label_uncertainties"
+model_type: "basic"
 
 # For testing purposes, we can run with uniform label variances instead of the
 # literature uncertainties. To do this, we assign every label the same
@@ -92,7 +93,7 @@ uniform_var_frac_error: 0.01
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
 # an array of ones if we don't want to scale the uncertainties.
-lit_std_scale_fac: [1.0, 1.0, 1.0]
+lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0]
 
 # Also for testing and as a complement to the previous setting we can scale the
 # uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
@@ -107,7 +108,7 @@ std_label: "cannon"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: []
+abundance_labels: ["Ti_Fe"]
 
 base_labels: ["teff", "logg", "feh",]
 
@@ -116,7 +117,7 @@ base_labels: ["teff", "logg", "feh",]
 #------------------------------------------------------------------------------
 # Models are currently saved  with N_px in the filename.
 # TODO: come up with a more informative/robust labelling scheme.
-npx: 3283
+npx: 5024
 
 # The grating at which the WiFeS B3000 spectra transition to R7000 spectra to
 # use when plotting separate 'b' and 'r' plots.
@@ -124,4 +125,4 @@ wl_grating_changeover: 5400
 
 # If this is true, we only plot the first order/linear theta coefficients. If
 # False, we include extra panels for the cross and quadtratic terms
-only_plot_first_order_coeff: True
+only_plot_first_order_coeff: False

@@ -1,8 +1,7 @@
 """Functions to generate LaTeX tables.
 """
 import numpy as np
-import pandas as pd
-import plumage.parameters as params
+import stannon.parameters as params
 from collections import OrderedDict
 
 label_source_refs = {
