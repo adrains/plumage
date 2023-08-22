@@ -531,7 +531,11 @@ def plot_theta_coefficients(
     species_line_width=0.75,
     species_line_lims_spec=(1.6,2.0),
     species_line_lims_scatter=(0.003,0.004),
-    only_plot_first_order_coeff=True,):
+    only_plot_first_order_coeff=True,
+    sm2=None,
+    sm1_label="",
+    sm2_label="",
+    use_logarithmic_scale_axis=False):
     """Plot fluxes, values of first order theta coefficients for Teff, logg,
     and [Fe/H], as well as model scatter - all against wavelength.
 
@@ -543,11 +547,11 @@ def plot_theta_coefficients(
     plt.close("all")
     # Three axes if plotting only spectra, first order coeff, and the scatter
     if only_plot_first_order_coeff:
-        fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 8))
+        fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 6))
     
     # Five axes if we're plotting all theta coefficients
     else:
-        fig, axes = plt.subplots(5, 1, sharex=True, figsize=(16, 12))
+        fig, axes = plt.subplots(5, 1, sharex=True, figsize=(16, 8.5))
 
     fig.subplots_adjust(hspace=0.001, wspace=0.001)
 
@@ -599,7 +603,7 @@ def plot_theta_coefficients(
         for abundance_i, abundance in enumerate(sm.label_names[3:]):
             label_i = 4 + abundance_i
             
-            abundance_label = "[{}/H]".format(abundance.split("_")[0])
+            abundance_label = "[{}]".format(abundance.replace("_", "/"))
 
             theta_lvec =  \
                 theta_lvec.replace(abundance, abundance_label)
@@ -653,26 +657,56 @@ def plot_theta_coefficients(
             alpha=alpha,
             label=theta_lvec[label_i],)
 
-    # And first order abundance coefficients if we have it
-    if sm.L > 3:
-        for abundance_i, abundance in enumerate(sm.label_names[3:]):
-            label_i = 4 + abundance_i
-            
-            abundance_label = "[{}/H]".format(abundance.split("_")[0])
-
-            axes[1].plot(
-                wave,
-                theta[:,label_i],
-                linewidth=linewidth,
-                alpha=alpha,
-                label=abundance_label,)
-
     axes[1].hlines(0, 3400, 7100, linestyles="dashed", linewidth=0.1)
 
     # -------------------------------------------------------------------------
-    # Panel 3: Scatter
+    # [Optional] Panel 4 + 5: Quadratic + cross term coefficients
     # -------------------------------------------------------------------------
-    axes[2].plot(wave, scatter, linewidth=linewidth,)
+    if not only_plot_first_order_coeff:
+        # Plot quadratic coefficents
+        for quad_coeff_i in quad_term_ii:
+            axes[2].plot(
+                wave,
+                theta[:,quad_coeff_i],
+                linewidth=linewidth,
+                alpha=alpha,
+                label=theta_lvec[quad_coeff_i],)
+
+        # Plos cross-term coefficients
+        for cross_coeff_i in cross_term_ii:
+            axes[3].plot(
+                wave,
+                theta[:,cross_coeff_i],
+                linewidth=linewidth,
+                alpha=alpha,
+                label=theta_lvec[cross_coeff_i],)
+        
+        axes[2].set_ylabel(r"$\theta_{\rm Quadratic}$")
+        axes[3].set_ylabel(r"$\theta_{\rm Cross}$")
+
+        axes[2].set_ylim(y_theta_quadratic_lims)
+        axes[3].set_ylim(y_theta_cross_lims)
+
+
+    # -------------------------------------------------------------------------
+    # Final Panel: Scatter
+    # -------------------------------------------------------------------------
+    axes[-1].plot(
+        wave, scatter, linewidth=linewidth, label=sm1_label, alpha=alpha,)
+
+    # If we've been given a second Stannon model, plot its scatter as well
+    if sm2 is not None:
+        scatter_sm2 = scatter.copy()
+        scatter_sm2[~np.isnan(scatter_sm2)] = sm2.s2
+        axes[-1].plot(
+            wave,
+            scatter_sm2,
+            linewidth=linewidth,
+            label=sm2_label,
+            alpha=alpha,)
+
+    if use_logarithmic_scale_axis:
+        axes[-1].set_yscale("log")
 
     # -------------------------------------------------------------------------
     # [Optional] Atomic line plot
@@ -709,7 +743,7 @@ def plot_theta_coefficients(
                 label=line_data["ion"],)
             
             # Label lines on scatter plot
-            axes[2].vlines(
+            axes[-1].vlines(
                 x=line_data["wl"],
                 ymin=species_line_lims_scatter[0],
                 ymax=species_line_lims_scatter[1],
@@ -719,34 +753,6 @@ def plot_theta_coefficients(
 
     else:
         n_unique_species = 0
-
-    # -------------------------------------------------------------------------
-    # [Optional] Panel 4 + 5: Quadratic + cross term coefficients
-    # -------------------------------------------------------------------------
-    if not only_plot_first_order_coeff:
-        # Plot quadratic coefficents
-        for quad_coeff_i in quad_term_ii:
-            axes[3].plot(
-                wave,
-                theta[:,quad_coeff_i],
-                linewidth=linewidth,
-                alpha=alpha,
-                label=theta_lvec[quad_coeff_i],)
-
-        # Plos cross-term coefficients
-        for cross_coeff_i in cross_term_ii:
-            axes[4].plot(
-                wave,
-                theta[:,cross_coeff_i],
-                linewidth=linewidth,
-                alpha=alpha,
-                label=theta_lvec[cross_coeff_i],)
-        
-        axes[3].set_ylabel(r"$\theta_{\rm Quadratic}$")
-        axes[4].set_ylabel(r"$\theta_{\rm Cross}$")
-
-        axes[3].set_ylim(y_theta_quadratic_lims)
-        axes[4].set_ylim(y_theta_cross_lims)
 
     # -------------------------------------------------------------------------
     # Final Setup
@@ -778,14 +784,18 @@ def plot_theta_coefficients(
     axes[0].set_xlim(x_lims)
     axes[0].set_ylim(y_spec_lims)
     axes[1].set_ylim(y_theta_linear_lims)
-    axes[2].set_ylim(y_s2_lims)
+    axes[-1].set_ylim(y_s2_lims)
 
-    axes[0].set_ylabel(r"Flux")
+    axes[0].set_ylabel(r"Normalised Flux")
     axes[1].set_ylabel(r"$\theta_{\rm Linear}$")
-    axes[2].set_ylabel(r"Scatter")
+    axes[-1].set_ylabel(r"Scatter")
 
-    axes[2].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
-    axes[2].xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
+    for ax in axes[1:-1]:
+        ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
+        ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+
+    axes[-1].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
+    axes[-1].xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
 
     plt.xlabel("Wavelength (A)")
     
@@ -1115,3 +1125,170 @@ def plot_label_uncertainty_adopted_vs_true_labels(
     plt.savefig("paper/adopted_vs_true_label_hists{}.pdf".format(fn_label))
     plt.savefig("paper/adopted_vs_true_label_hists{}.png".format(fn_label),
                 dpi=200)
+
+
+def plot_delta_cannon_vs_marcs(
+    obs_join,
+    sm,
+    fluxes_marcs_norm,
+    delta_thresholds=(0.1, 0.05, 0.02),):
+    """Plots a series of comparisons of Cannon vs MARCS spectra below the
+    provided set of fractional flux tolerances.
+
+    Parameters
+    ----------
+    obs_join: pandas DataFrame
+        Dataframe of stellar properties.
+    
+    sm: Stannon object
+        Trained Stannon model.
+
+    fluxes_marcs_norm: 2D float array
+        Normalised array of MARCS fluxes of shape [N_benchmark, N_lambda] 
+        corresponding to the benchmarks used to train the Cannon model.
+
+    delta_thresholds: float array, default: (0.1, 0.05, 0.02)
+        Fractional flux thresholds to plot, where each value results in a
+        subplot panel. For instance, delta_thresholds = (0.1, 0.05, 0.02) plots
+        three panels showing only those wavelengths with fluxes within 10%, 5%,
+        and 2%.
+    """
+    # Sort our benchmarks by their BP-RP colour
+    is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
+
+    bprp = obs_join[is_cannon_benchmark]["BP_RP_dr3"].values
+    bprp_ii = np.argsort(bprp)
+
+    spec_cannon_all = np.vstack(
+        [sm.generate_spectra(sm.training_labels[i]) for i in range(sm.S)])
+
+    # Make sure gaps due to telluric regions are still present
+    masked_cannon_fluxes = np.full_like(sm.training_data, np.nan)
+    masked_cannon_fluxes[:, sm.adopted_wl_mask] = spec_cannon_all
+
+    # Sort
+    cannon_fluxes_sorted = masked_cannon_fluxes[bprp_ii]
+    marcs_fluxes_sorted = fluxes_marcs_norm[bprp_ii]
+
+    # Compute the fractional flux difference
+    delta = (cannon_fluxes_sorted - marcs_fluxes_sorted) / cannon_fluxes_sorted
+
+    plt.close("all")
+    fig, axes = plt.subplots(
+        len(delta_thresholds),
+        figsize=(12,3),
+        sharex=True)
+
+    # Plot one panel per provided flux threshold
+    for dt_i, (dt, ax) in enumerate(zip(delta_thresholds, axes)):
+        # Create a mask of the excluded regions to plot that is red where we
+        # don't have Cannon spectra, and nan otherwise
+        excl = np.isnan(cannon_fluxes_sorted)
+        
+        rgb_mask = np.array((
+            excl*np.full_like(sm.training_data, 255),
+            excl*np.full_like(sm.training_data, 0),
+            excl*np.full_like(sm.training_data, 0)))
+        rgb_mask = np.transpose(rgb_mask, (1,2,0))
+
+        ax.imshow(rgb_mask,
+            aspect="auto",
+            extent=(3500, 7000,bprp.max(), bprp.min()),
+            interpolation="none")
+
+        # Plot data
+        dm = np.abs(delta) > dt
+        delta_masked = delta.copy()
+        delta_masked[dm] = np.nan
+        
+        ss = ax.imshow(
+            delta_masked*100,
+            aspect="auto",
+            extent=(3500, 7000,bprp.max(), bprp.min()),
+            interpolation="none",)
+        
+        # Other plot formatting
+        ax.set_xlim(4000,7000)
+        ax.set_title(
+            r"$\Delta{{\rm Flux}} < $ {:0.0f}%".format(dt*100),
+            fontsize="small")
+
+        fmt = lambda x, pos: r'${:+2.1f}$'.format(x)
+        cb = fig.colorbar(
+            ss, ax=ax, pad=0.01, fraction=0.05, aspect=5, format=fmt,)
+        cb.ax.minorticks_on()
+        cb.set_label(r"$\Delta{\rm Flux}$ (%)")
+        
+        ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
+        ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=100))
+
+        ax.yaxis.set_major_locator(plticker.MultipleLocator(base=1.0))
+        ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
+
+        if dt_i < len(delta_thresholds) - 1:
+            ax.set_xticks([])
+
+    # Final formatting + saving
+    fig.subplots_adjust(
+        wspace=0.1, hspace=0.5, right=0.98, left=0.05, top=0.90, bottom=0.20)
+    fig.supylabel(r"$BP-RP$")
+    ax.set_xlabel("Wavelength")
+
+    plt.savefig("paper/cannon_vs_marcs_delta_flux.pdf")
+    plt.savefig("paper/cannon_vs_marcs_delta_flux.png", dpi=200)
+
+
+def plot_scatter_histogram_comparison(
+    sm1,
+    sm2,
+    sm_1_label,
+    sm_2_label,
+    n_bins=250,
+    hist_bin_lims=(0, 0.0005),):
+    """Plots a histogram comparison of the fitted model scatters for two 
+    different trained Cannon models.
+
+    Parameters
+    ----------
+    sm1, sm2: Stannon object
+        Trained Stannon objects to compare.
+    
+    sm_1_label, sm_2_label: str
+        Model labels to plot on legend.
+
+    n_bins: int, default: 250
+        Number of histogram bins.
+
+    his_bin_lims: foat tuple, default (0, 0.0005)
+        Lower and upper scatter limits to consider.
+    """
+    bins = np.linspace(hist_bin_lims[0], hist_bin_lims[1], n_bins)
+    plt.close("all")
+
+    fig, ax = plt.subplots(1, figsize=(12, 4))
+    _ = ax.hist(sm1.s2, bins=bins, label=sm_1_label, alpha=0.5)
+    _ = ax.hist(sm2.s2, bins=bins, label=sm_2_label, alpha=0.5)
+    ax.legend()
+    ax.set_xlim(-0.000005, hist_bin_lims[1])
+
+    plt.tight_layout()
+
+    for sm in [sm1, sm2]:
+        print("\n{:>40}".format(
+            "theta coeff std for {} label model".format(sm.L)))
+        print("-"*40)
+        vectorizer = PolynomialVectorizer(sm.label_names, 2)
+        theta_lvec = vectorizer.get_human_readable_label_vector().split(" + ")
+
+        red_mask = sm.masked_wl > 5400
+
+        print("{:>10}{:>10}{:>10}{:>10}".format("coeff", "b", "r", "all"))
+        for coeff_i in range(len(theta_lvec)):
+            coeff_all = np.std(sm.theta[:,coeff_i])
+            coeff_b = np.std(sm.theta[~red_mask, coeff_i])
+            coeff_r = np.std(sm.theta[red_mask, coeff_i])
+            print("{:>10}{:10.4f}{:10.4f}{:10.4f}".format(
+                theta_lvec[coeff_i], coeff_b, coeff_r, coeff_all))
+            
+    plt.savefig("paper/cannon_model_scatter_comparison_hist.pdf")
+    plt.savefig("paper/cannon_model_scatter_comparison_hist.png")

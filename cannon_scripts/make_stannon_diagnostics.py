@@ -28,12 +28,6 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 #------------------------------------------------------------------------------
 # Parameters and Setup
 #------------------------------------------------------------------------------
-# Line lists to overplot against theta coefficients. Due to the density of
-# atomic features in the blue, we have a more strict threshold for labelling.
-line_list_file = "data/t3500_g+5.0_z+0.00_a+0.00_v1.00_latoms.eqw"
-ew_min_ma_b = 400
-ew_min_ma_r = 150
-
 # Import model
 model_name = "stannon_model_{}_{}label_{}px_{}.pkl".format(
     cs.model_type, cs.n_labels, cs.npx, "_".join(cs.label_names))
@@ -53,20 +47,6 @@ if cs.is_cross_validated:
 else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
-
-# Adopted label uncertainties and systematics based on cross validation
-# performance on the benchmark set. Quoted systematics are fit - lit, meaning
-# that a positive systematic means the Cannon has *overestimated* the value 
-# (and thus the systematic should be substracted). The temperature systematic 
-# and uncertainty will be adopted from just the interferometric set, whereas
-# logg and [Fe/H] will be taken from the complete sample. 
-# TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
-adopted_label_systematics = np.array([15.63, 0.0, 0.03, -0.01,])
-adopted_label_uncertainties = np.array([60.18, 0.04, 0.11, 0.12])
-
-# Which species to overplot on our theta plot. It gets very busy the more
-# species we plot, so it's currently limited to the most prominent species.
-species_to_plot = ["Ca 1", "Ti 1", "Fe 1",] 
 
 #------------------------------------------------------------------------------
 # Label Recovery
@@ -120,16 +100,16 @@ if len(cs.abundance_labels) >= 1:
 #------------------------------------------------------------------------------
 # Import line lists
 line_list_b = pu.load_linelist(
-    filename=line_list_file,
+    filename=cs.line_list_file,
     wl_lower=cs.wl_min_model,
     wl_upper=cs.wl_grating_changeover,
-    ew_min_ma=ew_min_ma_b,)
+    ew_min_ma=cs.ew_min_ma_b,)
 
 line_list_r = pu.load_linelist(
-    filename=line_list_file,
+    filename=cs.line_list_file,
     wl_lower=cs.wl_grating_changeover,
     wl_upper=cs.wl_max_model,
-    ew_min_ma=ew_min_ma_r,)
+    ew_min_ma=cs.ew_min_ma_r,)
 
 # Plot theta coefficients for each WiFeS arm
 splt.plot_theta_coefficients(
@@ -137,17 +117,17 @@ splt.plot_theta_coefficients(
     teff_scale=1.0,
     x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
     y_spec_lims=(0,2.25),
-    y_theta_linear_lims=(-0.25,0.25),
-    y_theta_quadratic_lims=(-0.25,0.25),
-    y_theta_cross_lims=(-0.25,0.25),
+    y_theta_linear_lims=(-0.12,0.12),
+    y_theta_quadratic_lims=(-0.2,0.2),
+    y_theta_cross_lims=(-0.3,0.3),
     y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
     fn_label="b",
-    linewidth=0.9,
+    linewidth=0.5,
     alpha=0.8,
     fn_suffix=fn_label,
     line_list=line_list_b,
-    species_to_plot=species_to_plot,
+    species_to_plot=cs.species_to_plot,
     only_plot_first_order_coeff=cs.only_plot_first_order_coeff,)
 
 splt.plot_theta_coefficients(
@@ -161,32 +141,17 @@ splt.plot_theta_coefficients(
     y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
     fn_label="r",
-    linewidth=0.9,
+    linewidth=0.5,
     alpha=0.8,
     fn_suffix=fn_label,
     line_list=line_list_r,
-    species_to_plot=species_to_plot,
+    species_to_plot=cs.species_to_plot,
     only_plot_first_order_coeff=cs.only_plot_first_order_coeff,)
 
 #------------------------------------------------------------------------------
 # Spectral Recovery
 #------------------------------------------------------------------------------
 # Plot comparison of observed vs model spectra *at the literature  parameters*. 
-# Here we've picked a set of spectral types ranging over our BP-RP range.
-representative_stars_source_ids = [
-    "5853498713190525696",      # M5.5, GJ 551
-    "2640434056928150400",      # M5, GJ 1286
-    "2595284016771502080",      # M5, LHS 3799
-    "2868199402451064064",      # M4.7, GJ 1288
-    "6322070093095493504",      # M2, GJ 581
-    "2603090003484152064",      # M3, GJ 876
-    "4472832130942575872",      # M4, Gl 699
-    "2910909931633597312",      # M3, LP 837-53
-    "3184351876391975808",      # M2, Gl 173
-    "2739689239311660672",      # M0, Gl 908
-    "145421309108301184",       # K8, Gl 169
-    "4282578724832056576",      # M0.7, Gl 740
-]
 
 # Plot model spectrum performance for WiFeS blue band
 splt.plot_spectra_comparison(
@@ -195,7 +160,7 @@ splt.plot_spectra_comparison(
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
-    source_ids=representative_stars_source_ids,
+    source_ids=cs.representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
     data_label="b",
@@ -208,7 +173,7 @@ splt.plot_spectra_comparison(
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
-    source_ids=representative_stars_source_ids,
+    source_ids=cs.representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_grating_changeover,cs.wl_max_model),
     data_label="r",
@@ -227,53 +192,6 @@ splt.plot_spectra_comparison(
     data_label="d",
     fn_label=fn_label,)
 
-# -----------------------------------------------------------------------------
-# MARCS Spectra Comparison
-# -----------------------------------------------------------------------------
-# Note: we run get_lit_param_synth.py first to already have MARCS spectra.
-# Since the MARCS grid doesn't have an abundance dimension, we can only make
-# this plot for a 3 label model.
-if cs.n_labels == 3:
-    # Load in RV corrected standard spectra
-    wls = pu.load_fits_image_hdu("rest_frame_wave", cs.std_label, arm="br")
-    spec_marcs_br = \
-        pu.load_fits_image_hdu("rest_frame_synth_lit", cs.std_label, arm="br")
-    e_spec_marcs_br = np.ones_like(spec_marcs_br)
-
-    # TODO, HACK, replace all nan fluxes
-    for spec_i in range(len(spec_marcs_br)):
-        if np.sum(np.isnan(spec_marcs_br[spec_i])) > 1000:
-            spec_marcs_br[spec_i] = np.ones_like(spec_marcs_br[spec_i])
-
-    # Grab MARCS spectra for just our benchmarks
-    fluxes_marcs_norm, _, bad_px_mask, _, _ = \
-        stannon.prepare_cannon_spectra_normalisation(
-            wls=wls,
-            spectra=spec_marcs_br[is_cannon_benchmark],
-            e_spectra=e_spec_marcs_br[is_cannon_benchmark],
-            wl_min_model=cs.wl_min_model,
-            wl_max_model=cs.wl_max_model,
-            wl_min_normalisation=cs.wl_min_normalisation,
-            wl_broadening=cs.wl_broadening,
-            do_gaussian_spectra_normalisation=\
-                cs.do_gaussian_spectra_normalisation,
-            poly_order=cs.poly_order)
-
-    # Plot Cannon vs MARCS spectra comparison over the entire spectral range
-    splt.plot_spectra_comparison(
-        sm=sm,
-        obs_join=obs_join[is_cannon_benchmark],
-        fluxes=fluxes_marcs_norm,
-        bad_px_masks=bad_px_mask,
-        labels_all=sm.training_labels,
-        source_ids=representative_stars_source_ids,
-        sort_col_name="BP_RP_dr3",
-        x_lims=(cs.wl_min_model,cs.wl_max_model),
-        fn_label=fn_label,
-        data_label="marcs",
-        data_plot_label="MARCS",
-        data_plot_colour="b",)
-
 #------------------------------------------------------------------------------
 # Label Prediction
 #------------------------------------------------------------------------------
@@ -287,13 +205,14 @@ labels_pred, e_labels_pred, chi2_all = sm.infer_labels(
     test_data_ivars=sm.masked_data_ivar)
 
 # Correct labels for systematics
-systematic_vector = np.tile(adopted_label_systematics, np.sum(sm.data_mask))
-systematic_vector = systematic_vector.reshape([np.sum(sm.data_mask), cs.n_labels])
+systematic_vector = np.tile(cs.adopted_label_systematics, np.sum(sm.data_mask))
+systematic_vector = \
+    systematic_vector.reshape([np.sum(sm.data_mask), cs.n_labels])
 labels_pred -= systematic_vector
 
 # Create uncertainties vector. TODO: do this in quadrature with those output
 # from infer_labels
-cross_val_sigma = np.tile(adopted_label_uncertainties, np.sum(sm.data_mask))
+cross_val_sigma = np.tile(cs.adopted_label_uncertainties, np.sum(sm.data_mask))
 cross_val_sigma = cross_val_sigma.reshape([np.sum(sm.data_mask), cs.n_labels])
 e_labels_pred = np.sqrt(e_labels_pred**2 + cross_val_sigma**2)
 
@@ -303,7 +222,8 @@ e_labels_pred = np.sqrt(e_labels_pred**2 + cross_val_sigma**2)
 # Tables
 #------------------------------------------------------------------------------
 # Fit using fully trained Cannon
-label_source_cols = ["label_source_{}".format(label) for label in cs.label_names]
+label_source_cols = \
+    ["label_source_{}".format(label) for label in cs.label_names]
 
 # Table summarising benchmark sample
 st.make_table_sample_summary(obs_join)

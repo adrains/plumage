@@ -52,8 +52,8 @@ do_cross_validation: false
 # pixels to not be considered for the subsequently trained and adopted model.
 # Note that this can potentially cause unexpected results if the initial
 # Cannon model is poorly trained, so best to leave as False when testing.
-do_iterative_bad_px_masking: False
-flux_sigma_to_clip: 5
+do_iterative_bad_px_masking: True
+flux_sigma_to_clip: 6
 
 # Normalisation - using using a Gaussian smoothed version of the spectrum, or 
 # a much simpler polynomial fit. Only wavelengths > than wl_min_normalisation
@@ -93,7 +93,7 @@ uniform_var_frac_error: 0.01
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
 # an array of ones if we don't want to scale the uncertainties.
-lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0]
+lit_std_scale_fac: [1.0, 1.0, 1.0]
 
 # Also for testing and as a complement to the previous setting we can scale the
 # uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
@@ -108,12 +108,12 @@ std_label: "cannon"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: ["Ti_Fe"]
+abundance_labels: []
 
 base_labels: ["teff", "logg", "feh",]
 
 #------------------------------------------------------------------------------
-# Plotting Settings
+# Diagnostic Plot Settings
 #------------------------------------------------------------------------------
 # Models are currently saved  with N_px in the filename.
 # TODO: come up with a more informative/robust labelling scheme.
@@ -126,3 +126,52 @@ wl_grating_changeover: 5400
 # If this is true, we only plot the first order/linear theta coefficients. If
 # False, we include extra panels for the cross and quadtratic terms
 only_plot_first_order_coeff: False
+
+# Line lists to overplot against theta coefficients. Due to the density of
+# atomic features in the blue, we have a more strict threshold for labelling.
+line_list_file: "data/t3500_g+5.0_z+0.00_a+0.00_v1.00_latoms.eqw"
+ew_min_ma_b: 400
+ew_min_ma_r: 150
+
+# Which species to overplot on our theta plot. It gets very busy the more
+# species we plot, so it's currently limited to the most prominent species.
+species_to_plot: ["Ca 1", "Ti 1", "Fe 1"]
+
+# Adopted label uncertainties and systematics based on cross validation
+# performance on the benchmark set. Quoted systematics are fit - lit, meaning
+# that a positive systematic means the Cannon has *overestimated* the value 
+# (and thus the systematic should be substracted). The temperature systematic 
+# and uncertainty will be adopted from just the interferometric set, whereas
+# logg and [Fe/H] will be taken from the complete sample. 
+# TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
+adopted_label_systematics: [15.63, 0.0, 0.03, -0.01,]
+adopted_label_uncertainties: [60.18, 0.04, 0.11, 0.12]
+
+# Here we've picked a set of spectral types ranging over our BP-RP range.
+representative_stars_source_ids: 
+- "5853498713190525696"      # M5.5, GJ 551
+- "2640434056928150400"      # M5, GJ 1286
+- "2595284016771502080"      # M5, LHS 3799
+- "2868199402451064064"      # M4.7, GJ 1288
+- "6322070093095493504"      # M2, GJ 581
+- "2603090003484152064"      # M3, GJ 876
+- "4472832130942575872"      # M4, Gl 699
+- "2910909931633597312"      # M3, LP 837-53
+- "3184351876391975808"      # M2, Gl 173
+- "2739689239311660672"      # M0, Gl 908
+- "145421309108301184"       # K8, Gl 169
+- "4282578724832056576"      # M0.7, Gl 740
+
+#------------------------------------------------------------------------------
+# Model Comparison Settings
+#------------------------------------------------------------------------------
+# For comparison purposes, we select one trained 3 label model, and one
+# trained 4 label model to compare performance via compare_stannon_models.py
+sm_1_path: "spectra/stannon_model_basic_3label_5024px_teff_logg_feh.pkl"
+sm_2_path: "spectra/stannon_model_basic_4label_5024px_teff_logg_feh_Ti_Fe.pkl"
+
+sm_1_label: "3 Label (Basic)"
+sm_2_label: "4 Label (Basic)"
+
+# Fractional thresholds to use when comparing Cannon vs MARCS spectra
+delta_thresholds: [0.1, 0.05, 0.02]
