@@ -1205,7 +1205,8 @@ def plot_delta_cannon_vs_marcs(
             delta_masked*100,
             aspect="auto",
             extent=(3500, 7000,bprp.max(), bprp.min()),
-            interpolation="none",)
+            interpolation="none",
+            cmap="PRGn")
         
         # Other plot formatting
         ax.set_xlim(4000,7000)
