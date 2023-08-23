@@ -1,12 +1,11 @@
 """Script to compare performance across different Cannon models.
 """
 import numpy as np
-import matplotlib.pyplot as plt
 import plumage.utils as pu
 import stannon.utils as su
 import stannon.plotting as splt
 import stannon.stannon as stannon
-from stannon.vectorizer import PolynomialVectorizer
+import stannon.tables as st
 
 #------------------------------------------------------------------------------
 # Import Cannon settings file
@@ -151,5 +150,8 @@ splt.plot_theta_coefficients(
 #------------------------------------------------------------------------------
 # Tables
 #------------------------------------------------------------------------------
-# TODO: table of theta std
-pass
+# Comparison table of theta standard deviations
+st.make_theta_comparison_table(
+    sms=[sm1, sm2],
+    sm_labels=[cs.sm_1_label, cs.sm_2_label],
+    print_table=True)

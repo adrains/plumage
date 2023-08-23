@@ -3,6 +3,7 @@
 import numpy as np
 import stannon.parameters as params
 from collections import OrderedDict
+from stannon.vectorizer import PolynomialVectorizer
 
 label_source_refs = {
     "VF05":"valenti_spectroscopic_2005",
@@ -715,3 +716,113 @@ def make_table_parameter_fit_results(
             "paper/table_param_fit_{}_{:0.0f}.tex".format(table_label, table_i),
             table_x,
             fmt="%s")
+        
+
+def make_theta_comparison_table(
+    sms,
+    sm_labels,
+    br_cutoff_wl=5400,
+    print_table=False,):
+    """Creates a LaTeX table of standard deviations for each theta coefficient
+    for a set of Cannon models for blue, red, and all wavelengths. Table is
+    saved to paper/table_theta_std_comp.tex.
+
+    Parameters
+    ----------
+    sms: list of Stannon objects
+        List of trained Cannon models.
+
+    sm_labels: list of str
+        List of model names corresponding to smns.
+
+    br_cutoff_wl: float, default: 5400
+        Cutoff between blue and red wavelengths.
+
+    print_table: boolean, default: False
+        Whether to print a version of the table to the terminal.
+    """
+    SUPPORTED_ABUNDANCES = ["Ti"]
+
+    header = []
+    table_rows = []
+    footer = []
+
+    # Construct the header of the table
+    header.append("\\begin{table}")
+    header.append("\\centering")
+    
+    col_format = ("cccc")
+
+    header.append("\\begin{tabular}{%s}" % col_format)
+    header.insert(2, r"\caption{$\theta$ coeff comparison}")
+
+    # Loop over all provided models
+    for model_i, (sm, label) in enumerate(zip(sms, sm_labels)):
+        # Setup and format coefficients
+        vectorizer = PolynomialVectorizer(sm.label_names, 2)
+        theta_lvec = vectorizer.get_human_readable_label_vector()
+        
+        theta_lvec = theta_lvec.replace("teff", r"$T_{\rm eff}$")
+        theta_lvec = theta_lvec.replace("logg", r"$\log g$")
+        theta_lvec = theta_lvec.replace("feh", r"${\rm[Fe/H]}$")
+
+        # Math terms
+        theta_lvec = theta_lvec.replace("*", r"$\,\times\,$")
+        theta_lvec = theta_lvec.replace("^2", r"$^2$")
+        
+        # Abundances
+        theta_lvec = theta_lvec.replace("_Fe", r"/Fe]}$")
+        for x in SUPPORTED_ABUNDANCES:
+            theta_lvec = theta_lvec.replace(x, r"{}\rm[{}".format("${",x))
+
+        theta_lvec = theta_lvec.split(" + ")
+
+        # Create mask to separate blue and red spectra
+        red_mask = sm.masked_wl > br_cutoff_wl
+
+        table_rows.append("\hline")
+
+        table_rows.append((
+            r"$\theta_{{\rm {}}}$ & ".format(label) +
+            r"\multicolumn{3}{c}{$\sigma_{\theta_N}$}\\"))
+        table_rows.append(r"& B3000 & R7000 & All \\")
+        table_rows.append("\hline")
+
+        # Loop over all coefficients
+        for coeff_i in range(len(theta_lvec)):
+            # Grab std of all, blue, and red spectra
+            coeff_all = np.std(sm.theta[:,coeff_i])
+            coeff_b = np.std(sm.theta[~red_mask, coeff_i])
+            coeff_r = np.std(sm.theta[red_mask, coeff_i])
+            
+            # Create the row
+            table_rows.append(
+                r"{} & {:0.3f} & {:0.3f} & {:0.3f} \\".format(
+                    str(theta_lvec[coeff_i]), coeff_b, coeff_r, coeff_all))
+        
+        table_rows.append("\hline")
+
+    # Finish the table
+    footer.append("\\end{tabular}")
+    footer.append(r"\label{tab:theta_std_comp}")
+    footer.append("\\end{table}")
+
+    table = header + table_rows + footer
+    np.savetxt("paper/table_theta_std_comp.tex", table, fmt="%s")
+
+    if print_table:
+        for sm, label in zip(sms, sm_labels):
+            print("\n{:>40}".format(
+                "theta coeff std for {} label model".format(sm.L)))
+            print("-"*40)
+            vectorizer = PolynomialVectorizer(sm.label_names, 2)
+            theta_lvec = \
+                vectorizer.get_human_readable_label_vector().split(" + ")
+
+            print("{:>10}{:>10}{:>10}{:>10}".format("coeff", "b", "r", "all"))
+            for coeff_i in range(len(theta_lvec)):
+                coeff_all = np.std(sm.theta[:,coeff_i])
+                coeff_b = np.std(sm.theta[~red_mask, coeff_i])
+                coeff_r = np.std(sm.theta[red_mask, coeff_i])
+                print("{:>10}{:10.3f}{:10.3f}{:10.3f}".format(
+                    theta_lvec[coeff_i], coeff_b, coeff_r, coeff_all))

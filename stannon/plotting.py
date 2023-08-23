@@ -1272,23 +1272,6 @@ def plot_scatter_histogram_comparison(
     ax.set_xlim(-0.000005, hist_bin_lims[1])
 
     plt.tight_layout()
-
-    for sm in [sm1, sm2]:
-        print("\n{:>40}".format(
-            "theta coeff std for {} label model".format(sm.L)))
-        print("-"*40)
-        vectorizer = PolynomialVectorizer(sm.label_names, 2)
-        theta_lvec = vectorizer.get_human_readable_label_vector().split(" + ")
-
-        red_mask = sm.masked_wl > 5400
-
-        print("{:>10}{:>10}{:>10}{:>10}".format("coeff", "b", "r", "all"))
-        for coeff_i in range(len(theta_lvec)):
-            coeff_all = np.std(sm.theta[:,coeff_i])
-            coeff_b = np.std(sm.theta[~red_mask, coeff_i])
-            coeff_r = np.std(sm.theta[red_mask, coeff_i])
-            print("{:>10}{:10.4f}{:10.4f}{:10.4f}".format(
-                theta_lvec[coeff_i], coeff_b, coeff_r, coeff_all))
             
     plt.savefig("paper/cannon_model_scatter_comparison_hist.pdf")
     plt.savefig("paper/cannon_model_scatter_comparison_hist.png")

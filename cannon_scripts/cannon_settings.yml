@@ -161,6 +161,7 @@ representative_stars_source_ids:
 - "2739689239311660672"      # M0, Gl 908
 - "145421309108301184"       # K8, Gl 169
 - "4282578724832056576"      # M0.7, Gl 740
+- "3266980243936341248"      # M1V, NLTT 10349, most metal poor
 
 #------------------------------------------------------------------------------
 # Model Comparison Settings
@@ -170,8 +171,8 @@ representative_stars_source_ids:
 sm_1_path: "spectra/stannon_model_basic_3label_5024px_teff_logg_feh.pkl"
 sm_2_path: "spectra/stannon_model_basic_4label_5024px_teff_logg_feh_Ti_Fe.pkl"
 
-sm_1_label: "3 Label (Basic)"
-sm_2_label: "4 Label (Basic)"
+sm_1_label: "3 Label"
+sm_2_label: "4 Label"
 
 # Fractional thresholds to use when comparing Cannon vs MARCS spectra
 delta_thresholds: [0.1, 0.05, 0.02]
