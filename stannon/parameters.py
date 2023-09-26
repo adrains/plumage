@@ -24,7 +24,7 @@ FEH_OFFSETS = {
     "C11":0.00,
     "S11":0.03,
     "N12":0.00,
-    "M18":-0.03,    # Computed from np.nanmedian(cpm_selected["[Fe/H]_vf05"]-cpm_selected["Fe_H_m18"])
+    "M18":0.02,     # Computed from np.nanmedian(Fe_H_vf05-Fe_H_m18) in cpm_prim, 46 stars
     "Sou06":0.0,    # TODO Confirm this
     "Sou08":0.0,    # TODO Confirm this
     "Soz09":0.0,    # TODO Confirm this
@@ -32,6 +32,8 @@ FEH_OFFSETS = {
     "RA12":0.01,    # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
     "M13":0.0,
     "R21":0.0,      # Photometric. Assumed = 0 since built from binaries.
+    "B16":0.0,      # Computed from np.nanmedian(Fe_H_vf05-Fe_H_b16) in cpm_prim, 30 stars
+    "RB20":0.0035,  # Computed from np.nanmedian(Fe_H_vf05-Fe_H_rb16) in cpm_prim, 18 stars
 }
 
 # Adopted uncertainties from VF05 Table 6
@@ -44,11 +46,52 @@ VF05_ABUND_SIGMA = {
     "Si_H":0.03,
 }
 
-# [Ti/H] offsets --> TODO
+# Adopted uncertainties from Table 6 of B16
+B16_ABUND_SIGMA = {
+    "C_H":0.026,
+    "N_H":0.042,
+    "O_H":0.036,
+    "Na_H":0.014,
+    "Mg_H":0.012,
+    "Al_H":0.028,
+    "Si_H":0.008,
+    "Ca_H":0.014,
+    "Ti_H":0.012,
+    "V_H":0.034,
+    "Cr_H":0.014,
+    "Mn_H":0.020,
+    "Fe_H":0.010,
+    "Ni_H":0.012,
+    "Y_H":0.03,
+}
+
+# Adopted uncertainties from Table 4 of RB20 for pre-2004 sample
+RB20_ABUND_SIGMA = {
+#   [X/H]:sigma     limits
+    "C_H":0.05,     # −0.60–0.64
+    "N_H":0.09,     # −0.86–0.84
+    "O_H":0.07,     # −0.36–0.77
+    "Na_H":0.06,    # −1.09–0.78
+    "Mg_H":0.03,    # −0.70–0.54
+    "Al_H":0.05,    # −0.66–0.58
+    "Si_H":0.03,    # −0.65–0.57
+    "Ca_H":0.03,    # −0.73–0.54
+    "Ti_H":0.03,    # −0.71–0.52
+    "V_H":0.04,     # −0.85–0.46
+    "Cr_H":0.03,    # −1.07–0.52
+    "Mn_H":0.05,    # −1.40–0.66
+    "Fe_H":0.02,    # −0.99–0.57
+    "Ni_H":0.03,    # −0.97–0.63
+    "Y_H":0.07,     # −0.87–1.35
+}
+
+# [Ti/H] offsets, computed from complete cpm_primary table
 TIH_OFFSETS = {
-    "VF05":0.0,
-    "M18":0.0,
-    "A12":0.00,
+    "B16":-0.02,        # np.nanmedian(tih_vf05 - tih_b16), 30 stars
+    "VF05":0.0,         # Reference sample
+    "RB20":0.002,       # np.nanmedian(tih_vf05 - tih_rb20), 18 stars
+    "M18":-0.025,       # np.nanmedian(tih_vf05 - tih_m18), 46 stars
+    "A12":0.00,         # TODO: Not computed
 }
 
 # Citations
@@ -73,6 +116,8 @@ FEH_CITATIONS = {
     "Sou08":"sousa_spectroscopic_2008",
     "Soz09":"sozzetti_keck_2009",
     "M14":"mann_prospecting_2014",
+    "B16":"brewer_spectral_2016",
+    "RB20":"rice_stellar_2020",
 }
 
 # -----------------------------------------------------------------------------
@@ -368,15 +413,27 @@ def select_Fe_H_label(star_info,):
     # -------------------------------------------------------------------------
     # [Fe/H] - binary
     # -------------------------------------------------------------------------
-    # VF+05 > M18 > others
+    # B+16 > VF+05 > RB20 > M18 > others
     if star_info["is_cpm"]:
+        # Brewer+2016 --> follow-up from VF+05 on same scale with > precision
+        if ~np.isnan(star_info["Fe_H_b16"]):
+            ref = "B16"
+            feh_corr = star_info["Fe_H_b16"] + FEH_OFFSETS[ref]
+            e_feh_corr = B16_ABUND_SIGMA["Fe_H"]
+
+        # Rice & Brewer 2020 --> follow-up from VF+05 and B+16, but with Cannon
+        elif ~np.isnan(star_info["Fe_H_rb20"]):
+            ref = "RB20"
+            feh_corr = star_info["Fe_H_rb20"] + FEH_OFFSETS[ref]
+            e_feh_corr = RB20_ABUND_SIGMA["Fe_H"]
+
         # Valenti & Fischer 2005 --> Mann+15 base [Fe/H] scale
-        if ~np.isnan(star_info["Fe_H_vf05"]):
+        elif ~np.isnan(star_info["Fe_H_vf05"]):
             ref = "VF05"
             feh_corr = star_info["Fe_H_vf05"] + FEH_OFFSETS[ref]
             e_feh_corr = VF05_ABUND_SIGMA["Fe_H"]
 
-        # Montes+2018
+        # Montes+2018 --> large sample, but low precision on some stars
         elif ~np.isnan(star_info["Fe_H_m18"]):
             ref = "M18"
             feh_corr = star_info["Fe_H_m18"] + FEH_OFFSETS[ref]
@@ -512,11 +569,29 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     # -------------------------------------------------------------------------
     # [Ti/H]
     # -------------------------------------------------------------------------
-    # Since VF05 is our base [Fe/H] reference, we'll use it as our base
-    # reference for abundances as well. It also has lower uncertainties
-    # than other references. TODO: account for abundance systematics.
-    if not np.isnan(star_info["Ti_H_vf05"]):
-        Ti_H_value = star_info["Ti_H_vf05"]
+    # Since B+20 / VF+05 / RB20 are our base [Fe/H] reference, we'll use them 
+    # as our base reference for abundances as well. They also have lower 
+    # uncertainties than other references. TODO: account for abundance systematics.
+    if not np.isnan(star_info["Ti_H_b16"]):
+        Ti_H_value = star_info["Ti_H_b16"] + TIH_OFFSETS["B16"]
+        Ti_H_sigma = B16_ABUND_SIGMA["Ti_H"]
+        Ti_source = "B16"
+        Ti_nondefault = True
+
+        lit_abund_assigned = True
+
+    # RB 20
+    elif not np.isnan(star_info["Ti_H_rb20"]):
+        Ti_H_value = star_info["Ti_H_rb20"] + TIH_OFFSETS["RB20"]
+        Ti_H_sigma = RB20_ABUND_SIGMA["Ti_H"]
+        Ti_source = "RB20"
+        Ti_nondefault = True
+
+        lit_abund_assigned = True
+
+    # VF+05
+    elif not np.isnan(star_info["Ti_H_vf05"]):
+        Ti_H_value = star_info["Ti_H_vf05"] + TIH_OFFSETS["VF05"]
         Ti_H_sigma = VF05_ABUND_SIGMA["Ti_H"]
         Ti_source = "VF05"
         Ti_nondefault = True
@@ -525,23 +600,21 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
 
     # Montes+18
     elif not np.isnan(star_info["Ti_H_m18"]):
-        Ti_H_value = star_info["Ti_H_m18"]
+        Ti_H_value = star_info["Ti_H_m18"] + TIH_OFFSETS["M18"]
         Ti_H_sigma =  star_info["eTi_H_m18"]
         Ti_source = "M18"
         Ti_nondefault = True
 
         lit_abund_assigned = True
 
-    # Adibekyan+2012. Note that we're currently doing what is probably
-    # a physically unreasonable HACK in just averaging the Ti I/H and 
-    # Ti II/H abundances.
+    # Adibekyan+2012, TODO: compute [Ti/H] offset
+    # Note that for precision reasons we'll use the Ti I abundance which is 
+    # computed from more lines (even if it does suffer from more LTE effects)
+    # than the Ti II abundances, and will take the value *corrected* for Teff
+    # systematics.
     elif not np.isnan(star_info["Fe_H_a12"]):
-        ti_i_abund = "TiI_H_a12"
-        ti_ii_abund = "TiII_H_a12"
-
-        Ti_H_value = (star_info[ti_i_abund] + star_info[ti_ii_abund])/2
-        Ti_H_sigma = np.sqrt(
-            star_info["e_TiI_H_a12"]**2 + star_info["e_TiII_H_a12"]**2)
+        Ti_H_value = star_info["TiI_Hc_a12"]       # Corrected Ti I abund
+        Ti_H_sigma = star_info["e_TiI_H_a12"]
 
         Ti_source = "A12"
         Ti_nondefault = True

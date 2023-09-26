@@ -22,7 +22,7 @@ import stannon.utils as su
 #------------------------------------------------------------------------------
 # Import Settings
 #------------------------------------------------------------------------------
-cannon_settings_yaml = "cannon_scripts/cannon_settings.yml"
+cannon_settings_yaml = "scripts_cannon/cannon_settings.yml"
 cs = su.load_cannon_settings(cannon_settings_yaml)
 
 #------------------------------------------------------------------------------
