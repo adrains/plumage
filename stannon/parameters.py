@@ -531,12 +531,20 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     star.
 
     Our current Ti heirarchy is:
-     1: Valenti & Fischer 2005
-     2: Montes+2018
-     3: Adibekyan+2012
-     4: Empirical relation based on adopted [Fe/H]
+     1: Brewer+2016
+     2. Rice & Brewer 2020
+     3: Valenti & Fischer 2005 --> adopted reference scale
+     4: Montes+2018
+     5: Adibekyan+2012
+     6: Empirical relation based on adopted [Fe/H]
+      a: Chemo-kinematic relationship based in [Fe/H]-V_phi-[Ti/Fe] space built
+         from GALAH DR2 and Gaia DR3 data.
+      b: Simple linear fit in [Fe/H]-[Ti/Fe] space to GALAH DR2 data.
+      c: Simple linear fit in [Fe/H]-[Ti/H] space to Montes+18 data. 
 
-    TODO: Add in Brewer+2020 and Rice and Brewer 2020.
+    Valenti & Fischer 2005 is the reference scale, and though we prioritise 
+    Brewer+2016 and Rice & Brewer 2020 over it, they are a) follow-up work and
+    thus nominally on the same scale, and b) have higher [X/Fe] precision.
 
     Parameters
     ----------
