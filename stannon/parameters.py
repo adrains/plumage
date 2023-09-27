@@ -557,14 +557,23 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     # -------------------------------------------------------------------------
     # Calculate empirical values for [Ti/H] and [Ti/Fe]
     # -------------------------------------------------------------------------
-    # [Ti/H] - Fitted to Monted+18 sample
+    # [Ti/H] - Fitted to Montes+18 sample
     poly = Polynomial([0.02030864, 0.65459293])
     Ti_H_value_predicted = poly(feh_adopted)
     Ti_H_sigma_predicted = 2.0
+    Ti_H_source = "R22c"
 
-    # [Ti/Fe]--fitted to GALAH DR2
-    Ti_Fe_value_predicted = -0.332 * feh_adopted + 0.078
-    Ti_Fe_sigma_predicted = 0.16
+    # [Ti/Fe] from Monty GALAH + Gaia fits --> Preferred
+    if not np.isnan(star_info["Ti_Fe_monty"]):
+        Ti_Fe_value_predicted = star_info["Ti_Fe_monty"]
+        Ti_Fe_sigma_predicted = star_info["Ti_Fe_monty"]
+        Ti_Fe_source = "R22a"
+
+    # [Ti/Fe]--simple linear in [Fe/H] to GALAH DR2
+    else:
+        Ti_Fe_value_predicted = -0.332 * feh_adopted + 0.078
+        Ti_Fe_sigma_predicted = 0.16
+        Ti_Fe_source = "R22b"
 
     # -------------------------------------------------------------------------
     # [Ti/H]
@@ -625,7 +634,7 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     else:
         Ti_H_value = Ti_H_value_predicted
         Ti_H_sigma =  Ti_H_sigma_predicted
-        Ti_source = "R22"
+        Ti_source = Ti_H_source
         Ti_nondefault = False
 
         lit_abund_assigned = False
@@ -667,7 +676,7 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     elif not lit_abund_assigned:
         Ti_Fe_value = Ti_Fe_value_predicted
         Ti_Fe_sigma =  Ti_Fe_sigma_predicted
-        Ti_source = "R22"
+        Ti_source = Ti_Fe_source
         Ti_nondefault = False
 
     # -------------------------------------------------------------------------

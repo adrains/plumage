@@ -8,6 +8,7 @@ This script is part of a series of Cannon scripts. The main sequence is:
  4) run_stannon.py                         --> running on science spectra
 """
 import numpy as np
+import pandas as pd
 import plumage.utils as pu
 import stannon.parameters as params
 
@@ -88,6 +89,12 @@ obs_join = obs_join.join(cpm_join, "source_id_dr3", rsuffix="_cpm")
 # And make sure our CPM column is correct
 is_cpm = np.array([type(val) == str for val in obs_join["prim_name"].values])
 obs_join["is_cpm"] = is_cpm
+
+# Load in and crossmatch with sampled params
+sampled_param_csv = "data/monty_sampled_params_n103.csv"
+sp_df = pd.read_csv(sampled_param_csv, dtype={"source_id_dr3":str},)
+sp_df.set_index("source_id_dr3", inplace=True)
+obs_join = obs_join.join(sp_df, "source_id_dr3")
 
 #------------------------------------------------------------------------------
 # Make quality cuts

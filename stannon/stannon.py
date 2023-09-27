@@ -877,7 +877,7 @@ class Stannon(object):
         for std_i in range(self.S):
             print("\n\n", "-"*100, sep="",)
             print("Leave one out validation {:0.0f}/{:0.0f}".format(
-                std_i+1, self.S+1),)
+                std_i+1, self.S),)
             print("-"*100,)
 
             # Make a mask with which we will mask out the std_i'th benchmark
