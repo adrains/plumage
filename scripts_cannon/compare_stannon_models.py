@@ -10,7 +10,7 @@ import stannon.tables as st
 #------------------------------------------------------------------------------
 # Import Cannon settings file
 #------------------------------------------------------------------------------
-cannon_settings_yaml = "cannon_scripts/cannon_settings.yml"
+cannon_settings_yaml = "scripts_cannon/cannon_settings.yml"
 cs = su.load_cannon_settings(cannon_settings_yaml)
 
 #------------------------------------------------------------------------------
@@ -63,8 +63,8 @@ splt.plot_spectra_comparison(
     source_ids=cs.representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_min_model,cs.wl_max_model),
-    fn_label="",
-    data_label="marcs",
+    fn_label="marcs",
+    data_label="",
     data_plot_label="MARCS",
     data_plot_colour="b",)
 
@@ -78,6 +78,13 @@ splt.plot_delta_cannon_vs_marcs(
 #------------------------------------------------------------------------------
 # Theta plots
 #------------------------------------------------------------------------------
+# Print scatter std
+print("Scatter:", "\n--------")
+print("{} Label:  {:1.7f}±{:1.7f}".format(
+    sm1.L, np.mean(sm1.s2**0.5), np.std(sm1.s2**0.5)))
+print("{} Label:  {:1.7f}±{:1.7f}".format(
+    sm2.L, np.mean(sm1.s2**0.5), np.std(sm2.s2**0.5)))
+
 # Scatter comparison between both models
 splt.plot_scatter_histogram_comparison(
     sm1=sm1,

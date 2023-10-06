@@ -41,6 +41,10 @@ obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
 
 is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
 
+obs_join = obs_join[is_cannon_benchmark]
+
+is_binary = obs_join["is_cpm"].values
+
 # Grab our adopted labels--either from cross validation or just a quick check
 if cs.is_cross_validated:
     labels_pred = sm.cross_val_labels
@@ -65,7 +69,7 @@ splt.plot_label_recovery(
     e_label_values=sm.training_variances**0.5,
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join,
     fn_suffix=fn_label,
     teff_lims=(2750,4300),
     teff_ticks=(500,250,200,100),
@@ -79,20 +83,21 @@ splt.plot_label_recovery_per_source(
     e_label_values=sm.training_variances**0.5, 
     label_pred=labels_pred, 
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L), 
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join,
     fn_suffix=fn_label,)
 
 # And finally plot the label recovery for any abundances we might be using
 if len(cs.abundance_labels) >= 1:
+    n_binary = np.sum(is_binary)
     splt.plot_label_recovery_abundances(
-        label_values=sm.training_labels,
-        e_label_values=sm.training_variances**0.5,
-        label_pred=labels_pred,
-        e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-        obs_join=obs_join[is_cannon_benchmark],
+        label_values=sm.training_labels[is_binary],
+        e_label_values=sm.training_variances[is_binary]**0.5,
+        label_pred=labels_pred[is_binary],
+        e_label_pred=np.tile(label_pred_std, n_binary).reshape(n_binary, sm.L),
+        obs_join=obs_join[is_binary],
         fn_suffix=fn_label,
         abundance_labels=cs.abundance_labels,
-        feh_lims=(-0.3,0.8),
+        feh_lims=(-0.15,0.4),
         feh_ticks=(0.4,0.2,0.2,0.1))
 
 #------------------------------------------------------------------------------
@@ -156,7 +161,7 @@ splt.plot_theta_coefficients(
 # Plot model spectrum performance for WiFeS blue band
 splt.plot_spectra_comparison(
     sm=sm,
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join,
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
@@ -169,7 +174,7 @@ splt.plot_spectra_comparison(
 # Plot model spectrum performance for WiFeS red band
 splt.plot_spectra_comparison(
     sm=sm,
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join,
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
@@ -182,7 +187,7 @@ splt.plot_spectra_comparison(
 # Do the same, but across all wavelengths and for all stars
 splt.plot_spectra_comparison(
     sm=sm,
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join,
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
@@ -199,8 +204,8 @@ splt.plot_spectra_comparison(
 sm.data_mask = np.full(sm.S, True)
 sm.initialise_masking()
 
-# Predict labels
-labels_pred, e_labels_pred, chi2_all = sm.infer_labels(
+# Predict label values + statistical uncertainties
+pred_label_values, pred_label_sigmas_stat, chi2_all = sm.infer_labels(
     test_data=sm.masked_data,
     test_data_ivars=sm.masked_data_ivar)
 
@@ -208,43 +213,47 @@ labels_pred, e_labels_pred, chi2_all = sm.infer_labels(
 systematic_vector = np.tile(cs.adopted_label_systematics, np.sum(sm.data_mask))
 systematic_vector = \
     systematic_vector.reshape([np.sum(sm.data_mask), cs.n_labels])
-labels_pred -= systematic_vector
+pred_label_values_corr = pred_label_values - systematic_vector
 
-# Create uncertainties vector. TODO: do this in quadrature with those output
-# from infer_labels
+# Create uncertainties vector
 cross_val_sigma = np.tile(cs.adopted_label_uncertainties, np.sum(sm.data_mask))
 cross_val_sigma = cross_val_sigma.reshape([np.sum(sm.data_mask), cs.n_labels])
-e_labels_pred = np.sqrt(e_labels_pred**2 + cross_val_sigma**2)
+pred_label_sigmas_total = \
+    np.sqrt(pred_label_sigmas_stat**2 + cross_val_sigma**2)
 
-# Round our uncertainties, and check to see if the uncertainties are unique
+# Save uncertainties
+for lbl_i, label in enumerate(cs.label_names):
+    obs_join["{}_cannon_value".format(label)] = pred_label_values_corr[:,lbl_i]
+    obs_join["{}_cannon_sigma_statistal".format(label)] = \
+        pred_label_sigmas_stat[:,lbl_i]
+    obs_join["{}_cannon_sigma_total".format(label)] = \
+        pred_label_sigmas_total[:,lbl_i]
+
+# Flag abberant logg values
+delta_logg = \
+    np.abs(obs_join["label_adopt_logg"].values - pred_label_values[:,1])
+has_aberrant_logg = delta_logg > cs.aberrant_logg_threshold
+obs_join["logg_aberrant"] = has_aberrant_logg
 
 #------------------------------------------------------------------------------
 # Tables
 #------------------------------------------------------------------------------
-# Fit using fully trained Cannon
-label_source_cols = \
-    ["label_source_{}".format(label) for label in cs.label_names]
-
 # Table summarising benchmark sample
 st.make_table_sample_summary(obs_join)
 
 # Tabulate our adopted and benchmark parameters
 st.make_table_benchmark_overview(
-    obs_tab=obs_join[is_cannon_benchmark],
-    labels_adopt=sm.training_labels,
-    sigmas_adopt=sm.training_variances**0.5,
-    labels_fit=labels_pred,
-    label_sources=obs_join[label_source_cols].values[is_cannon_benchmark],
+    obs_tab=obs_join,
+    label_names=cs.label_names,
     abundance_labels=cs.abundance_labels,
-    synth_logg_col="logg_synth",
-    aberrant_logg_threshold=0.15,)
+    break_row=200,)
 
 #------------------------------------------------------------------------------
 # Benchmark CMD
 #------------------------------------------------------------------------------
 splt.plot_cannon_cmd(
-    benchmark_colour=obs_join[is_cannon_benchmark]["BP_RP_dr3"],
-    benchmark_mag=obs_join[is_cannon_benchmark]["K_mag_abs"],
+    benchmark_colour=obs_join["BP_RP_dr3"],
+    benchmark_mag=obs_join["K_mag_abs"],
     benchmark_feh=sm.training_labels[:,2],
-    highlight_mask=obs_join[is_cannon_benchmark]["is_cpm"].values,
+    highlight_mask=obs_join["is_cpm"].values,
     highlight_mask_label="Binary Benchmark",)

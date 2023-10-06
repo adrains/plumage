@@ -31,7 +31,7 @@ FEH_OFFSETS = {
     "M14":0.0,      # Probably safe to assume this is zero?
     "RA12":0.01,    # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
     "M13":0.0,
-    "R21":0.0,      # Photometric. Assumed = 0 since built from binaries.
+    "R21":np.nan,
     "B16":0.0,      # Computed from np.nanmedian(Fe_H_vf05-Fe_H_b16) in cpm_prim, 30 stars
     "RB20":0.0035,  # Computed from np.nanmedian(Fe_H_vf05-Fe_H_rb16) in cpm_prim, 18 stars
 }
@@ -92,6 +92,12 @@ TIH_OFFSETS = {
     "RB20":0.002,       # np.nanmedian(tih_vf05 - tih_rb20), 18 stars
     "M18":-0.025,       # np.nanmedian(tih_vf05 - tih_m18), 46 stars
     "A12":0.00,         # TODO: Not computed
+    
+}
+
+# [Ti/Fe] offsets, computed from the *adopted* labels
+Ti_Fe_OFFSETS = {
+    "Monty":np.nan,
 }
 
 # Citations
@@ -573,7 +579,7 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
 
     # [Ti/Fe] from Monty GALAH + Gaia fits --> Preferred
     if not np.isnan(star_info["Ti_Fe_monty"]):
-        Ti_Fe_value_predicted = star_info["Ti_Fe_monty"]
+        Ti_Fe_value_predicted = star_info["Ti_Fe_monty"]# + Ti_Fe_OFFSETS["Monty"]
         Ti_Fe_sigma_predicted = star_info["Ti_Fe_monty"]
         Ti_Fe_source = "R22a"
 

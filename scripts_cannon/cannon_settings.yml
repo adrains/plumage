@@ -17,7 +17,7 @@
 # Suppress ouput from Stan during training. It is recommended to always have
 # this on for the label_uncertainties model since it takes much longer to
 # converge than the less complex basic model.
-suppress_stan_output: false
+suppress_stan_output: true
 
 # Whether to initialise theta and s2 vectors for a label uncertainty model
 # using the vectors from a trained basic model. The idea is that, even though
@@ -45,7 +45,7 @@ refresh_rate_frac: 10000
 # Whether to run leave-one-out cross validation on Cannon model. If yes, the
 # cross validation is done using the same suppress_stan_output, 
 # init_with_basic_model, and max_iter settings as the original training.
-do_cross_validation: false
+do_cross_validation: True
 
 # Whether to do sigma clipping using trained Cannon model. If True, an initial
 # Cannon model is trained and its model spectra are used to sigma clip bad 
@@ -93,7 +93,7 @@ uniform_var_frac_error: 0.01
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
 # an array of ones if we don't want to scale the uncertainties.
-lit_std_scale_fac: [1.0, 1.0, 1.0]
+lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0]
 
 # Also for testing and as a complement to the previous setting we can scale the
 # uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
@@ -108,7 +108,7 @@ std_label: "cannon"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: []
+abundance_labels: ["Ti_Fe"]
 
 base_labels: ["teff", "logg", "feh",]
 
@@ -144,8 +144,8 @@ species_to_plot: ["Ca 1", "Ti 1", "Fe 1"]
 # and uncertainty will be adopted from just the interferometric set, whereas
 # logg and [Fe/H] will be taken from the complete sample. 
 # TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
-adopted_label_systematics: [15.63, 0.0, 0.03, -0.01,]
-adopted_label_uncertainties: [60.18, 0.04, 0.11, 0.12]
+adopted_label_systematics: [-4, 0.0, 0.00, 0.05,]
+adopted_label_uncertainties: [58, 0.04, 0.10, 0.06]
 
 # Here we've picked a set of spectral types ranging over our BP-RP range.
 representative_stars_source_ids: 
@@ -162,6 +162,9 @@ representative_stars_source_ids:
 - "145421309108301184"       # K8, Gl 169
 - "4282578724832056576"      # M0.7, Gl 740
 - "3266980243936341248"      # M1V, NLTT 10349, most metal poor
+
+# Threshold at which to flag logg values in our results tabls
+aberrant_logg_threshold: 0.075
 
 #------------------------------------------------------------------------------
 # Model Comparison Settings

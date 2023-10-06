@@ -309,7 +309,10 @@ def plot_label_recovery_abundances(
     for abundance_i, abundance in enumerate(abundance_labels):
         label_i = 3 + abundance_i
 
-        abundance_label = "[{}/H]".format(abundance.split("_")[0])
+        if "H" in abundance:
+            abundance_label = "[{}/H]".format(abundance.split("_")[0])
+        else:
+            abundance_label = "[{}/Fe]".format(abundance.split("_")[0])
         
         abund_sources = obs_join["label_source_{}".format(abundance)]
 

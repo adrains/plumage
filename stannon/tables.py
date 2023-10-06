@@ -23,6 +23,9 @@ label_source_refs = {
     "A12":"adibekyan_chemical_2012",
     "C01":"cayrel_de_strobel_catalogue_2001",
     "M13":"mann_prospecting_2013",
+    "B16":"brewer_spectral_2016",
+    "RB20":"rice_stellar_2020",
+    "Sou08":"sousa_spectroscopic_2008",
 }
 
 def make_table_sample_summary(obs_tab,):
@@ -262,24 +265,22 @@ def make_table_sample_summary(obs_tab,):
             np.sum(adopted_photometric))     # adopted
 
     # -------------------------------------------------------------------------
-    # [Ti/H]
+    # [Ti/Fe]
     # -------------------------------------------------------------------------
-    has_default_ti = ~benchmarks["label_nondefault_Ti_H"].values
-    median_ti_sigma = \
-        np.nanmedian(
-            benchmarks[~has_default_ti]["label_adopt_sigma_Ti_H"].values)
+    has_ti_fe = np.isfinite(benchmarks["label_adopt_Ti_Fe"].values)
+    median_ti_sigma = np.nanmedian(benchmarks["label_adopt_sigma_Ti_Fe"].values)
     ti_row = \
         r"[Ti/Fe] & All & {:0.2f}\,dex & - & {:d} & {:d} & {:d} \\".format(
             median_ti_sigma,
-            np.sum(~has_default_ti), 
-            np.sum(has_default_ti),
-            np.sum(~has_default_ti))
+            np.sum(has_ti_fe), 
+            np.sum(~has_ti_fe),
+            np.sum(has_ti_fe))
 
     # Brewer+2016
     has_tih_b16 = ~np.isnan(benchmarks["Ti_H_b16"].values)
-    adopted_tih_b16 = benchmarks["label_source_Ti_H"].values == "B16"
+    adopted_tih_b16 = benchmarks["label_source_Ti_Fe"].values == "B16"
     median_tih_b16_sigma = \
-        np.median(benchmarks[adopted_tih_b16]["label_adopt_sigma_Ti_H"])
+        np.median(benchmarks[adopted_tih_b16]["label_adopt_sigma_Ti_Fe"])
     ti_b16_row = feh_row_fmt.format(
             "Brewer+2016",                 # label
             median_tih_b16_sigma,          # median sigma
@@ -290,9 +291,9 @@ def make_table_sample_summary(obs_tab,):
     
     # Rice & Brewer 2020
     has_tih_rb20 = ~np.isnan(benchmarks["Ti_H_rb20"].values)
-    adopted_tih_rb20 = benchmarks["label_source_Ti_H"].values == "RB20"
+    adopted_tih_rb20 = benchmarks["label_source_Ti_Fe"].values == "RB20"
     median_tih_rb20_sigma = \
-        np.median(benchmarks[adopted_tih_rb20]["label_adopt_sigma_Ti_H"])
+        np.median(benchmarks[adopted_tih_rb20]["label_adopt_sigma_Ti_Fe"])
     ti_rb20_row = feh_row_fmt.format(
             "Rice \& Brewer 2020",          # label
             median_tih_rb20_sigma,          # median sigma
@@ -303,9 +304,9 @@ def make_table_sample_summary(obs_tab,):
 
     # Valenti Fischer 2005
     has_tih_vf05 = ~np.isnan(benchmarks["Ti_H_vf05"].values)
-    adopted_tih_vf05 = benchmarks["label_source_Ti_H"].values == "VF05"
+    adopted_tih_vf05 = benchmarks["label_source_Ti_Fe"].values == "VF05"
     median_tih_vf05_sigma = \
-        np.median(benchmarks[adopted_tih_vf05]["label_adopt_sigma_Ti_H"])
+        np.median(benchmarks[adopted_tih_vf05]["label_adopt_sigma_Ti_Fe"])
     ti_vf05_row = feh_row_fmt.format(
             "Valenti \& Fischer 2005",      # label
             median_tih_vf05_sigma,          # median sigma
@@ -316,9 +317,9 @@ def make_table_sample_summary(obs_tab,):
 
     # Montes+2018
     has_tih_m18 = ~np.isnan(benchmarks["Ti_H_m18"].values)
-    adopted_tih_m18 = benchmarks["label_source_Ti_H"].values == "M18"
+    adopted_tih_m18 = benchmarks["label_source_Ti_Fe"].values == "M18"
     median_tih_m18_sigma = \
-        np.median(benchmarks[adopted_tih_m18]["label_adopt_sigma_Ti_H"])
+        np.median(benchmarks[adopted_tih_m18]["label_adopt_sigma_Ti_Fe"])
     ti_m18_row = feh_row_fmt.format(
             "Montes+2018",                  # label
             median_tih_m18_sigma,           # median sigma
@@ -329,9 +330,9 @@ def make_table_sample_summary(obs_tab,):
     
     # Adibekyan+2012 (TODO: incomplete cross-match)
     has_tih_a12 = ~np.isnan(benchmarks["TiI_H_a12"].values)
-    adopted_tih_a12 = benchmarks["label_source_Ti_H"].values == "A12"
+    adopted_tih_a12 = benchmarks["label_source_Ti_Fe"].values == "A12"
     median_tih_a12_sigma = \
-        np.median(benchmarks[adopted_tih_a12]["label_adopt_sigma_Ti_H"])
+        np.median(benchmarks[adopted_tih_a12]["label_adopt_sigma_Ti_Fe"])
     ti_a12_row = \
         r"& {} & {:0.2f}\,dex & - & - & - & {:d} \\".format(
             "Adibekyan+2012",               # label
@@ -340,6 +341,19 @@ def make_table_sample_summary(obs_tab,):
             #np.sum(has_tih_a12),            # with
             #np.sum(~has_tih_a12),           # without
             np.sum(adopted_tih_a12),)       # adopted
+    
+    # Empirical Relation
+    has_ti_fe_monty = ~np.isnan(benchmarks["Ti_Fe_monty"].values)
+    adopted_ti_fe_monty = benchmarks["label_source_Ti_Fe"].values == "R22a"
+    median_ti_fe_monty_sigma = \
+        np.median(benchmarks[adopted_tih_m18]["label_adopt_sigma_Ti_Fe"])
+    ti_monty_row = feh_row_fmt.format(
+            "This Work",                        # label
+            median_ti_fe_monty_sigma,           # median sigma
+            params.Ti_Fe_OFFSETS["Monty"],        # offset
+            np.sum(has_ti_fe_monty),            # with
+            np.sum(~has_ti_fe_monty),           # without
+            np.sum(adopted_ti_fe_monty),)       # adopted
     
     # Put all rows together
     table_rows = [
@@ -352,8 +366,8 @@ def make_table_sample_summary(obs_tab,):
         "\hline",
         feh_row,
         feh_b16_row,
-        feh_vf05_row,
         feh_rb20_row,
+        feh_vf05_row,
         feh_m18_row,
         feh_s08_row,
         feh_m15_row,
@@ -363,11 +377,16 @@ def make_table_sample_summary(obs_tab,):
         "\hline",
         ti_row,
         ti_b16_row,
-        ti_vf05_row,
         ti_rb20_row,
+        ti_vf05_row,
         ti_m18_row,
-        ti_a12_row,]
-         
+        ti_a12_row,
+        ti_monty_row,]
+    
+    # Delete nan values
+    for row_i, row in enumerate(table_rows):
+        table_rows[row_i] = row.replace("+nan\\,dex", "-")
+
     # Finish the table
     footer.append("\\hline")
     footer.append("\\end{tabular}}")
@@ -384,18 +403,19 @@ def make_table_sample_summary(obs_tab,):
 
 def make_table_benchmark_overview(
     obs_tab,
-    labels_adopt,
-    sigmas_adopt,
-    labels_fit,
-    label_sources,
+    label_names,
     abundance_labels=[],
-    break_row=61,
-    synth_logg_col="logg_synth",
-    aberrant_logg_threshold=0.15,):
+    break_row=61,):
     """Make a LaTeX table of our adopted benchmark stellar parameters, the
     source/s of those values, as well as the systematic corrected results for
     the benchmark set.
     """
+    # Grab label source columns
+    label_source_cols = \
+        ["label_source_{}".format(label) for label in label_names]
+
+    n_labels = len(label_names)
+
     info_cols = [
         "Star",
         "Gaia DR3",
@@ -417,7 +437,7 @@ def make_table_benchmark_overview(
 
     # Account for abundances if we're using them - add each to dictionary
     for abundance in abundance_labels:
-        abund = "[{}/H]".format(abundance.split("_")[0])
+        abund = "[{}/{}]".format(*tuple(abundance.split("_")))
         param_cols.append(abund)
         param_units.append("(dex)")
 
@@ -448,7 +468,7 @@ def make_table_benchmark_overview(
         r"\multicolumn{{{:0.0f}}}{{c}}{{}} & "
         r"\multicolumn{{{:0.0f}}}{{c}}{{Adopted Parameters}} & "
         r"\multicolumn{{{:0.0f}}}{{c}}{{Fitted Parameters}} \\").format(
-            len(info_cols), labels_adopt.shape[1]+1, labels_adopt.shape[1]))
+            len(info_cols), n_labels+1, n_labels))
     header.append((("%s & "*len(col_names))[:-2] + r"\\") % tuple(col_names))
     header.append((("%s & "*len(col_units))[:-2] + r"\\") % tuple(col_units))
     header.append("\hline")
@@ -463,10 +483,6 @@ def make_table_benchmark_overview(
     # Sort by BP-RP
     ii = np.argsort(obs_tab["BP_RP_dr3"])
     sorted_tab = obs_tab.iloc[ii]
-    sorted_labels_adopt = labels_adopt[ii]
-    sorted_sigmas_adopt = sigmas_adopt[ii]
-    sorted_labels_fit = labels_fit[ii]
-    sorted_label_sources = label_sources[ii]
 
     # Populate the table for every science target
     for star_i, (source_id, star) in enumerate(sorted_tab.iterrows()):
@@ -490,41 +506,38 @@ def make_table_benchmark_overview(
         # ------------------------------------------------------
         # Teff
         table_row += r"${:0.0f}\pm{:0.0f}$ & ".format(
-            sorted_labels_adopt[star_i, 0], sorted_sigmas_adopt[star_i, 0])
+            star["label_adopt_teff"], star["label_adopt_sigma_teff"])
         
         # Logg
         table_row += r"${:0.2f}\pm{:0.2f}$ & ".format(
-            sorted_labels_adopt[star_i, 1], sorted_sigmas_adopt[star_i, 1])
+            star["label_adopt_logg"], star["label_adopt_sigma_logg"])
 
         # [Fe/H]
-        if sorted_label_sources[star_i][2] != "":
+        if star["label_source_feh"] != "":
             table_row += r"${:+0.2f}\pm{:0.2f}$ & ".format(
-                sorted_labels_adopt[star_i, 2], sorted_sigmas_adopt[star_i, 2])
+                star["label_adopt_feh"], star["label_adopt_sigma_feh"])
         else:
             table_row += r"- & "
 
         # Abundances
-        for abund_i in range(len(abundance_labels)):
-            # Get label index
-            label_i = 3 + abund_i
-
-            if sorted_label_sources[star_i][label_i] != "":
+        for abund_i, abund in enumerate(abundance_labels):
+            if star["label_source_{}".format(abund)] != "":
                 table_row += r"${:+0.2f}\pm{:0.2f}$ & ".format(
-                    sorted_labels_adopt[star_i, label_i], 
-                    sorted_sigmas_adopt[star_i, label_i])
+                    star["label_adopt_{}".format(abund)],
+                    star["label_adopt_sigma_{}".format(abund)])
             else:
                 table_row += r"- & "
 
         # Now do references
-        refs = sorted_label_sources[star_i]
+        refs = star[label_source_cols].values
 
         # TODO HACK: Delete
-        refs = [ref.replace("TW", "M13") for ref in refs]
+        refs = [ref.replace("R22a", "TW") for ref in refs]
 
         for ref in refs:
             if ref == "":
                 table_row += "-,"
-                  
+
             elif ref not in references:
                 references.append(ref)
                 table_row += "{},".format(ref)
@@ -538,30 +551,33 @@ def make_table_benchmark_overview(
         # Fitted Parameters
         # -----------------
         # Teff
-        table_row += r"${:0.0f}$ & ".format(sorted_labels_fit[star_i, 0])
+        table_row += r"${:0.0f}\pm{:0.0f}$ & ".format(
+            star["teff_cannon_value"],
+            star["teff_cannon_sigma_total"])
 
         # logg - making sure to flag the star if it has an aberrant logg
-        delta_logg = np.abs(
-            sorted_labels_fit[star_i, 1] - star[synth_logg_col])
-        
-        if delta_logg > aberrant_logg_threshold:
-            table_row += r"${:0.2f} $\dagger & ".format(
-                sorted_labels_fit[star_i, 1])
+        if star["logg_aberrant"]:
+            table_row += r"${:0.2f}\pm{:0.2f}$ $\dagger & ".format(
+                star["logg_cannon_value"],
+                star["logg_cannon_sigma_total"])
         else:
-            table_row += r"${:0.2f}$ & ".format(
-                sorted_labels_fit[star_i, 1])
+            table_row += r"${:0.2f}\pm{:0.2f}$ & ".format(
+                star["logg_cannon_value"],
+                star["logg_cannon_sigma_total"])
 
         # [Fe/H]
-        table_row += r"${:+0.2f}$ & ".format(
-            sorted_labels_fit[star_i, 2])
+        table_row += r"${:+0.2f}\pm{:0.2f}$ & ".format(
+            star["feh_cannon_value"],
+            star["feh_cannon_sigma_total"])
 
         # Abundances
-        for abund_i in range(len(abundance_labels)):
+        for abund_i, abund in enumerate(abundance_labels):
             # Get label index
             label_i = 3 + abund_i
 
-            table_row += r"${:+0.2f}$ & ".format(
-                sorted_labels_fit[star_i, label_i],)
+            table_row += r"${:+0.2f}\pm{:0.2f}$ & ".format(
+                star["{}_cannon_value".format(abund)],
+                star["{}_cannon_sigma_total".format(abund)])
 
         # Replace any nans with '-', remove final space and &
         table_rows.append(table_row[:-2].replace("nan", "-")  + r"\\")
@@ -586,6 +602,8 @@ def make_table_benchmark_overview(
     for ref in references:
         if ref in label_source_refs:
             bib_ref = "\\citet{{{}}}".format(label_source_refs[ref])
+        elif ref == "TW":
+            bib_ref = "This Work"
         else:
             bib_ref = "-"
         notes_references += "{}: {}, ".format(ref, bib_ref)
@@ -597,8 +615,13 @@ def make_table_benchmark_overview(
     notes.append("\\end{minipage}")
     notes.append("\\end{table*}")
     
-    # Write the table/s
-    break_rows = np.arange(break_row, len(obs_tab), break_row)
+    # Write the table/s, breaking (if necessary) on break_row
+    if break_row > len(obs_tab):
+        break_rows = np.array([len(obs_tab)])
+    
+    else:
+        break_rows = np.arange(break_row, len(obs_tab), break_row)
+
     low_row = 0
     
     for table_i, break_row in enumerate(break_rows):
@@ -652,7 +675,7 @@ def make_table_parameter_fit_results(
 
     # Account for abundances if we're using them - add each to dictionary
     for abundance in abundance_labels:
-        abund = "[{}/H]".format(abundance.split("_")[0])
+        abund = "[{}/Fe]".format(abundance.split("_")[0])
         cols[abund] = "(dex)"
     
     header = []
