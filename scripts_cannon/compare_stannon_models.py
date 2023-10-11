@@ -83,7 +83,7 @@ print("Scatter:", "\n--------")
 print("{} Label:  {:1.7f}±{:1.7f}".format(
     sm1.L, np.mean(sm1.s2**0.5), np.std(sm1.s2**0.5)))
 print("{} Label:  {:1.7f}±{:1.7f}".format(
-    sm2.L, np.mean(sm1.s2**0.5), np.std(sm2.s2**0.5)))
+    sm2.L, np.mean(sm2.s2**0.5), np.std(sm2.s2**0.5)))
 
 # Scatter comparison between both models
 splt.plot_scatter_histogram_comparison(

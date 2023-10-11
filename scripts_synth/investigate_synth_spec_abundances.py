@@ -1,5 +1,7 @@
 """Script to investigate the influence of changing abundances on synthetic
 spectra of cool stars.
+
+TODO: separate the generation of synthetic spectra from plotting.
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,7 +15,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 #elements = ["C", "N", "O", "Na", "Mg", "Al", "Si", "Ca", "Ti", "Fe"]
 #element_is = [6, 7, 8, 11, 12, 13, 14, 20, 22, 26]
 
-do_dominant_absorbers = True
+do_dominant_absorbers = False
 
 # First set of elements are the dominant ones
 if do_dominant_absorbers:
@@ -33,6 +35,9 @@ else:
 wl_min = 3500
 wl_max = 7000
 
+fig_width = 12
+panel_height = 2.5
+
 # These are the values of [X/H] that we want to plot
 xihs = [-0.1, 0, 0.1] 
 
@@ -45,8 +50,16 @@ params = (
 # Initialise IDL
 idl = synth.idl_init(drive="priv")
 
+# Setup plot
+plt.close("all")
+fig, axes = plt.subplots(
+    nrows=len(params),
+    ncols=1,
+    sharex=True,
+    figsize=(fig_width, len(params)*panel_height))
+
 # Now loop for every Teff-logg pair
-for (teff,logg) in params:
+for plot_i, (teff,logg) in enumerate(params):
     print("Running on Teff = {}, logg = {}".format(teff, logg))
     # First we want to obtain our reference spectra for just changing the bulk 
     # metallicity by +/-0.1 dex
@@ -71,15 +84,11 @@ for (teff,logg) in params:
 
         ref_spectra.append(spec)
 
-    # Setup plot
-    plt.close("all")
-    fig, ax = plt.subplots()
-
     # Plot residuals
-    divider = make_axes_locatable(ax)
+    divider = make_axes_locatable(axes[plot_i])
     resid_ax = divider.append_axes("bottom", size="100%", pad=0)
-    ax.figure.add_axes(resid_ax, sharex=ax)
-    plt.setp(ax.get_xticklabels(), visible=False)
+    axes[plot_i].figure.add_axes(resid_ax, sharex=axes[plot_i])
+    plt.setp(axes[plot_i].get_xticklabels(), visible=False)
     resid_ax.hlines(
         0,
         wl_min,
@@ -89,8 +98,12 @@ for (teff,logg) in params:
         color="black")
 
     # Plot the base spectrum
-    ax.plot(
-        wave, ref_spectra[1], linewidth=0.2, label="[Fe/H] = 0", color="black")
+    axes[plot_i].plot(
+        wave,
+        ref_spectra[1],
+        linewidth=0.2,
+        label="[Fe/H] = 0",
+        color="black")
 
     # And plot the percentage change in flux as:
     # F(solar-0.1) - F(solar+0.1) / F(solar+0.1)
@@ -138,10 +151,11 @@ for (teff,logg) in params:
             resid_ax.plot(wave, frac_change, linewidth=0.2, label=element,)
     
     # Finish setting up plot
-    ax.set_ylabel("Flux (Cont. Norm.)")
-    resid_ax.set_xlabel("Wavelength (A)")
+    axes[plot_i].set_ylabel("Flux (Cont. Norm.)", fontsize="small")
+    
     resid_ax.set_ylabel(
-        r"$\frac{{\rm F(subsolar)}-{\rm F(supersolar)}}{{\rm F(supersolar)}}$")
+        r"$\frac{{\rm F(subsolar)}-{\rm F(supersolar)}}{{\rm F(supersolar)}}$",
+        fontsize="small",)
 
     resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=100))
     resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
@@ -156,17 +170,18 @@ for (teff,logg) in params:
     for legobj in leg.legendHandles:
         legobj.set_linewidth(1.5)
 
-    ax.set_title(
+    axes[plot_i].set_title(
         r"$T_{{\rm eff}}={:0.0f}\,$K, $\log g={:0.2f}$, [Fe/H]$ = 0.0$".format(
         teff, logg))
-    ax.set_xlim([wl_min,wl_max])
+    axes[plot_i].set_xlim([wl_min,wl_max])
     resid_ax.set_xlim([wl_min,wl_max])
-    plt.gcf().set_size_inches(16, 4)
-    plt.tight_layout()
-    plt.savefig("paper/synth_spec_flux_vs_abund_teff_{}.pdf".format(teff))
-    plt.savefig(
-        "paper/synth_spec_flux_vs_abund_teff_{}.png".format(teff), dpi=500)
+    
+    if plot_i < len(params) - 1:
+        resid_ax.set_xticks([])
 
-pplt.merge_spectra_pdfs(
-    "paper/synth_spec_flux_vs_abund_teff*pdf",
-    "paper/synth_spec_flux_vs_abund_{}.pdf".format(save_label))
+resid_ax.set_xlabel("Wavelength (A)")
+plt.tight_layout()
+fig.subplots_adjust(hspace=0.15)
+
+plt.savefig("paper/synth_spec_flux_vs_abund_{}.pdf".format(save_label))
+plt.savefig("paper/synth_spec_flux_vs_abund_{}.pdf".format(save_label),dpi=500)
