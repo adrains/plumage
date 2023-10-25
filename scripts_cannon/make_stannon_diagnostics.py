@@ -257,3 +257,11 @@ splt.plot_cannon_cmd(
     benchmark_feh=sm.training_labels[:,2],
     highlight_mask=obs_join["is_cpm"].values,
     highlight_mask_label="Binary Benchmark",)
+
+#------------------------------------------------------------------------------
+# GALAH-Gaia -- Valenti & Fischer 2005 diagnostic
+#------------------------------------------------------------------------------
+splt.plot_abundance_trend_recovery(
+    obs_join=obs_join,
+    vf05_full_file=cs.vf05_full_filecs,
+    vf05_sampled_filecs=cs.vf05_sampled_file,)

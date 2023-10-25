@@ -97,7 +97,7 @@ TIH_OFFSETS = {
 
 # [Ti/Fe] offsets, computed from the *adopted* labels
 Ti_Fe_OFFSETS = {
-    "Monty":np.nan,
+    "Monty":-0.033,     # np.median(Ti_Fe_vf05 - Ti_Fe_monty)
 }
 
 # Citations

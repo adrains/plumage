@@ -1,6 +1,7 @@
 """Plotting functions related to Stannon
 """
 import numpy as np
+import pandas as pd
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import plumage.plotting as pplt
@@ -1134,7 +1135,8 @@ def plot_delta_cannon_vs_marcs(
     obs_join,
     sm,
     fluxes_marcs_norm,
-    delta_thresholds=(0.1, 0.05, 0.02),):
+    delta_thresholds=(0.1, 0.05, 0.02),
+    fig_size=(12,3),):
     """Plots a series of comparisons of Cannon vs MARCS spectra below the
     provided set of fractional flux tolerances.
 
@@ -1179,7 +1181,7 @@ def plot_delta_cannon_vs_marcs(
     plt.close("all")
     fig, axes = plt.subplots(
         len(delta_thresholds),
-        figsize=(12,3),
+        figsize=fig_size,
         sharex=True)
 
     # Plot one panel per provided flux threshold
@@ -1279,3 +1281,136 @@ def plot_scatter_histogram_comparison(
             
     plt.savefig("paper/cannon_model_scatter_comparison_hist.pdf")
     plt.savefig("paper/cannon_model_scatter_comparison_hist.png")
+
+
+def plot_abundance_trend_recovery(
+    obs_join,
+    vf05_full_file,
+    vf05_sampled_file,
+    vf05_teff_lim=4500,
+    vf05_logg_lim=3.0,
+    vf05_feh_lim=-1.0,
+    X_Fe_lims=(-0.275,0.45),
+    show_offset=True,
+    X_Fe_ticks=(0.2,0.1,0.2,0.1),):
+    """Function to compare literature [Ti/Fe] to that predicted from GALAH-Gaia
+    chemodynamic relations, and overplot the adopted sample of binary benchmark
+    FGK primaries. The literature sample is Valenti & Fischer 2005.
+
+    Parameters
+    ----------
+    obs_join: pandas DataFrame
+        Dataframe of stellar properties.
+
+    vf05_full_file: str
+        Filepath to Valenti & Fischer 2005 data with Gaia DR3 crossmatch.
+
+    vf05_sampled_file: str
+        Filepath to sampled/predicted parameters for VF05 stars.
+    
+    vf05_teff_lim: int, default: 4500
+        Lower temperature limit to adopt when plotting VF05 stars.
+
+    vf05_logg_lim: float, default: 3.0
+        Lower logg limit to adopt when plotting VF05 stars.
+
+    vf05_feh_lim: float, default: -1.0
+        Lower [Fe/H] limit to adopt when plotting VF05 stars.
+
+    X_Fe_lims: float tuple, default: (-0.275,0.45)
+        Lower and upper limits to adopt for [X/Fe] when plotting.
+
+    show_offset: bool, default: True
+        Whether to print offset +/- std on plot.
+
+    X_Fe_ticks: float tuple, default: (0.2,0.1,0.2,0.1)
+        [X/Fe] major and minor ticks for each axis.
+
+    Note: Currently only [Ti/Fe] is supported.
+    """
+    # Import VF05 full file
+    vf05_full = pd.read_csv(vf05_full_file, sep="\t", dtype={"source_id":str})
+    vf05_full.set_index("source_id", inplace=True)
+    
+    # Import VF05 sampled file
+    vf05_sampled = pd.read_csv(
+        vf05_sampled_file,
+        delim_whitespace=True,
+        dtype={"GaiaID":str})
+    
+    vf05_sampled.rename(columns={"GaiaID":"source_id"}, inplace=True)
+    vf05_sampled.set_index("source_id", inplace=True)
+
+    # Join both these together
+    vf05_join = vf05_full.join(vf05_sampled, "source_id")
+
+    # Create a mask on Teff and logg to match the valid range of the mapping
+    in_range = np.logical_and(
+        vf05_join["[Fe/H]"].values > vf05_feh_lim,
+        np.logical_and(
+            vf05_join["Teff"].values > vf05_teff_lim,
+            vf05_join["log(g)"].values > vf05_logg_lim))
+
+    n_stars = np.sum(~np.isnan(vf05_join["[Fe/H]"].values[in_range]))
+    print("{} stars".format(n_stars))
+
+    # Make plot
+    plt.close("all")
+    fig, axis = plt.subplots()
+    fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
+
+    # TODO: proper uncertainties?
+    sigmas = np.zeros_like(vf05_join["[Ti/Fe]_true"].values[in_range])
+
+    axis, resid_ax = pplt.plot_std_comp_generic(
+        fig=fig,
+        axis=axis,
+        lit=vf05_join["[Ti/Fe]_true"].values[in_range],
+        e_lit=sigmas,
+        fit=vf05_join["[Ti/Fe]_pred"].values[in_range],
+        e_fit=sigmas,
+        colour=vf05_join["[Fe/H]"].values[in_range],
+        fit_label=r"[Ti/Fe] (Predicted)",
+        lit_label=r"[Ti/Fe] (Valenti & Fischer 2005)",
+        cb_label=r"[Fe/H]",
+        x_lims=X_Fe_lims,
+        y_lims=X_Fe_lims,
+        cmap="viridis",
+        show_offset=show_offset,
+        ticks=X_Fe_ticks,
+        return_axes=True,
+        scatter_label="Valenti & Fischer 2005",)
+
+    # Plot the overlapping points
+    feh_min = np.nanmin(vf05_join["[Fe/H]"].values[in_range])
+    feh_max = np.nanmax(vf05_join["[Fe/H]"].values[in_range])
+    norm = plt.Normalize(feh_min, feh_max)
+
+    is_binary = obs_join["is_cpm"].values
+
+    _ = axis.scatter(
+        x=obs_join[is_binary]["label_adopt_Ti_Fe"].values,
+        y=obs_join[is_binary]["Ti_Fe_monty"].values,
+        c=obs_join[is_binary]["label_adopt_feh"].values,
+        norm=norm,
+        edgecolor="k",
+        linewidths=1.5,
+        label="Observed")
+    
+    delta_Ti_Fe = (obs_join[is_binary]["label_adopt_Ti_Fe"].values
+                    - obs_join[is_binary]["Ti_Fe_monty"].values)
+    
+    _ = resid_ax.scatter(
+        x=obs_join[is_binary]["label_adopt_Ti_Fe"].values,
+        y=delta_Ti_Fe,
+        c=obs_join[is_binary]["label_adopt_feh"].values,
+        norm=norm,
+        edgecolor="k",
+        linewidths=1.5,)
+
+    resid_ax.set_ylabel(r"${\rm lit}-{\rm pred}$")
+
+    #leg = axis.legend(loc="best")
+    plt.tight_layout()
+    plt.savefig("paper/vf05_Ti_Fe_vs_predicted.pdf")
+    plt.savefig("paper/vf05_Ti_Fe_vs_predicted.png", dpi=200)

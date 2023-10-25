@@ -10,7 +10,7 @@ import stannon.plotting as splt
 # -----------------------------------------------------------------------------
 # Setup + Settings
 # -----------------------------------------------------------------------------
-path_wc = "/Users/arains/Dropbox/AdamTiDists/Results/*PullsSymmetricErrors"
+path_wc = "/Users/arains/Dropbox/AdamTiDists/Results/UpdatedFeH/*PullsSymmetricErrors"
 sample_files = glob.glob(path_wc)
 
 # Setup mean and sigma columns for dataframe and interleave
@@ -59,8 +59,14 @@ df.to_csv("data/monty_sampled_params_n{:0.0f}.csv".format(n_stars))
 # -----------------------------------------------------------------------------
 # Diagnostics
 # -----------------------------------------------------------------------------
-# Import existing dataframe, table join
+# Import existing dataframe
 obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
+
+# Drop existing columns if we have them
+if cols_all[0] in obs_join.columns:
+    obs_join.drop(columns=cols_all, inplace=True)
+
+# Do table join
 obs_join = obs_join.join(df, "source_id_dr3",)
 
 # Mask

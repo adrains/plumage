@@ -1354,7 +1354,8 @@ def plot_passband(axis, filt, wave, wl_min, wl_max,):
 def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label, 
     lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
     resid_y_lims=None, plot_scatter=True, ms=2, text_labels=None, 
-    print_labels=False, elinewidth=0.5, offset_sig_fig=2,):
+    print_labels=False, elinewidth=0.5, offset_sig_fig=2, return_axes=False,
+    scatter_label=None,):
     """
     Parameters
     ----------
@@ -1381,6 +1382,12 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     show_offset: bool, default: False
         Whether to plot the median uncertainty as text.
+
+    return_axes: bool, default: False
+        Whether or not to return the main and residual axes.
+
+    scatter_label: str or None, default: None
+        The label of the scatter plot for plotting on the legend.
     """
     # Plot error bars with overplotted scatter points + colour bar
     axis.errorbar(
@@ -1395,14 +1402,15 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         elinewidth=elinewidth,)
 
     if plot_scatter:
-        sc = axis.scatter(lit, fit, c=colour, zorder=1, cmap=cmap)
+        sc = axis.scatter(
+            lit, fit, c=colour, zorder=1, cmap=cmap, label=scatter_label)
 
         cb = fig.colorbar(sc, ax=axis)
         cb.ax.tick_params(labelsize="large")
 
         if cb_label != "":
             cb.set_label(cb_label, fontsize="x-large")
-
+    
     # Split lims if we've been given different x and y limits
     lim_min = np.min([x_lims[0], y_lims[0]])
     lim_max = np.min([x_lims[1], y_lims[1]])
@@ -1516,6 +1524,9 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
             s=offset_lbl.format(mean_offset, std),
             horizontalalignment="center",
             fontsize="x-large")
+    
+    if return_axes:
+        return axis, resid_ax
 
 
 def plot_std_comp(
