@@ -69,12 +69,11 @@ splt.plot_label_recovery(
     e_label_values=sm.training_variances**0.5,
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-    obs_join=obs_join,
     fn_suffix=fn_label,
     teff_lims=(2750,4300),
     teff_ticks=(500,250,200,100),
-    logg_ticks=(0.25,0.125,0.2,0.1),
-    feh_lims=(-1.1,0.65),
+    logg_ticks=(0.25,0.125,0.1,0.05),
+    feh_lims=(-0.95,0.65),
     feh_ticks=(0.5,0.25,0.4,0.2),)
 
 # Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
@@ -84,7 +83,11 @@ splt.plot_label_recovery_per_source(
     label_pred=labels_pred, 
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L), 
     obs_join=obs_join,
-    fn_suffix=fn_label,)
+    fn_suffix=fn_label,
+    teff_lims=(2800,4300),
+    feh_lims=(-0.95,0.65),
+    teff_ticks=(500,250,200,100),
+    feh_ticks=(0.5,0.25,0.25,0.125),)
 
 # And finally plot the label recovery for any abundances we might be using
 if len(cs.abundance_labels) >= 1:
@@ -98,7 +101,7 @@ if len(cs.abundance_labels) >= 1:
         fn_suffix=fn_label,
         abundance_labels=cs.abundance_labels,
         feh_lims=(-0.15,0.4),
-        feh_ticks=(0.4,0.2,0.2,0.1))
+        feh_ticks=(0.2,0.1,0.1,0.05))
 
 #------------------------------------------------------------------------------
 # Theta Coefficients
@@ -169,7 +172,8 @@ splt.plot_spectra_comparison(
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
     data_label="b",
-    fn_label=fn_label,)
+    fn_label=fn_label,
+    fig_size=cs.spec_comp_fig_size,)
 
 # Plot model spectrum performance for WiFeS red band
 splt.plot_spectra_comparison(
@@ -182,7 +186,8 @@ splt.plot_spectra_comparison(
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_grating_changeover,cs.wl_max_model),
     data_label="r",
-    fn_label=fn_label,)
+    fn_label=fn_label,
+    fig_size=cs.spec_comp_fig_size,)
 
 # Do the same, but across all wavelengths and for all stars
 splt.plot_spectra_comparison(
@@ -224,7 +229,7 @@ pred_label_sigmas_total = \
 # Save uncertainties
 for lbl_i, label in enumerate(cs.label_names):
     obs_join["{}_cannon_value".format(label)] = pred_label_values_corr[:,lbl_i]
-    obs_join["{}_cannon_sigma_statistal".format(label)] = \
+    obs_join["{}_cannon_sigma_statistical".format(label)] = \
         pred_label_sigmas_stat[:,lbl_i]
     obs_join["{}_cannon_sigma_total".format(label)] = \
         pred_label_sigmas_total[:,lbl_i]
@@ -263,5 +268,23 @@ splt.plot_cannon_cmd(
 #------------------------------------------------------------------------------
 splt.plot_abundance_trend_recovery(
     obs_join=obs_join,
-    vf05_full_file=cs.vf05_full_filecs,
-    vf05_sampled_filecs=cs.vf05_sampled_file,)
+    vf05_full_file=cs.vf05_full_file,
+    vf05_sampled_file=cs.vf05_sampled_file,)
+
+#------------------------------------------------------------------------------
+# Save updated fits
+#------------------------------------------------------------------------------
+# TODO: save the predicted parameters back to the fits file, but only for the
+# benchmark stars.
+#pu.save_fits_table("CANNON_INFO", obs_join, "cannon")
+"""
+labels = ["label_cannon_{}".format(lbl) for lbl in cs.label_names]
+
+labels_all = np.full((154, cs.n_labels), np.nan)
+
+labels_all[is_cannon_benchmark] = labels_pred
+
+obs_join_all = pu.load_fits_table("CANNON_INFO", "cannon")
+
+obs_join_all[labels] = labels_all
+"""

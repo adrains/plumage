@@ -2,6 +2,7 @@
 Cannon on.
 """
 import numpy as np
+import scipy.odr as odr
 from numpy.polynomial.polynomial import Polynomial
 
 # -----------------------------------------------------------------------------
@@ -33,7 +34,7 @@ FEH_OFFSETS = {
     "M13":0.0,
     "R21":np.nan,
     "B16":0.0,      # Computed from np.nanmedian(Fe_H_vf05-Fe_H_b16) in cpm_prim, 30 stars
-    "RB20":0.0035,  # Computed from np.nanmedian(Fe_H_vf05-Fe_H_rb16) in cpm_prim, 18 stars
+    "RB20":0.00,    # Computed from np.nanmedian(Fe_H_vf05-Fe_H_rb16) in cpm_prim, 18 stars
 }
 
 # Adopted uncertainties from VF05 Table 6
@@ -89,15 +90,15 @@ RB20_ABUND_SIGMA = {
 TIH_OFFSETS = {
     "B16":-0.02,        # np.nanmedian(tih_vf05 - tih_b16), 30 stars
     "VF05":0.0,         # Reference sample
-    "RB20":0.002,       # np.nanmedian(tih_vf05 - tih_rb20), 18 stars
-    "M18":-0.025,       # np.nanmedian(tih_vf05 - tih_m18), 46 stars
+    "RB20":0.00,        # np.nanmedian(tih_vf05 - tih_rb20), 18 stars
+    "M18":-0.03,        # np.nanmedian(tih_vf05 - tih_m18), 46 stars
     "A12":0.00,         # TODO: Not computed
     
 }
 
 # [Ti/Fe] offsets, computed from the *adopted* labels
 Ti_Fe_OFFSETS = {
-    "Monty":-0.033,     # np.median(Ti_Fe_vf05 - Ti_Fe_monty)
+    "Monty":-0.03,     # np.median(Ti_Fe_vf05 - Ti_Fe_monty)
 }
 
 # Citations
@@ -711,3 +712,84 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     }
 
     return Ti_dict
+
+
+def compute_systematic(
+    label_values_pred,
+    label_sigma_stat_pred,
+    label_values_lit,
+    label_sigma_lit,
+    label,):
+    """Function to compute polynomial fit to residuals to compute an error
+    weighted systematic. 
+    
+    https://stackoverflow.com/questions/22670057/
+    linear-fitting-in-python-with-uncertainty-in-both-x-and-y-coordinates
+
+    Note: nominally functional, but not well tested or implemented, so consider
+    very TODO.
+    """
+    # Compute residual and residual uncertainty
+    resid = label_values_lit - label_values_pred
+    resid_std = np.full(label_values_pred.shape, np.std(resid))
+    resid_sigma = \
+        (label_sigma_stat_pred**2 + resid_std**2 + label_sigma_lit**2)**0.5
+
+    # Fitting function
+    def linear_fit(p,x):
+        m, c = p
+        y = m*x + c
+        return y
+    
+    # Create a model for fitting
+    linear_model = odr.Model(linear_fit)
+
+    # Create a RealData object
+    data = odr.RealData(
+        x=label_values_lit,
+        y=resid,
+        sx=label_sigma_lit,
+        sy=resid_sigma,
+    )
+
+    # Run regression
+    odr_obj = odr.ODR(data, linear_model, beta0=[0,1])
+    odr_out = odr_obj.run()
+
+    # Compute systematic from line of best fit
+    corr = linear_fit(odr_out.beta, label_values_lit)
+    print(np.median(corr))
+
+    # -------------------------------------------------------------------------
+    # Plotting
+    # -------------------------------------------------------------------------
+    import matplotlib.pyplot as plt
+    plt.close("all")
+    fig, ax = plt.subplots()
+    ax.errorbar(
+        x=label_values_lit, 
+        y=resid,
+        xerr=label_sigma_lit,
+        yerr=resid_sigma,
+        fmt=".",
+        ecolor="k",
+        alpha=0.8)
+    
+    # Plot line of best fit
+    # Create line for plotting
+    xx = np.linspace(np.min(label_values_lit), np.max(label_values_lit), 100)
+    yy = linear_fit(odr_out.beta, xx)
+    ax.plot(xx, yy, color="r")
+
+    text = r"resid $ = {:0.2f}\times {:s} + {:0.2f}$".format(
+        odr_out.beta[0], label, odr_out.beta[1])
+
+    ax.text(
+        x=0.50,
+        y=0.90,
+        s=text,
+        horizontalalignment="center",
+        verticalalignment="center",
+        transform=ax.transAxes,)
+
+    return odr_out

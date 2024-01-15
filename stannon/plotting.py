@@ -8,21 +8,18 @@ import plumage.plotting as pplt
 import matplotlib.ticker as plticker
 from collections import OrderedDict
 from stannon.vectorizer import PolynomialVectorizer
+from itertools import cycle
 
 def plot_label_recovery(
     label_values,
     e_label_values,
     label_pred,
     e_label_pred,
-    obs_join,
-    abundance_labels=[],
     teff_lims=(2800,4500),
     logg_lims=(4.4,5.4),
     feh_lims=(-1.0,0.75),
-    elinewidth=0.4,
     show_offset=True,
     fn_suffix="",
-    title_text="",
     teff_ticks=(500,250,100,50),
     logg_ticks=(0.5,0.25,0.2,0.1),
     feh_ticks=(0.5,0.25,0.5,0.25),):
@@ -52,6 +49,9 @@ def plot_label_recovery(
     """
     plt.close("all")
 
+    # Panel label with n_labels
+    panel_label = "{:0.0f} Label".format(label_pred.shape[1])
+
     # Make plot
     fig, axes = plt.subplots(1, 3)
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
@@ -65,14 +65,15 @@ def plot_label_recovery(
         fit=label_pred[:,0],
         e_fit=e_label_pred[:,0],
         colour=label_values[:,2],
-        fit_label=r"$T_{\rm eff}$ (K, Cannon)",
+        fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
         lit_label=r"$T_{\rm eff}$ (K, Literature)",
         cb_label="[Fe/H] (Literature)",
         x_lims=teff_lims,
         y_lims=teff_lims,
         cmap="viridis",
         show_offset=show_offset,
-        ticks=teff_ticks,)
+        ticks=teff_ticks,
+        panel_label=panel_label,)
     
     # Ensure we only plot logg for stars we haven't given a default value to.
     logg_mask = e_label_values[:,2] < 0.2
@@ -86,14 +87,16 @@ def plot_label_recovery(
         fit=label_pred[:,1][logg_mask],
         e_fit=e_label_pred[:,1][logg_mask],
         colour=label_values[:,2][logg_mask],
-        fit_label=r"$\log g$ (Cannon)",
+        fit_label=r"$\log g$ ($\it{Cannon}$)",
         lit_label=r"$\log g$ (Literature)",
         cb_label="[Fe/H] (Literature)",
         x_lims=logg_lims,
         y_lims=logg_lims,
         cmap="viridis",
         show_offset=show_offset,
-        ticks=logg_ticks,)
+        ticks=logg_ticks,
+        panel_label=panel_label,
+        plot_resid_y_label=False,)
     
     # Ensure we only plot [Fe/H] for stars we haven't given a default value to.
     feh_mask = e_label_values[:,2] < 0.2
@@ -107,14 +110,16 @@ def plot_label_recovery(
         fit=label_pred[:,2][feh_mask],
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
-        fit_label=r"[Fe/H] (Cannon)",
+        fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Literature)",
-        cb_label=r"$T_{\rm eff}\,$K (Literature)",
+        cb_label=r"$T_{\rm eff}$ (K, Literature)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        panel_label=panel_label,
+        plot_resid_y_label=False,)
 
     # Save plot
     fig.set_size_inches(12, 3)
@@ -130,14 +135,10 @@ def plot_label_recovery_per_source(
     e_label_pred,
     obs_join,
     teff_lims=(2800,4500),
-    logg_lims=(4.4,5.4),
     feh_lims=(-1.0,0.75),
-    elinewidth=0.4,
     show_offset=True,
     fn_suffix="",
-    title_text="",
     teff_ticks=(500,250,100,50),
-    logg_ticks=(0.5,0.25,0.2,0.1),
     feh_ticks=(0.5,0.25,0.5,0.25),):
     """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
 
@@ -165,9 +166,12 @@ def plot_label_recovery_per_source(
     """
     plt.close("all")
 
+    # Panel label with n_labels
+    panel_label = "{:0.0f} Label".format(label_pred.shape[1])
+
     # Make plot
     fig, (ax_teff_int, ax_feh_m15, ax_feh_ra12, ax_feh_cpm) = plt.subplots(1,4)
-    fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
+    fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.0)
 
     # Interferometric temperatures
     int_mask = ~np.isnan(obs_join["teff_int"])
@@ -180,14 +184,15 @@ def plot_label_recovery_per_source(
         fit=label_pred[:,0][int_mask],
         e_fit=e_label_pred[:,0][int_mask],
         colour=label_values[:,2][int_mask],
-        fit_label=r"$T_{\rm eff}$ (K, Cannon)",
+        fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
         lit_label=r"$T_{\rm eff}$ (K, Interferometry)",
         cb_label="[Fe/H] (Literature)",
         x_lims=teff_lims,
         y_lims=teff_lims,
         cmap="viridis",
         show_offset=show_offset,
-        ticks=teff_ticks,)
+        ticks=teff_ticks,
+        panel_label=panel_label,)
 
     # Mann+15 [Fe/H]
     feh_mask = ~np.isnan(obs_join["feh_m15"])
@@ -200,14 +205,17 @@ def plot_label_recovery_per_source(
         fit=label_pred[:,2][feh_mask],
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
-        fit_label=r"[Fe/H] (Cannon)",
-        lit_label=r"[Fe/H]] (Mann+15)",
-        cb_label=r"$T_{\rm eff}\,$K (Literature)",
+        fit_label=r"[Fe/H] ($\it{Cannon}$)",
+        lit_label=r"[Fe/H] (Mann+15)",
+        cb_label=r"$T_{\rm eff}$ (K, Literature)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        panel_label=panel_label,
+        plot_cbar_label=False,
+        plot_resid_y_label=False,)
 
     # Rojas-Ayala+12 [Fe/H]
     feh_mask = ~np.isnan(obs_join["feh_ra12"])
@@ -220,14 +228,18 @@ def plot_label_recovery_per_source(
         fit=label_pred[:,2][feh_mask],
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
-        fit_label=r"[Fe/H] (Cannon)",
+        fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Rojas-Ayala+12)",
-        cb_label=r"$T_{\rm eff}\,$K (Literature)",
+        cb_label=r"$T_{\rm eff}$ (K, Literature)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        panel_label=panel_label,
+        plot_cbar_label=False,
+        plot_y_label=True,
+        plot_resid_y_label=False,)
 
     # CPM [Fe/H]
     feh_mask = obs_join["is_cpm"].values
@@ -240,14 +252,17 @@ def plot_label_recovery_per_source(
         fit=label_pred[:,2][feh_mask],
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
-        fit_label=r"[Fe/H] (Cannon)",
+        fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Binary Primary)",
-        cb_label=r"$T_{\rm eff}\,$K (Literature)",
+        cb_label=r"$T_{\rm eff}$ (K, Literature)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
         show_offset=show_offset,
-        ticks=feh_ticks,)
+        ticks=feh_ticks,
+        panel_label=panel_label,
+        plot_y_label=True,
+        plot_resid_y_label=False,)
 
     # Save plot
     fig.set_size_inches(16, 3)
@@ -293,6 +308,9 @@ def plot_label_recovery_abundances(
     """
     plt.close("all")
 
+    # Panel label with n_labels
+    panel_label = "{:0.0f} Label".format(label_pred.shape[1])
+
     n_abundances = len(abundance_labels)
 
     if n_abundances == 0:
@@ -329,14 +347,15 @@ def plot_label_recovery_abundances(
             fit=label_pred[:,label_i][abundance_mask],
             e_fit=e_label_pred[:,label_i][abundance_mask],
             colour=label_values[:,0][abundance_mask],
-            fit_label=r"{} (Cannon)".format(abundance_label),
+            fit_label=r"{} ($\it{{Cannon}}$)".format(abundance_label),
             lit_label=r"{} (Literature)".format(abundance_label),
             cb_label=r"$T_{\rm eff}\,$K (Literature)",
             x_lims=feh_lims,
             y_lims=feh_lims,
             cmap="magma",
             show_offset=show_offset,
-            ticks=feh_ticks,)
+            ticks=feh_ticks,
+            panel_label=panel_label,)
     
     # Save plot
     fig.set_size_inches(4*n_abundances, 3)
@@ -555,9 +574,15 @@ def plot_theta_coefficients(
     
     # Five axes if we're plotting all theta coefficients
     else:
-        fig, axes = plt.subplots(5, 1, sharex=True, figsize=(16, 8.5))
+        fig, axes = plt.subplots(5, 1, sharex=True, figsize=(16, 7.5))
 
-    fig.subplots_adjust(hspace=0.001, wspace=0.001)
+    fig.subplots_adjust(
+        left=0.05,
+        bottom=0.075,
+        right=0.98,
+        top=0.975,
+        hspace=0.000,
+        wspace=0.001)
 
     axes = axes.flatten()
 
@@ -696,7 +721,12 @@ def plot_theta_coefficients(
     # Final Panel: Scatter
     # -------------------------------------------------------------------------
     axes[-1].plot(
-        wave, scatter, linewidth=linewidth, label=sm1_label, alpha=alpha,)
+        wave,
+        scatter,
+        linewidth=linewidth,
+        label=sm1_label,
+        alpha=alpha,
+        color="darkturquoise")
 
     # If we've been given a second Stannon model, plot its scatter as well
     if sm2 is not None:
@@ -707,7 +737,8 @@ def plot_theta_coefficients(
             scatter_sm2,
             linewidth=linewidth,
             label=sm2_label,
-            alpha=alpha,)
+            alpha=alpha,
+            color="firebrick")
 
     if use_logarithmic_scale_axis:
         axes[-1].set_yscale("log")
@@ -735,8 +766,11 @@ def plot_theta_coefficients(
         line_mask = np.logical_and(
             line_list_adopt["wl"].values > x_lims[0],
             line_list_adopt["wl"].values < x_lims[1],)
-
+        
         for line_i, line_data in line_list_adopt[line_mask].iterrows():
+            # Change arabic numbers to roman numerals
+            species_str = line_data["ion"].replace("1", "I").replace("2", "II")
+
             # Label lines on spectral plot
             axes[0].vlines(
                 x=line_data["wl"],
@@ -744,7 +778,8 @@ def plot_theta_coefficients(
                 ymax=species_line_lims_spec[1],
                 linewidth=species_line_width,
                 colors=cmap(species_mapping_dict[line_data["ion"]]),
-                label=line_data["ion"],)
+                label=species_str,
+                alpha=0.6,)
             
             # Label lines on scatter plot
             axes[-1].vlines(
@@ -753,7 +788,8 @@ def plot_theta_coefficients(
                 ymax=species_line_lims_scatter[1],
                 linewidth=species_line_width,
                 colors=cmap(species_mapping_dict[line_data["ion"]]),
-                label=line_data["ion"],)
+                label=species_str,
+                alpha=0.6,)
 
     else:
         n_unique_species = 0
@@ -790,20 +826,23 @@ def plot_theta_coefficients(
     axes[1].set_ylim(y_theta_linear_lims)
     axes[-1].set_ylim(y_s2_lims)
 
-    axes[0].set_ylabel(r"Normalised Flux")
+    axes[0].set_ylabel(r"Flux (Norm.)")
     axes[1].set_ylabel(r"$\theta_{\rm Linear}$")
     axes[-1].set_ylabel(r"Scatter")
 
+    axes[0].yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+    axes[0].yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
     for ax in axes[1:-1]:
-        ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
-        ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+        ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
+        ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.025))
 
     axes[-1].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
     axes[-1].xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
 
-    plt.xlabel("Wavelength (A)")
+    plt.xlabel(r"Wavelength (${\rm \AA}$)")
     
-    plt.tight_layout()
+    #plt.tight_layout()
     plt.savefig("paper/theta_coefficients_{}{}.pdf".format(fn_label, fn_suffix))
     plt.savefig("paper/theta_coefficients_{}{}.png".format(fn_label, fn_suffix),
         dpi=200)
@@ -899,8 +938,8 @@ def plot_spectra_comparison(
             sm.wavelengths,
             spec_gen + star_i*y_offset,
             linewidth=0.2,
-            c="r",
-            label="Cannon",)
+            c="tomato",
+            label=r"$\it{Cannon}$",)
 
         # Label spectrum
         star_txt = (
@@ -1381,6 +1420,13 @@ def plot_abundance_trend_recovery(
         return_axes=True,
         scatter_label="Valenti & Fischer 2005",)
 
+    # Print offset
+    delta_Ti_Fe_vf05 = (vf05_join["[Ti/Fe]_true"].values[in_range]
+                        - vf05_join["[Ti/Fe]_pred"].values[in_range])
+    
+    print("Δ[Ti/Fe] = {:+0.3f} +/- {:0.3f}".format(
+        np.nanmedian(delta_Ti_Fe_vf05), np.nanstd(delta_Ti_Fe_vf05)))
+
     # Plot the overlapping points
     feh_min = np.nanmin(vf05_join["[Fe/H]"].values[in_range])
     feh_max = np.nanmax(vf05_join["[Fe/H]"].values[in_range])
@@ -1409,6 +1455,9 @@ def plot_abundance_trend_recovery(
         linewidths=1.5,)
 
     resid_ax.set_ylabel(r"${\rm lit}-{\rm pred}$")
+
+    resid_ax.yaxis.set_major_formatter(
+        plticker.StrMethodFormatter(r"${x:+.1f}$"))
 
     #leg = axis.legend(loc="best")
     plt.tight_layout()

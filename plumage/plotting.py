@@ -1355,7 +1355,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     lit_label, cb_label, x_lims, y_lims, cmap, show_offset, ticks, 
     resid_y_lims=None, plot_scatter=True, ms=2, text_labels=None, 
     print_labels=False, elinewidth=0.5, offset_sig_fig=2, return_axes=False,
-    scatter_label=None,):
+    scatter_label=None, panel_label=None, plot_resid_y_label=True, 
+    plot_y_label=True, plot_cbar_label=True, n_decimal_sig_fig=2,):
     """
     Parameters
     ----------
@@ -1388,6 +1389,22 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
 
     scatter_label: str or None, default: None
         The label of the scatter plot for plotting on the legend.
+
+    panel_label: str or None, default: None
+        The text label to plot on the panel for identification.
+
+    plot_resid_y_label: boolean, default: True
+        Whether to plot the y axis label for the residual axis.
+
+    plot_y_label: boolean, default: True
+        Whether to plot the y axis label for the main axis.
+    
+    plot_cbar_label: boolean, default: True
+        Whether to plot the label for the colour bar.
+    
+    n_decimal_sig_fig: int, default: 2
+        Number of significant figures below which the +/- sign is no longer
+        plotted for the systematic bias.
     """
     # Plot error bars with overplotted scatter points + colour bar
     axis.errorbar(
@@ -1406,10 +1423,10 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
             lit, fit, c=colour, zorder=1, cmap=cmap, label=scatter_label)
 
         cb = fig.colorbar(sc, ax=axis)
-        cb.ax.tick_params(labelsize="large")
+        cb.ax.tick_params(labelsize="medium", rotation=0)
 
-        if cb_label != "":
-            cb.set_label(cb_label, fontsize="x-large")
+        if cb_label != "" and plot_cbar_label:
+            cb.set_label(cb_label, fontsize="large")
     
     # Split lims if we've been given different x and y limits
     lim_min = np.min([x_lims[0], y_lims[0]])
@@ -1463,8 +1480,10 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     resid_ax.set_xlabel(lit_label, fontsize="large")
 
     if fit_label != "":
-        axis.set_ylabel(fit_label, fontsize="large")
-        resid_ax.set_ylabel(r"${\rm lit}-{\rm fit}$", fontsize="large")
+        if plot_y_label:
+            axis.set_ylabel(fit_label, fontsize="large")
+        if plot_resid_y_label:
+            resid_ax.set_ylabel(r"${\rm lit}-{\rm fit}$", fontsize="large")
 
     axis.set_xlim(x_lims)
     resid_ax.set_xlim(x_lims)
@@ -1492,10 +1511,26 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
                 fontsize=5,
                 horizontalalignment="center",)
 
+    # Plot panel label if it's been provided
+    if panel_label is not None:
+        axis.text(
+            x=0.20,
+            y=0.80,
+            s=panel_label,
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=axis.transAxes,)
 
     # Ticks
     resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[1]))
     resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=ticks[0]))
+    
+    if r"$T_{\rm eff}$" in lit_label:
+        resid_ax.yaxis.set_major_formatter(
+            plticker.StrMethodFormatter(r"${x:+.0f}$"))
+    else:
+        resid_ax.yaxis.set_major_formatter(
+            plticker.StrMethodFormatter(r"${x:+.2f}$"))
 
     resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=ticks[3]))
     resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=ticks[2]))
@@ -1514,6 +1549,10 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     if show_offset:
         mean_offset = np.nanmedian(fit - lit)
         std = np.nanstd(fit - lit)
+
+        # Don't show sign if mean_offset is < significant figures
+        if np.round(mean_offset, n_decimal_sig_fig) == 0:
+            mean_offset = np.abs(mean_offset)
 
         offset_lbl = (r"${:0." + str(int(offset_sig_fig)) + r"f}\pm {:0." 
                       + str(int(offset_sig_fig)) + r"f}$")

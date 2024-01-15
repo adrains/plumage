@@ -137,7 +137,7 @@ def make_table_sample_summary(obs_tab,):
     # [Fe/H]
     # -------------------------------------------------------------------------
     feh_row_fmt = \
-        r"& {} & {:0.2f}\,dex & {:+0.3f}\,dex & {:d} & {:d} & {:d} \\"
+        r"& {} & {:0.2f}\,dex & {:+0.2f}\,dex & {:d} & {:d} & {:d} \\"
 
     has_default_feh = ~benchmarks["label_nondefault_feh"].values
     median_feh_sigma = \
@@ -557,7 +557,7 @@ def make_table_benchmark_overview(
 
         # logg - making sure to flag the star if it has an aberrant logg
         if star["logg_aberrant"]:
-            table_row += r"${:0.2f}\pm{:0.2f}$ $\dagger & ".format(
+            table_row += r"${:0.2f}\pm{:0.2f}$ $\dagger$ & ".format(
                 star["logg_cannon_value"],
                 star["logg_cannon_sigma_total"])
         else:
@@ -611,6 +611,13 @@ def make_table_benchmark_overview(
     # Remove last comma
     notes_references = notes_references[:-2]
     notes.append(notes_references)
+
+    # Add note about dagger symbol
+    dagger_note = (
+        "\\textbf{Notes:} $\\dagger$: $|\\Delta\\log g|$ aberrant by $> 0.075"
+        "\\,$dex compared to literature value.")
+    notes.append(dagger_note)
+        
     
     notes.append("\\end{minipage}")
     notes.append("\\end{table*}")

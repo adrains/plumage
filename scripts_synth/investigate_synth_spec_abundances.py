@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import plumage.synthetic as synth
 import matplotlib.ticker as plticker
 import plumage.plotting as pplt
+from matplotlib import ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # These are the elements Thomas's special grid supports, passed in as the 
@@ -36,7 +37,7 @@ wl_min = 3500
 wl_max = 7000
 
 fig_width = 12
-panel_height = 2.5
+panel_height = 2
 
 # These are the values of [X/H] that we want to plot
 xihs = [-0.1, 0, 0.1] 
@@ -151,37 +152,66 @@ for plot_i, (teff,logg) in enumerate(params):
             resid_ax.plot(wave, frac_change, linewidth=0.2, label=element,)
     
     # Finish setting up plot
-    axes[plot_i].set_ylabel("Flux (Cont. Norm.)", fontsize="small")
+    axes[plot_i].set_ylabel("F(Cont. Norm.)", fontsize="small")
     
-    resid_ax.set_ylabel(
-        r"$\frac{{\rm F(subsolar)}-{\rm F(supersolar)}}{{\rm F(supersolar)}}$",
-        fontsize="small",)
+    resid_ax.set_ylabel(r"Frac. ${\Delta}$F", fontsize="small",)
+    
+    # r"$\frac{{\rm F(subsolar)}-{\rm F(supersolar)}}{{\rm F(supersolar)}}$"
 
+    axes[plot_i].yaxis.set_minor_locator(plticker.MultipleLocator(base=0.1))
+    axes[plot_i].yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
     resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=100))
     resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
-    resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.1))
-    resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
 
-    # Put a legend below current axis
-    leg = resid_ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.1),
-            fancybox=True, ncol=len(elements)+1,)
+    if do_dominant_absorbers:
+        resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.1))
+        resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
+    else:
+        resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+        resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
 
-    # Update width of legend objects
-    for legobj in leg.legendHandles:
-        legobj.set_linewidth(1.5)
+    resid_ax.yaxis.set_major_formatter(
+        ticker.StrMethodFormatter(r"${x:+.1f}$"))
 
-    axes[plot_i].set_title(
-        r"$T_{{\rm eff}}={:0.0f}\,$K, $\log g={:0.2f}$, [Fe/H]$ = 0.0$".format(
-        teff, logg))
+    curr_ylim = axes[plot_i].get_ylim()
+    axes[plot_i].set_ylim(-0.05, curr_ylim[1])
+
+    # Put a legend above the top axis only
+    if plot_i == 0:
+        leg = resid_ax.legend(
+            loc='upper center',
+            bbox_to_anchor=(0.5, 2.2),
+            fancybox=True,
+            ncol=len(elements)+1,)
+
+        # Update width of legend objects
+        for legobj in leg.legendHandles:
+            legobj.set_linewidth(1.5)
+
+    # Plot description text
+    title_txt = r"$T_{{\rm eff}}={:0.0f}\,$K, $\log~g={:0.2f}$".format(
+        teff, logg)
+    bbox_prop = bbox=dict(
+        facecolor="white", edgecolor="k", boxstyle="round", alpha=0.8)
+    resid_ax.text(
+        x=0.5,
+        y=1.0,
+        s=title_txt,
+        horizontalalignment="center",
+        verticalalignment="center",
+        bbox=bbox_prop,
+        zorder=100,
+        transform=resid_ax.transAxes,      # Relative vs Data coords
+    )
     axes[plot_i].set_xlim([wl_min,wl_max])
     resid_ax.set_xlim([wl_min,wl_max])
     
     if plot_i < len(params) - 1:
         resid_ax.set_xticks([])
 
-resid_ax.set_xlabel("Wavelength (A)")
+resid_ax.set_xlabel(r"Wavelength (${\rm \AA}$)")
 plt.tight_layout()
-fig.subplots_adjust(hspace=0.15)
+fig.subplots_adjust(hspace=0.0)
 
 plt.savefig("paper/synth_spec_flux_vs_abund_{}.pdf".format(save_label))
 plt.savefig("paper/synth_spec_flux_vs_abund_{}.pdf".format(save_label),dpi=500)

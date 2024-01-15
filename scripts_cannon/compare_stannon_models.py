@@ -66,7 +66,8 @@ splt.plot_spectra_comparison(
     fn_label="marcs",
     data_label="",
     data_plot_label="MARCS",
-    data_plot_colour="b",)
+    data_plot_colour="mediumblue",
+    fig_size=cs.spec_comp_fig_size,)
 
 # Plot *difference* between these fluxes for all benchmarks
 splt.plot_delta_cannon_vs_marcs(
@@ -117,10 +118,10 @@ splt.plot_theta_coefficients(
     x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
     y_spec_lims=(0,2.25),
     y_theta_linear_lims=(-0.12,0.12),
-    y_theta_quadratic_lims=(-0.2,0.2),
-    y_theta_cross_lims=(-0.3,0.3),
+    y_theta_quadratic_lims=(-0.12,0.12),
+    y_theta_cross_lims=(-0.12,0.12),
     y_s2_lims=(-0.0001, 0.005),
-    x_ticks=(200,100),
+    x_ticks=(100,50),
     fn_label="b",
     linewidth=0.5,
     alpha=0.8,
@@ -139,10 +140,10 @@ splt.plot_theta_coefficients(
     x_lims=(cs.wl_grating_changeover,cs.wl_max_model),
     y_spec_lims=(0,2.25),
     y_theta_linear_lims=(-0.12,0.12),
-    y_theta_quadratic_lims=(-0.1,0.1),
-    y_theta_cross_lims=(-0.2,0.2),
+    y_theta_quadratic_lims=(-0.075,0.075),
+    y_theta_cross_lims=(-0.075,0.075),
     y_s2_lims=(-0.0001, 0.005),
-    x_ticks=(200,100),
+    x_ticks=(100,50),
     fn_label="r",
     linewidth=0.5,
     alpha=0.8,
