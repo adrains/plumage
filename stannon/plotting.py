@@ -66,8 +66,8 @@ def plot_label_recovery(
         e_fit=e_label_pred[:,0],
         colour=label_values[:,2],
         fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
-        lit_label=r"$T_{\rm eff}$ (K, Literature)",
-        cb_label="[Fe/H] (Literature)",
+        lit_label=r"$T_{\rm eff}$ (K, Adopted)",
+        cb_label="[Fe/H] (Adopted)",
         x_lims=teff_lims,
         y_lims=teff_lims,
         cmap="viridis",
@@ -88,8 +88,8 @@ def plot_label_recovery(
         e_fit=e_label_pred[:,1][logg_mask],
         colour=label_values[:,2][logg_mask],
         fit_label=r"$\log g$ ($\it{Cannon}$)",
-        lit_label=r"$\log g$ (Literature)",
-        cb_label="[Fe/H] (Literature)",
+        lit_label=r"$\log g$ (Adopted)",
+        cb_label="[Fe/H] (Adopted)",
         x_lims=logg_lims,
         y_lims=logg_lims,
         cmap="viridis",
@@ -111,8 +111,8 @@ def plot_label_recovery(
         e_fit=e_label_pred[:,2][feh_mask],
         colour=label_values[:,0][feh_mask],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
-        lit_label=r"[Fe/H] (Literature)",
-        cb_label=r"$T_{\rm eff}$ (K, Literature)",
+        lit_label=r"[Fe/H] (Adopted)",
+        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
@@ -186,7 +186,7 @@ def plot_label_recovery_per_source(
         colour=label_values[:,2][int_mask],
         fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
         lit_label=r"$T_{\rm eff}$ (K, Interferometry)",
-        cb_label="[Fe/H] (Literature)",
+        cb_label="[Fe/H] (Adopted)",
         x_lims=teff_lims,
         y_lims=teff_lims,
         cmap="viridis",
@@ -207,7 +207,7 @@ def plot_label_recovery_per_source(
         colour=label_values[:,0][feh_mask],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Mann+15)",
-        cb_label=r"$T_{\rm eff}$ (K, Literature)",
+        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
@@ -230,7 +230,7 @@ def plot_label_recovery_per_source(
         colour=label_values[:,0][feh_mask],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Rojas-Ayala+12)",
-        cb_label=r"$T_{\rm eff}$ (K, Literature)",
+        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
@@ -254,7 +254,7 @@ def plot_label_recovery_per_source(
         colour=label_values[:,0][feh_mask],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Binary Primary)",
-        cb_label=r"$T_{\rm eff}$ (K, Literature)",
+        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
         x_lims=feh_lims,
         y_lims=feh_lims,
         cmap="magma",
@@ -348,8 +348,8 @@ def plot_label_recovery_abundances(
             e_fit=e_label_pred[:,label_i][abundance_mask],
             colour=label_values[:,0][abundance_mask],
             fit_label=r"{} ($\it{{Cannon}}$)".format(abundance_label),
-            lit_label=r"{} (Literature)".format(abundance_label),
-            cb_label=r"$T_{\rm eff}\,$K (Literature)",
+            lit_label=r"{} (Adopted)".format(abundance_label),
+            cb_label=r"$T_{\rm eff}\,$K (Adopted)",
             x_lims=feh_lims,
             y_lims=feh_lims,
             cmap="magma",
@@ -866,7 +866,8 @@ def plot_spectra_comparison(
     do_plot_eps=False,
     fig_size=(12,8),
     data_plot_label="Observed",
-    data_plot_colour="k",):
+    data_plot_colour="k",
+    bp_rp_col="BP_RP_dr3",):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
     """
@@ -949,7 +950,7 @@ def plot_spectra_comparison(
             obs_join.loc[source_id][star_name_col],
             labels[0],
             labels[2],
-            obs_join.loc[source_id]["BP_RP_dr3"],)
+            obs_join.loc[source_id][bp_rp_col],)
 
         ax.text(
             x=x_lims[0]+(x_lims[1]-x_lims[0])/2,

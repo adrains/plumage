@@ -954,7 +954,7 @@ def load_info_cat(
         info_cat = pd.read_csv(
             path,
             sep="\t",
-            dtype={"source_id_dr2":str, "source_id_dr3":str})
+            dtype={"source_id":str, "source_id_dr2":str, "source_id_dr3":str})
 
     # Clean
     if clean:

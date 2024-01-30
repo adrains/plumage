@@ -665,7 +665,9 @@ def make_table_parameter_fit_results(
     table_label="benchmark",
     caption="",
     synth_logg_col="logg_synth",
-    aberrant_logg_threshold=0.15,):
+    aberrant_logg_threshold=0.15,
+    bp_mag_col="BP_mag_dr3",
+    bp_rp_col="BP_RP_dr3",):
     """Make a LaTeX table of our Cannon fitted stellar parameters.
     """
     cols = OrderedDict([
@@ -709,7 +711,7 @@ def make_table_parameter_fit_results(
     header_2.insert(2, "\\contcaption{{{}}}".format(caption))
 
     # Sort by Bp-Rp
-    ii = np.argsort(obs_tab["BP_RP_dr3"].values)[::-1]
+    ii = np.argsort(obs_tab[bp_rp_col].values)[::-1]
     sorted_tab = obs_tab.iloc[ii]
     sorted_labels = label_fits[ii]
     sorted_e_labels = e_label_fits[ii]
@@ -723,10 +725,10 @@ def make_table_parameter_fit_results(
         table_row += "{} & ".format(source_id)
 
         # Magnitude
-        table_row += "{:0.2f} & ".format(star["BP_mag_dr3"])
+        table_row += "{:0.2f} & ".format(star[bp_mag_col])
 
         # Colour
-        table_row += "{:0.2f} & ".format(star["BP_RP_dr3"])
+        table_row += "{:0.2f} & ".format(star[bp_rp_col])
 
         # SNR
         table_row += "{:0.0f} & ".format(star["snr_b"])
