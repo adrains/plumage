@@ -144,8 +144,8 @@ species_to_plot: ["Ca 1", "Ti 1", "Fe 1"]
 # and uncertainty will be adopted from just the interferometric set, whereas
 # logg and [Fe/H] will be taken from the complete sample. 
 # TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
-adopted_label_systematics: [-3, 0.0, 0.00, 0.05,]
-adopted_label_uncertainties: [50, 0.04, 0.10, 0.06]
+adopted_label_systematics: [-1, 0.0, 0.00, 0.01,]
+adopted_label_uncertainties: [51, 0.04, 0.10, 0.06]
 
 # Here we've picked a set of spectral types ranging over our BP-RP range.
 representative_stars_source_ids: 

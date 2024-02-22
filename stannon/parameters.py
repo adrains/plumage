@@ -580,8 +580,8 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
 
     # [Ti/Fe] from Monty GALAH + Gaia fits --> Preferred
     if not np.isnan(star_info["Ti_Fe_monty"]):
-        Ti_Fe_value_predicted = star_info["Ti_Fe_monty"]# + Ti_Fe_OFFSETS["Monty"]
-        Ti_Fe_sigma_predicted = star_info["Ti_Fe_monty"]
+        Ti_Fe_value_predicted = star_info["Ti_Fe_monty"] + Ti_Fe_OFFSETS["Monty"]
+        Ti_Fe_sigma_predicted = star_info["e_Ti_Fe_monty"]
         Ti_Fe_source = "R22a"
 
     # [Ti/Fe]--simple linear in [Fe/H] to GALAH DR2
