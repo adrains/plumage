@@ -5,10 +5,13 @@ import copy
 import numpy as np
 from tqdm import tqdm
 import pickle
+import pandas as pd
 import stannon.utils as su
 from datetime import datetime
 import plumage.spectra as spec
 from scipy.optimize import curve_fit
+from astropy.io import fits
+from astropy.table import Table
 from stannon.vectorizer import polynomial as svp
 from stannon.vectorizer import PolynomialVectorizer
 
@@ -939,9 +942,17 @@ class Stannon(object):
         return spec_gen
 
 
-    def save_model(self, path,):
-        """Saves the stannon model. Currently just uses pickle for simplicity,
-        but for persistence might want to consider fits as a future update.
+    def save_model(self, path, fmt="pkl"):
+        """Saves the stannon model as either a Python pickle file (default) or
+        a fits file.
+
+        Parameters
+        ----------
+        path: str
+            Filepath to save the Cannon model to.
+
+        fmt: str, default: 'pkl'
+            Format to save the Cannon model as, must be one of ['pkl', 'fits']'
         """
         # Create a dictionary of all class variables
         class_dict = {
@@ -959,65 +970,312 @@ class Stannon(object):
             "s2":self.s2,
             "cross_val_labels":self.cross_val_labels,
             "bad_px_mask":self.bad_px_mask,
+            "L":self.L,
+            "P":self.P,
+            "S":self.S,
+            "n_coeff":self.N_COEFF,
         }
 
         if self.model_type == "label_uncertainties":
             class_dict["true_labels"] = self.true_labels
 
         # Construct filename
-        filename = os.path.join(
-            path, 
-            "stannon_model_{}_{}label_{}px_{}.pkl".format(
-                self.model_type, self.L, self.P, "_".join(self.label_names)))
+        fn = "stannon_model_{}_{}label_{}px_{}.{}".format(
+            self.model_type, self.L, self.P, "_".join(self.label_names), fmt)
+        filename = os.path.join(path, fn)
 
-        # Dump our model to disk, and overwrite any existing file.
-        with open(filename, 'wb') as output_file:
-            pickle.dump(class_dict, output_file, pickle.HIGHEST_PROTOCOL)
+        # Save to file
+        if fmt == "pkl":
+            _save_pkl_model(filename, class_dict)
+
+        elif fmt == "fits":
+            _save_fits_model(filename, class_dict)
+
+        else:
+            raise Exception("Invalid file format, must be 'pkl' or 'fits'.")
 
 
 #------------------------------------------------------------------------------
-# Module Functions
+# Save/load
 #------------------------------------------------------------------------------
 def load_model(filename):
-    """Load a saved stannon model from file. Currently uses pickle, but in the
-    future this may change.
+    """Load a saved stannon model from file. Can load either pickle or fits
+    format saved Cannon models depending on the extension of filename.
+
+    Parameters
+    ----------
+    filename: str
+        Filepath to the saved model.
+
+    Returns
+    -------
+    sm: Stannon object
+        Cannon model.
     """
     # Input checking
     if not os.path.isfile(filename):
-        raise FileNotFoundError("Pickle not found")
+        raise FileNotFoundError("Cannon model not found!")
 
-    # Import the saved pickle of class dict and remake object
-    with open(filename, 'rb') as input_file:
-        class_dict = pickle.load(input_file)
+    # Import the saved class_dict from file
+    file_extension = filename.split(".")[-1]
 
-        # Remake object
-        sm = Stannon(
-            training_data=class_dict["training_data"],
-            training_data_ivar=class_dict["training_data_ivar"],
-            training_labels=class_dict["training_labels"],
-            training_ids=class_dict["training_ids"],
-            label_names=class_dict["label_names"],
-            wavelengths=class_dict["wavelengths"],
-            model_type=class_dict["model_type"],
-            training_variances=class_dict["training_variances"],
-            adopted_wl_mask=class_dict["adopted_wl_mask"],
-            data_mask=class_dict["data_mask"],
-            bad_px_mask=class_dict["bad_px_mask"],)
+    if file_extension == "pkl":
+        class_dict = _load_pkl_model(filename)
+    elif file_extension == "fits":
+        class_dict = _load_fits_model(filename)
+    else:
+        raise Exception("Unknown file extension.")
 
-        # Save theta, s2, and results of cross validation
-        sm.theta = class_dict["theta"]
-        sm.s2 = class_dict["s2"]
-        sm.cross_val_labels = class_dict["cross_val_labels"]
+    # Remake object
+    sm = Stannon(
+        training_data=class_dict["training_data"],
+        training_data_ivar=class_dict["training_data_ivar"],
+        training_labels=class_dict["training_labels"],
+        training_ids=class_dict["training_ids"],
+        label_names=class_dict["label_names"],
+        wavelengths=class_dict["wavelengths"],
+        model_type=class_dict["model_type"],
+        training_variances=class_dict["training_variances"],
+        adopted_wl_mask=class_dict["adopted_wl_mask"],
+        data_mask=class_dict["data_mask"],
+        bad_px_mask=class_dict["bad_px_mask"],)
 
-        if class_dict["model_type"] == "label_uncertainties":
-            if "true_labels" in class_dict:
-                sm.true_labels = class_dict["true_labels"]
-            else:
-                print("Warning, using old model: no true_labels")
+    # Save theta, s2, and results of cross validation
+    sm.theta = class_dict["theta"]
+    sm.s2 = class_dict["s2"]
+    sm.cross_val_labels = class_dict["cross_val_labels"]
+
+    if class_dict["model_type"] == "label_uncertainties":
+        if "true_labels" in class_dict:
+            sm.true_labels = class_dict["true_labels"]
+        else:
+            print("Warning, using old model: no true_labels")
 
     return sm
 
 
+def _load_pkl_model(filename):
+    """Function to read in a saved Cannon model in Python pickle format.
+
+    Parameters
+    ----------
+    filename: str
+        Filepath to the saved model.
+
+    Returns
+    -------
+    class_dict: dict
+        Dictionary containing Cannon model properties.
+    """
+    with open(filename, 'rb') as input_file:
+        class_dict = pickle.load(input_file)
+
+    return class_dict
+
+
+def _save_pkl_model(filename, class_dict,):
+    """Function to save a Cannon model in Python pickle format.
+
+    Parameters
+    ----------
+    filename: str
+        Filepath to the saved model.
+
+    class_dict: dict
+        Dictionary containing Cannon model properties.
+    """
+    # Dump our model to disk, and overwrite any existing file.
+    with open(filename, 'wb') as output_file:
+        pickle.dump(class_dict, output_file, pickle.HIGHEST_PROTOCOL)
+
+
+def _load_fits_model(filename):
+    """Function to read in a saved Cannon model in fits format.
+
+    Parameters
+    ----------
+    filename: str
+        Filepath to the saved model.
+
+    Returns
+    -------
+    class_dict: dict
+        Dictionary containing Cannon model properties.
+    """
+    class_dict = {}
+
+    with fits.open(filename) as fits_file:
+        # Reconstruct DataFrame of model info
+        model_tab = Table(fits_file["MODEL_INFO"].data)
+        info_df = model_tab.to_pandas().set_index("parameter")
+
+        n_label = int(info_df.loc["N_LABEL", "value"])
+        label_cols = ["LABEL_{}".format(i) for i in range(n_label)]
+        label_names = [info_df.loc[label, "value"] for label in label_cols]
+
+        model_type = info_df.loc["MODEL", "value"]
+
+        # Save everything to dict
+        class_dict["model_type"] = model_type
+        class_dict["label_names"] = label_names
+        class_dict["training_data"] = fits_file["TRAINING_DATA"].data
+        class_dict["training_data_ivar"] = fits_file["TRAINING_DATA_IVAR"].data
+        class_dict["training_labels"] = fits_file["TRAINING_LABELS"].data
+        class_dict["training_variances"] = fits_file["TRAINING_VARIANCES"].data
+        class_dict["training_ids"] = fits_file["TRAINING_IDS"].data
+        class_dict["wavelengths"] = fits_file["WAVELENGTHS"].data
+        class_dict["adopted_wl_mask"] = \
+            fits_file["ADOPTED_WL_MASP"].data.astype(bool)
+        class_dict["data_mask"] = fits_file["DATA_MASK"].data.astype(bool)
+        class_dict["bad_px_mask"] = fits_file["BAD_PX_MASK"].data.astype(bool)
+        class_dict["theta"] = fits_file["THETA"].data
+        class_dict["s2"] = fits_file["S2"].data
+        class_dict["cross_val_labels"] = fits_file["CROSS_VAL_LABELS"].data
+
+        if model_type == "label_uncertainties":
+            class_dict["true_labels"] = fits_file["TRUE_LABELS"].data
+        
+    return class_dict
+
+
+def _save_fits_model(filename, class_dict,):
+    """Function to save a Cannon model in fits format. Arrays are stored as
+    image HDUs, whereas the model_type and label_names are stored in a fits
+    table HDU.
+
+    Parameters
+    ----------
+    filename: str
+        Filepath to the saved model.
+
+    class_dict: dict
+        Dictionary containing Cannon model properties.
+    """
+    # Construct DataFrame summarising Cannon model (+ to store non-array info)
+    cols = ["parameter", "value"]
+    data = [
+        ("MODEL",       class_dict["model_type"]),
+        ("N_LABEL",     str(class_dict["L"])),
+        ("N_STAR",      str(class_dict["S"])),
+        ("N_PX_MODEL",  str(class_dict["P"])),
+        ("N_COEFF",     class_dict["n_coeff"]),]
+    
+    # Add in label names
+    for label_i, label in enumerate(class_dict["label_names"]):
+        data.append(("LABEL_{}".format(label_i), label))
+
+    info_df = pd.DataFrame(data=data, columns=cols, dtype=str)
+
+    # Intialise HDU List
+    hdu = fits.HDUList()
+
+    # HDU 1: Fluxes
+    flux_img =  fits.PrimaryHDU(class_dict["training_data"])
+    flux_img.header["EXTNAME"] = (
+        "TRAINING_DATA",
+        "Normalised spectral fluxes, [n_star, n_px_all].")
+    hdu.append(flux_img)
+
+    # HDU 2: Flux inverse variances
+    flux_ivar_img =  fits.PrimaryHDU(class_dict["training_data_ivar"])
+    flux_ivar_img.header["EXTNAME"] = (
+        "TRAINING_DATA_IVAR",
+        "Normalised spectral inverse variances.")
+    hdu.append(flux_ivar_img)
+
+    # HDU 3: Training labels
+    label_img =  fits.PrimaryHDU(class_dict["training_labels"])
+    label_img.header["EXTNAME"] = (
+        "TRAINING_LABELS",
+        "Training labels for the Cannon model, [n_star, n_label].")
+    hdu.append(label_img)
+
+    # HDU 4: Training label variances
+    label_var_img =  fits.PrimaryHDU(class_dict["training_variances"])
+    label_var_img.header["EXTNAME"] = (
+        "TRAINING_VARIANCES",
+        "Training variances for the Cannon model, [n_star, n_label].")
+    hdu.append(label_var_img)
+
+    # HDU 5: Training star IDs
+    id_df = pd.DataFrame(data=class_dict["training_ids"], columns=["id"])
+    ids_tab = fits.BinTableHDU(Table.from_pandas(id_df))
+    ids_tab.header["EXTNAME"] = (
+        "TRAINING_IDS",
+        "Stellar IDs for the training sample, [n_star].")
+    hdu.append(ids_tab)
+
+    # HDU 6: Model overview table
+    model_tab = fits.BinTableHDU(Table.from_pandas(info_df))
+    model_tab.header["EXTNAME"] = ("MODEL_INFO", "Summary of Cannon model.")
+    hdu.append(model_tab)
+
+    # HDU 7: Wavelength scale
+    wave_img =  fits.PrimaryHDU(class_dict["wavelengths"])
+    wave_img.header["EXTNAME"] = (
+        "WAVELENGTHS",
+        "Wavelength scale corresponding to fluxes and flux ivar, [n_px_all]")
+    hdu.append(wave_img)
+
+    # HDU 8: Adopted wavelength mask
+    wave_adopt_mask_img = \
+        fits.PrimaryHDU(class_dict["adopted_wl_mask"].astype(int))
+    wave_adopt_mask_img.header["EXTNAME"] = (
+        "ADOPTED_WL_MASP",
+        "Global mask of wavelengths included in Cannon, [n_px_all].")
+    hdu.append(wave_adopt_mask_img)
+
+    # HDU 9: Data mask
+    data_mask_img =  fits.PrimaryHDU(class_dict["data_mask"].astype(int))
+    data_mask_img.header["EXTNAME"] = (
+        "DATA_MASK",
+        "Mask of stars included in the Cannon model, [n_star].")
+    hdu.append(data_mask_img)
+
+    # HDU 10: Bad pixel mask
+    bad_px_mask_img =  fits.PrimaryHDU(class_dict["bad_px_mask"].astype(int))
+    bad_px_mask_img.header["EXTNAME"] = (
+        "BAD_PX_MASK",
+        "Per-star bad px mask, [n_star, n_px_all].")
+    hdu.append(bad_px_mask_img)
+
+    # HDU 11: Theta
+    theta_img =  fits.PrimaryHDU(class_dict["theta"])
+    theta_img.header["EXTNAME"] = (
+        "THETA",
+        "Coefficient matrix for trained Cannon, [n_px_model, n_coeff].")
+    hdu.append(theta_img)
+
+    # HDU 12: s2
+    s2_img =  fits.PrimaryHDU(class_dict["s2"])
+    s2_img.header["EXTNAME"] = (
+        "S2",
+        "Scatter array for trained Cannon, [n_px_model].")
+    hdu.append(s2_img)
+
+    # HDU 13: Cross validation labels
+    cross_val_img =  fits.PrimaryHDU(class_dict["cross_val_labels"])
+    cross_val_img.header["EXTNAME"] = (
+        "CROSS_VAL_LABELS",
+        "Labels recovered in leave-one-out cross val, [n_star, n_label].")
+    hdu.append(cross_val_img)
+
+    if (class_dict["model_type"] == "label_uncertainties" 
+        and "true_labels" in class_dict):
+            # HDU 14: True labels
+            true_label_img =  fits.PrimaryHDU(class_dict["true_labels"])
+            true_label_img.header["EXTNAME"] = (
+                "TRUE_LABELS",
+                "True/perturbed labels for LU model, [n_star, n_label].")
+            hdu.append(true_label_img)
+
+    # Done, save
+    hdu.writeto(filename, overwrite=True)
+
+
+#------------------------------------------------------------------------------
+# Other Module Functions
+#------------------------------------------------------------------------------
 def prepare_fluxes(spec_br, e_spec_br,):
     """Prepare fluxes for use in Cannon model. Assume that we are receiving 
     previously combined blue and red arms.
