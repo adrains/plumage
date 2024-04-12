@@ -37,31 +37,15 @@ The _Cannon_ is implemented using [pyStan 2](https://github.com/stan-dev/pystan2
 
 With the various settings required by these scripts stored in scripts_cannon/cannon_settings.yml.
 
-Note that the trained three and four label _Cannon_ models themselves from [Rains+2024](https://doi.org/10.1093/mnras/stae560) will also be uploaded soon (time of writing 22/02/2024) to coincide with the paper's publication. We'll also make available a more general-use script and advice on running this _Cannon_ model on arbitrary cool dwarf spectra not observed with WiFeS. 
+Note that the trained three and four label _Cannon_ models themselves from [Rains+2024](https://doi.org/10.1093/mnras/stae560) are available in the models folder, and a general use script for using these models to generate spectra and predict labels is available as scripts_cannon/example_cannon_script.py. This script is separate from the sequence outlined above, and is the thing to look at if you want to play around with the Cannon. Please get in touch if you have questions!
 
-## Other Details
-### Output Format
-All scripts update a single fits file, with extensions added for each different script:
-```
-0  WAVE_B         PrimaryHDU       (n_px_b,)   
-1  SPEC_B         ImageHDU         (n_px_b, n_star)   
-2  SIGMA_B        ImageHDU         (n_px_b, n_star)   
-3  WAVE_R         ImageHDU         (n_px_r,)   
-4  SPEC_R         ImageHDU         (n_px_b, n_star)   
-5  SIGMA_R        ImageHDU         (n_px_b, n_star)   
-6  OBS_TAB        BinTableHDU      n_star R x 61C   
-7  BAD_PX_MASK_B  ImageHDU         (n_px_b, n_star)   
-8  BAD_PX_MASK_R  ImageHDU         (n_px_r, n_star)   
-9  SYNTH_FIT_B    ImageHDU         (n_px_b, n_star)   
-10  SYNTH_FIT_R   ImageHDU         (n_px_r, n_star)
-11  TRANSIT_FITS  BinTableHDU      n_toi R x 76C
-```
+## Dependencies
+For full functionality, the non-anaconda dependencies are:
+- [pystan2](https://github.com/stan-dev/pystan2)
+- [M_-M_K-](https://github.com/awmann/M_-M_K-)
+- [pIDLy](https://github.com/anthonyjsmith/pIDLy)
+- [Lightkurve](https://docs.lightkurve.org/)
+- [batman](https://lkreidberg.github.io/batman/docs/html/index.html)
+- [dustmaps](https://dustmaps.readthedocs.io/en/latest/)
 
-### Literature Relations and Data
-- Empirical absolute 2MASS K<sub>S</sub> cool dwarf radius relation from [Mann et al. 2015](https://ui.adsabs.harvard.edu/#abs/2016ApJ...819...87M/abstract)
-- Empirical absolute 2MASS K<sub>S</sub> cool dwarf mass relation from [Mann et al. 2019](https://ui.adsabs.harvard.edu/abs/2019ApJ...871...63M/abstract)
-- Limb darkening coefficients for TESS bandpass [Claret 2017](https://ui.adsabs.harvard.edu/abs/2017A&A...600A..30C/abstract)
-
-### Required Files
-- ID crossmatch file, with columns [source_id, 2MASS_Source_ID, HD, TOI, bayer, other, program, subset, program2, subset2]. Used to identify science program, and crossmatch ID.
-- Literature information file, containing Gaia photometry and parallaxes, 2MASS photometry, and optionally SkyMapper photometry
+However, if you just want to use the Cannon, pystan2 is technically (i.e. functionally) the only thing required.
