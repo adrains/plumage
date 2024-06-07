@@ -8,7 +8,7 @@ import plumage.plotting as pplt
 import matplotlib.ticker as plticker
 from collections import OrderedDict
 from stannon.vectorizer import PolynomialVectorizer
-from itertools import cycle
+from scipy.interpolate import splrep, BSpline
 
 def plot_label_recovery(
     label_values,
@@ -377,6 +377,8 @@ def plot_cannon_cmd(
     y_label=r"$M_{K_S}$",
     highlight_mask=None,
     highlight_mask_label="",
+    highlight_mask_2=None,
+    highlight_mask_label_2="",
     bp_rp_cutoff=0,):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
@@ -415,7 +417,7 @@ def plot_cannon_cmd(
         benchmark_mag, 
         zorder=1,
         c=benchmark_feh,
-        label="Benchmark",
+        label="{} ({})".format("Benchmark", len(benchmark_colour)),
         alpha=0.9,
         cmap="viridis",
     )
@@ -439,6 +441,9 @@ def plot_cannon_cmd(
 
     # If we've been given a highlight mask, plot for diagnostic reasons
     if highlight_mask is not None:
+        label = "{} ({})".format(
+            highlight_mask_label, int(np.sum(highlight_mask)))
+        
         scatter = axis.scatter(
             benchmark_colour[highlight_mask],
             benchmark_mag[highlight_mask],
@@ -447,7 +452,22 @@ def plot_cannon_cmd(
             edgecolor="k",
             linewidths=1.2,
             zorder=1,
-            label=highlight_mask_label,)
+            label=label,)
+        
+    # If we've been given a *second* highlight mask, also plot
+    if highlight_mask is not None:
+        label = "{} ({})".format(
+            highlight_mask_label_2, int(np.sum(highlight_mask_2)))
+        scatter = axis.scatter(
+            benchmark_colour[highlight_mask_2],
+            benchmark_mag[highlight_mask_2],
+            marker="o",
+            c=benchmark_feh[highlight_mask_2],
+            edgecolor="k",
+            linewidths=1.2,
+            linestyle= (0, (1, 1)),
+            zorder=1,
+            label=label,)
 
     plt.legend(loc="best", fontsize="large")
     
@@ -1176,7 +1196,9 @@ def plot_delta_cannon_vs_marcs(
     sm,
     fluxes_marcs_norm,
     delta_thresholds=(0.1, 0.05, 0.02),
-    fig_size=(12,3),):
+    fig_size=(12,3),
+    plot_smooth_interpolated_fluxes=False,
+    s=None,):
     """Plots a series of comparisons of Cannon vs MARCS spectra below the
     provided set of fractional flux tolerances.
 
@@ -1217,6 +1239,23 @@ def plot_delta_cannon_vs_marcs(
 
     # Compute the fractional flux difference
     delta = (cannon_fluxes_sorted - marcs_fluxes_sorted) / cannon_fluxes_sorted
+
+    #import pdb; pdb.set_trace()
+
+    # TODO
+    if plot_smooth_interpolated_fluxes:
+        n_bprp = sm.S
+        bp_rp_sampled = np.linspace(np.min(bprp), np.max(bprp), n_bprp)
+
+        delta_new = np.full_like(delta, np.nan)
+
+        # Interpolate each spectral pixel
+        for px_i in range(delta.shape[1]):
+            tck_s = splrep(bprp[bprp_ii], delta[:,px_i], s=s)
+            yy = BSpline(*tck_s)(bp_rp_sampled)
+            delta_new[:,px_i] = yy
+        
+        delta = delta_new
 
     plt.close("all")
     fig, axes = plt.subplots(

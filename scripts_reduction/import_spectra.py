@@ -36,10 +36,10 @@ import plumage.utils as utils
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of fits file of all spec
-label =  "tess"
+label =  "cannon_mk"
 
 # Base folder of 1D fits spectra
-spectra_folder = "spectra/tess"
+spectra_folder = "spectra/standard"
 
 # If 1D fits spectra are within additional subfolders (e.g. nights)
 include_subfolders = False
@@ -51,8 +51,13 @@ fits_save_path = "spectra"
 cat_type = "csv"
 cat_file = "data/all_2m3_star_ids.csv"
 
+do_crossmatch = False
+
 # Whether to import the spectra in units of counts, and then flux ourselves
 use_counts_ext_and_flux = True
+
+# Whether to enforce only one of each star by removing the lower SNR ob
+do_remove_duplicates = True
 
 # -----------------------------------------------------------------------------
 # Import spectra, clean, find bcor, and save
@@ -63,6 +68,7 @@ observations, spectra_b, spectra_r = spec.load_all_spectra(
     spectra_folder=spectra_folder,
     include_subfolders=include_subfolders,
     use_counts_ext_and_flux=use_counts_ext_and_flux,
+    do_remove_duplicates=do_remove_duplicates,
 )
 
 # Clean spectra by setting negative or zero flux values + errors to np.nan
@@ -80,8 +86,14 @@ observations["bcor"] = spec.compute_barycentric_correction(
     )
 
 # Crossmatch IDs and science programs for targets
-catalogue = utils.load_crossmatch_catalogue(cat_type, cat_file)
-utils.do_id_crossmatch(observations, catalogue)
+if do_crossmatch:
+    catalogue = utils.load_crossmatch_catalogue(cat_type, cat_file)
+    utils.do_id_crossmatch(observations, catalogue)
+
+# This assumes that ID is already equal to the source_id
+else:
+    observations["source_id"] = observations["id"].values
+    observations.set_index("source_id", inplace=True)
 
 # Save spectra and observation table
 utils.save_fits(spectra_b, spectra_r, observations, label, path=fits_save_path)

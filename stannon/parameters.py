@@ -31,6 +31,7 @@ FEH_OFFSETS = {
     "Soz09":0.0,    # TODO Confirm this
     "M14":0.0,      # Probably safe to assume this is zero?
     "RA12":0.01,    # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
+    "G14":0.0,      # Assumed to be on the same scale as M15
     "M13":0.0,
     "R21":np.nan,
     "B16":0.0,      # Computed from np.nanmedian(Fe_H_vf05-Fe_H_b16) in cpm_prim, 30 stars
@@ -133,7 +134,8 @@ FEH_CITATIONS = {
 def prepare_labels(
     obs_join,
     e_teff_quad=60,
-    max_teff=4200,):
+    max_teff=4200,
+    synth_params_available=False,):
     """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
@@ -196,13 +198,17 @@ def prepare_labels(
         # Prepare mask
         # ---------------------------------------------------------------------
         # Only accept properly vetted stars with consistent Teffs
-        if not star_info["in_paper"]:
-            std_mask[star_i] = False
-            continue
+        #if not star_info["in_paper"]:
+        #    std_mask[star_i] = False
+        #    continue
 
         # Only accept interferometric, M+15, RA+12, NIR other, & CPM standards
-        elif not (~np.isnan(star_info["teff_int"]) 
+        if not (~np.isnan(star_info["teff_int"])
+            or ~np.isnan(star_info["teff_vf05"])
+            or ~np.isnan(star_info["teff_s08"])
+            or ~np.isnan(star_info["Teff_L18"])
             or ~np.isnan(star_info["teff_m15"])
+            or ~np.isnan(star_info["teff_g14"])
             or ~np.isnan(star_info["teff_ra12"])
             or ~np.isnan(star_info["feh_nir"])
             or star_info["is_cpm"]):
@@ -214,11 +220,20 @@ def prepare_labels(
             std_mask[star_i] = False
             continue
         
+        # Final check, only proceed if we have a Mann+19 mass (and thus a logg)
+        # This enforces that we only run on mid-K through M dwarfs
+        elif np.isnan(star_info["mass_m19"]):
+            std_mask[star_i] = False
+            continue
+
         # ---------------------------------------------------------------------
         # Teff
         # ---------------------------------------------------------------------
         teff_value, teff_sigma, teff_source, teff_nondefault = \
-            select_teff_label(star_info, e_teff_quad=e_teff_quad,)
+            select_teff_label(
+                star_info,
+                e_teff_quad=e_teff_quad,
+                synth_params_available=synth_params_available)
 
         label_values[star_i, 0] = teff_value
         label_sigmas[star_i, 0] = teff_sigma
@@ -229,7 +244,7 @@ def prepare_labels(
         # logg
         # ---------------------------------------------------------------------
         logg_value, logg_sigma, logg_source, logg_nondefault = \
-            select_logg_label(star_info)
+            select_logg_label(star_info, synth_params_available)
 
         label_values[star_i, 1] = logg_value
         label_sigmas[star_i, 1] = logg_sigma
@@ -271,6 +286,12 @@ def prepare_labels(
         predicted_label_values[star_i, 1] = Ti_dict["Ti_Fe_value_predicted"]
         predicted_label_sigmas[star_i, 1] = Ti_dict["Ti_Fe_sigma_predicted"]
 
+        # ---------------------------------------------------------------------
+        # Final check
+        # ---------------------------------------------------------------------
+        if np.sum(np.isnan(label_values[star_i])) > 0:
+            std_mask[star_i] = False
+
     # -------------------------------------------------------------------------
     # Update Dataframe with selected labels
     # -------------------------------------------------------------------------
@@ -304,7 +325,7 @@ def prepare_labels(
     # All done!
 
 
-def select_teff_label(star_info, e_teff_quad):
+def select_teff_label(star_info, e_teff_quad, synth_params_available):
     """Produces our adopted Teff values for this specific star.
 
     Our current logg heirarchy is:
@@ -319,6 +340,8 @@ def select_teff_label(star_info, e_teff_quad):
     e_teff_quad: float
         Sigma value to add in quadrature with the non-interferometric Teff
         statistical uncertainties from Rains+21.
+
+    synth_params_available: TODO
 
     Returns
     -------
@@ -340,17 +363,51 @@ def select_teff_label(star_info, e_teff_quad):
         teff_nondefault = True
 
     # Otherwise uniform Teff from Rains+21
-    else:
+    elif synth_params_available:
         teff_value = star_info["teff_synth"]
         teff_sigma = (
             star_info["e_teff_synth"]**2 + e_teff_quad**2)**0.5
         teff_source = "R21"
         teff_nondefault = True
 
+    # Teff from empirical relations. M dwarfs will have Teff from the Mann+2015
+    # relations, and K dwarfs and up will have Teff from the Casagrande+2021
+    # relations, but for the overlap sample (late-K dwarfs) that have both,
+    # we will prioritise the Casagrande+2021 value.
+    else:
+        # Grab booleans for convenience/readability
+        has_M15_teff = not np.isnan(star_info["teff_M15_BP_RP_feh"])
+        has_C21_teff = not np.isnan(star_info["teff_C21_BP_Ks_logg_feh"])
+
+        # M-dwarfs
+        if has_M15_teff and not has_C21_teff:
+            teff_value = star_info["teff_M15_BP_RP_feh"]
+            teff_sigma = star_info["e_teff_M15_BP_RP_feh"]
+            teff_source = "M15er"
+            teff_nondefault = True
+
+        # Late-K dwarfs
+        elif has_M15_teff and has_C21_teff:
+            teff_value = star_info["teff_C21_BP_Ks_logg_feh"]
+            teff_sigma = star_info["e_teff_C21_BP_Ks_logg_feh"]
+            teff_source = "C21"
+            teff_nondefault = True
+
+        # Mid-K and warmer
+        elif not has_M15_teff and has_C21_teff:
+            teff_value = star_info["teff_C21_BP_Ks_logg_feh"]
+            teff_sigma = star_info["e_teff_C21_BP_Ks_logg_feh"]
+            teff_source = "C21"
+            teff_nondefault = True
+        
+        # Problem!
+        else:
+            raise ValueError("No valid Teff value, {}".format(star_info.name))
+
     return teff_value, teff_sigma, teff_source, teff_nondefault
             
 
-def select_logg_label(star_info):
+def select_logg_label(star_info, synth_params_available):
     """Produces our adopted logg values for this specific star.
 
     Our current logg heirarchy is:
@@ -360,6 +417,8 @@ def select_logg_label(star_info):
     ----------
     star_info: Pandas Series
         Single row of our obs_info DataFrame corresponding to a single star.
+
+    synth_params_available: TODO
 
     Returns
     -------
@@ -373,10 +432,19 @@ def select_logg_label(star_info):
         False if the adopted value comes from an empirical relation, True
         otherwise.
     """
-    logg_value = star_info["logg_synth"]
-    logg_sigma = star_info["e_logg_synth"]
-    logg_source = "R21"
-    logg_nondefault = True
+    # logg from Rains+21 (+Rains+24 Cannon model)
+    if synth_params_available:
+        logg_value = star_info["logg_synth"]
+        logg_sigma = star_info["e_logg_synth"]
+        logg_source = "R21"
+        logg_nondefault = True
+
+    # logg from Mann+2015 and Mann+2019 empirical relations
+    else:
+        logg_value = star_info["logg_m19"]
+        logg_sigma = star_info["e_logg_m19"]
+        logg_source = "M19"
+        logg_nondefault = True
 
     return logg_value, logg_sigma, logg_source, logg_nondefault
 
@@ -490,14 +558,46 @@ def select_Fe_H_label(star_info,):
         feh_nondefault = True
 
     # -------------------------------------------------------------------------
-    # [Fe/H] - single star
+    # [Fe/H] - single K-dwarfs
     # -------------------------------------------------------------------------
-    # M+15 > RA+12 > NIR other > Rains+21 > default
+    # M+15 > M+14 > RA+12 > NIR other > Rains+21 > default
+    
+    # VF05 (K-dwarfs)
+    elif ~np.isnan(star_info["feh_vf05"]):
+        feh_value = star_info["feh_vf05"]
+        feh_sigma = VF05_ABUND_SIGMA["Fe_H"]
+        feh_source = "VF05"
+        feh_nondefault = True
+
+    # Sousa+08 (K-dwarfs)
+    elif ~np.isnan(star_info["feh_s08"]):
+        feh_value = star_info["feh_s08"]
+        feh_sigma = star_info["e_feh_s08"]
+        feh_source = "Sou08"
+        feh_nondefault = True
+
+    # Luck+2008 (K-dwarfs)
+    elif not np.isnan(star_info["feh_L18"]):
+        feh_value = star_info["feh_L18"]
+        feh_sigma = np.nan    # TODO
+        feh_source = "L18"
+        feh_nondefault = True
+
+    # -------------------------------------------------------------------------
+    # [Fe/H] - single M-dwarfs
+    # -------------------------------------------------------------------------
     # Mann+15
     elif not np.isnan(star_info["feh_m15"]):
         feh_value = star_info["feh_m15"]
         feh_sigma = star_info["e_feh_m15"]
         feh_source = "M15"
+        feh_nondefault = True
+    
+    # Gaidos+14
+    elif not np.isnan(star_info["feh_g14"]):
+        feh_value = star_info["feh_g14"]
+        feh_sigma = star_info["e_feh_g14"]  # TODO: check, but should be M15 scale
+        feh_source = "G14"
         feh_nondefault = True
 
     # Rojas-Ayala+2012
@@ -515,6 +615,14 @@ def select_Fe_H_label(star_info,):
         feh_source = star_info["nir_source"]
         feh_nondefault = True
 
+    # TODO: eventually have the Cannon from Rains+24 predict [Fe/H]
+    else:
+        feh_value = np.nan
+        feh_sigma = np.nan
+        feh_source = ""
+        feh_nondefault = False
+
+    """
     # Rains+21 photometric [Fe/H]
     elif not np.isnan(star_info["phot_feh"]):
         feh_value = star_info["phot_feh"]
@@ -529,6 +637,7 @@ def select_Fe_H_label(star_info,):
         feh_source = "R21"
         feh_nondefault = False
         #print("Assigned default [Fe/H] to {}".format(source_id))
+    """
 
     return feh_value, feh_sigma, feh_source, feh_nondefault
 

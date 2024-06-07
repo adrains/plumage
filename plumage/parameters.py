@@ -219,7 +219,8 @@ def compute_mann_2015_teff(
     relation="BP - RP, J - H",
     teff_file="data/mann_2015_teff.txt", 
     sigma_spec=60,
-    ):
+    enforce_bounds=True,
+    teff_bounds=(2700, 4100),):
     """
     Calculates stellar effective temperatures based on the empircal relations
     in Table 2 of Mann et al. 2015.
@@ -237,6 +238,7 @@ def compute_mann_2015_teff(
         r - z
         r - J
         BP - RP, [Fe/H]
+        BP - RP (DR3), [Fe/H]
         V - J, [Fe/H]
         V - Ic, [Fe/H]
         r - z, [Fe/H]
@@ -247,10 +249,12 @@ def compute_mann_2015_teff(
         r - z, J - H
         r - J, J - H
 
+    TODO: enforce bounds on colour, rather than Teff.
+
     Parameters
     ----------
     colour: float array
-        Photometric colour used for the relation, e.g. Bp-Rp.
+        Photometric colour used for the relation, e.g. BP-RP.
 
     j_h: float array
         J-H colour used as a proxy for [Fe/H] in some relations. Defaults to 
@@ -278,9 +282,17 @@ def compute_mann_2015_teff(
     e_teffs: float array
         Uncertainties on teff.
     """
+    # Ensure everything is numpy arrays
+    colour = np.atleast_1d(colour)
+    if j_h is not None: j_h = np.atleast_1d(j_h)
+    if feh is not None: feh = np.atleast_1d(feh)
+
     # Import the table of colour relations
-    m15_teff = pd.read_csv(teff_file, delimiter="\t", comment="#", 
-                           index_col="X")
+    m15_teff = pd.read_csv(
+        teff_file,
+        delimiter="\t",
+        comment="#", 
+        index_col="X")
 
     # Check we've been given a valid relation
     if relation not in m15_teff.index.values:
@@ -294,21 +306,23 @@ def compute_mann_2015_teff(
         raise ValueError("Must give value of [Fe/H] to use [Fe/H] relations")
 
     # Calculate non-metallicity component
-    x_coeff = m15_teff.loc[relation][["a", "b", "c", "d", "e"]]
+    x_coeff = m15_teff.loc[relation][["a", "b", "c", "d", "e"]].values
     color_comp = polyval(colour, x_coeff)
 
     # Now calculate the metallicity component, which either uses [Fe/H] 
     # directly, or J-H as a proxy. These are mutually exclusive
 
+    # syst_info.loc["r_planet_rearth", "value"])
+
     # J-H component
     if "J - H" in relation:
-        jh_comp = (m15_teff.loc[relation]["f"] * j_h 
-                   + m15_teff.loc[relation]["g"] * j_h**2)
+        jh_comp = (m15_teff.loc[relation, "f"] * j_h 
+                   + m15_teff.loc[relation, "g"] * j_h**2)
         feh_comp = 0
 
     # [Fe/H] component
     elif "[Fe/H]" in relation:
-        feh_comp = m15_teff.loc[relation][["f"]] * feh
+        feh_comp = m15_teff.loc[relation, "f"] * feh
         jh_comp = 0
 
     # Using a single colour
@@ -323,6 +337,11 @@ def compute_mann_2015_teff(
     # quadrature with the spectroscopic uncertainties on derived Teffs
     e_teff = np.sqrt(m15_teff.loc[relation]["sigma"]**2 + sigma_spec**2)
     e_teffs = np.ones_like(teffs) * e_teff
+
+    if enforce_bounds:
+        oob = np.logical_or(teffs < teff_bounds[0], teffs > teff_bounds[1])
+        teffs[oob] = np.nan
+        e_teffs[oob] = np.nan
 
     return teffs, e_teffs
 
@@ -408,89 +427,114 @@ def compute_logg(masses, e_masses, radii, e_radii,):
     return logg, e_logg
 
 
-def compute_casagrande_2020_teff(
+def compute_casagrande_2021_teff(
     colour,
     logg,
     feh,
     relation,
-    teff_file="data/casagrande_colour_teff_2020.dat",):
+    teff_file="data/casagrande_colour_teff_2021_EDR3.dat",
+    enforce_bounds=True,
+    teff_bounds=(4000,8000),):
     """Calculates Teff using a given colour relation and measure of stellar 
-    logg and [Fe/H] per the Casagrande+2020 relations.
+    logg and [Fe/H] per the Casagrande+2021 relations.
+
+    https://ui.adsabs.harvard.edu/abs/2021MNRAS.507.2684C/abstract
 
     Parameters
     ----------
-    colour: float
+    colour: float or float array
         The stellar colour corresponding to 'relation'.
     
-    logg: float
+    logg: float or float array
         Stellar surface gravity in log cgs units.
 
-    feh: float
+    feh: float or float array
         Stellar metallciity relative to solar, i.e. [Fe/H].
 
     relation: string
         Colour relation to use. Valid options are:
-            - (Bp-Rp)
-            - (Bp-J)
-            - (Bp-H)
-            - (Bp-K)
-            - (Rp-J)
-            - (Rp-H)
-            - (Rp-K)
+            - (BP-RP)
+            - (BP-J)
+            - (BP-H)
+            - (BP-Ks)
+            - (RP-J)
+            - (RP-H)
+            - (RP-Ks)
             - (G-J)
             - (G-H)
-            - (G-K)
-            - (G-Bp)
-            - (G-Rp)
-        Where all colours have been corrected for reddening. Strings should be
-        entered in all lowercase, e.g. "bp-rp".
+            - (G-Ks)
+            - (G-BP)
+            - (G-RP)
+        Where all colours have been corrected for reddening.
     
     teff_file: string
         File of coefficients to load.
 
+    enforce_bounds: boolean, default: True
+        If True, temperatures outside of teff_bounds are set to nan.
+
+    teff_bounds: float tuple, default: (4000,8000)
+        Teff bounds associated with enforce_bounds.
+
     Returns
     -------
-    teff, e_teff: float
+    teff, e_teff: float or float array
         Calculated stellar effective temperature and corresponding uncertainty.
     """
-    # Load in 
-    c20_teff = pd.read_csv(
+    # Convert to arrays
+    colour = np.atleast_1d(colour)
+    loggs = np.atleast_1d(logg)
+    fehs = np.atleast_1d(feh)
+    
+    n_star = len(colour)
+
+    # Load in Casagrande+21 colour relations, tab separated
+    c21_teff = pd.read_csv(
         teff_file,
-        delim_whitespace=True,
+        sep="\t",
         comment="#",
         index_col="colour",) 
 
     # Ensure relation is valid
-    if relation not in c20_teff.index.values:
+    if relation not in c21_teff.index.values:
         raise ValueError("Unsupported relation. Must be one of %s"
-                         % c20_teff.index.values)
+                         % c21_teff.index.values)
 
     # Get the coefficients
     coeff_cols = ["a{}".format(i) for i in range(15)]
-    coeff = c20_teff.loc[relation][coeff_cols].values
+    coeff = c21_teff.loc[relation][coeff_cols].values
 
     # Calculate each term of the polynomial
     poly_terms = [
-        coeff[0],
+        np.full(n_star, coeff[0]),
         coeff[1]*colour,
         coeff[2]*colour**2,
         coeff[3]*colour**3,
         coeff[4]*colour**5,
-        coeff[5]*logg,
-        coeff[6]*logg*colour,
-        coeff[7]*logg*colour**2,
-        coeff[8]*logg*colour**3,
-        coeff[9]*logg*colour**5,
-        coeff[10]*feh,
-        coeff[11]*feh*colour,
-        coeff[12]*feh*colour**2,
-        coeff[13]*feh*colour**3,
-        coeff[14]*feh*logg*colour,
+        coeff[5]*loggs,
+        coeff[6]*loggs*colour,
+        coeff[7]*loggs*colour**2,
+        coeff[8]*loggs*colour**3,
+        coeff[9]*loggs*colour**5,
+        coeff[10]*fehs,
+        coeff[11]*fehs*colour,
+        coeff[12]*fehs*colour**2,
+        coeff[13]*fehs*colour**3,
+        coeff[14]*fehs*loggs*colour,
     ]
 
     # And sum to get the final temperature
-    teff = np.sum(poly_terms)
-    e_teff = c20_teff.loc[relation]["sigma_teff"]
+    teff = np.sum(poly_terms, axis=0)
+    e_teff = np.full(n_star, c21_teff.loc[relation]["sigma_teff"])
+
+    if enforce_bounds:
+        oob = np.logical_or(teff < teff_bounds[0], teff > teff_bounds[1])
+        teff[oob] = np.nan
+        e_teff[oob] = np.nan
+
+    if n_star == 1:
+        teff = teff[0]
+        e_teff = e_teff[0]
 
     return teff, e_teff
 

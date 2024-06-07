@@ -280,8 +280,8 @@ def load_cannon_settings(yaml_path):
 
     Returns
     -------
-    cs: CannonSettings object
-        CannonSettings object with attributes equivalent to YAML keys.
+    cs: YAMLSettings object
+        YAMLSettings object with attributes equivalent to YAML keys.
     """
     # Load in YAML file as dictionary
     with open(yaml_path) as yaml_file:
@@ -303,14 +303,46 @@ def load_cannon_settings(yaml_path):
         raise ValueError("Cannon setting lit_std_scale_fac length != n_labels")
 
     # Finally convert to our wrapper object form and return
-    cs = CannonSettings(yaml_dict)
+    cs = YAMLSettings(yaml_dict)
 
     return cs
 
 
-class CannonSettings:
-    """Wrapper object for Cannon parameters stored in YAML file and opened with
-    load_cannon_settings. Has attributes equivalent to keys in dict/YAML file.
+def load_yaml_settings(yaml_path):
+    """Import our settings YAML file as a dictionary and return the object 
+    equivalent.
+
+    Parameters
+    ----------
+    yaml_path: string
+        Path to the saved YAML file.
+
+    Returns
+    -------
+    yaml_settings: YAMLSettings object
+        Settings object with attributes equivalent to YAML keys.
+    """
+    # Load in YAML file as dictionary
+    with open(yaml_path) as yaml_file:
+        yaml_dict = yaml.safe_load(yaml_file)
+
+    # Correctly set None variables
+    for key in yaml_dict.keys():
+        if type(yaml_dict[key]) == list:
+            yaml_dict[key] = \
+                [val if val != "None" else None for val in yaml_dict[key]]
+        elif yaml_dict[key] == "None":
+            yaml_dict[key] = None
+
+    # Finally convert to our wrapper object form and return
+    yaml_settings = YAMLSettings(yaml_dict)
+
+    return yaml_settings
+
+
+class YAMLSettings:
+    """Wrapper object for settings stored in YAML file and opened with
+    load_yaml_settings. Has attributes equivalent to keys in dict/YAML file.
     """
     def __init__(self, param_dict):
         for key, value in param_dict.items():

@@ -26,7 +26,7 @@ sm2 = stannon.load_model(cs.sm_2_path)
 # Note: we run get_lit_param_synth.py first to already have MARCS spectra.
 # Since the MARCS grid doesn't have an abundance dimension, we can only make
 # this plot for a 3 label model.
-obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
+obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
 is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
 
 wls = pu.load_fits_image_hdu("rest_frame_wave", cs.std_label, arm="br")
@@ -54,6 +54,7 @@ fluxes_marcs_norm, _, bad_px_mask, _, _ = \
         poly_order=cs.poly_order)
 
 # Plot Cannon vs MARCS spectra comparison over the entire spectral range
+# 1) Just for our selected stars
 splt.plot_spectra_comparison(
     sm=sm1,
     obs_join=obs_join[is_cannon_benchmark],
@@ -68,6 +69,23 @@ splt.plot_spectra_comparison(
     data_plot_label="MARCS",
     data_plot_colour="mediumblue",
     fig_size=cs.spec_comp_fig_size,)
+
+# 2) For all stars
+splt.plot_spectra_comparison(
+    sm=sm1,
+    obs_join=obs_join[is_cannon_benchmark],
+    fluxes=fluxes_marcs_norm,
+    bad_px_masks=bad_px_mask,
+    labels_all=sm1.training_labels,
+    source_ids=obs_join[is_cannon_benchmark].index.values,
+    sort_col_name="BP_RP_dr3",
+    x_lims=(cs.wl_min_model,cs.wl_max_model),
+    fn_label="marcs_all",
+    data_label="",
+    data_plot_label="MARCS",
+    data_plot_colour="mediumblue",
+    fig_size=(12,80),)
+
 
 # Plot *difference* between these fluxes for all benchmarks
 splt.plot_delta_cannon_vs_marcs(

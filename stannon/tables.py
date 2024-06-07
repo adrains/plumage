@@ -26,6 +26,12 @@ label_source_refs = {
     "B16":"brewer_spectral_2016",
     "RB20":"rice_stellar_2020",
     "Sou08":"sousa_spectroscopic_2008",
+    "C21":"casagrande_galah_2021",
+    "M15er":"mann_how_2015",
+    "M19":"mann_how_2019",
+    "S08":"sousa_spectroscopic_2008",       # TODO: dup, remove
+    "L18":"luck_abundances_2018",
+    "R20":"rains_precision_2020",
 }
 
 def make_table_sample_summary(obs_tab,):
@@ -95,17 +101,29 @@ def make_table_sample_summary(obs_tab,):
             np.sum(~has_interferometry),    # without
             np.sum(has_interferometry),)    # adopted
 
-    # Rains+21
-    has_r21 = ~np.isnan(benchmarks["teff_synth"].values)
-    adopted_21 = benchmarks["label_source_teff"].values == "R21"
-    median_teff_r21_sigma = \
-        np.median(benchmarks[adopted_21]["label_adopt_sigma_teff"])
-    teff_r21_row = \
-        r"& Rains+21 & {:0.0f}\,K & - & {:d} & {:d} & {:d} \\".format(
-            median_teff_r21_sigma,          # median sigma
-            np.sum(has_r21),                # with
-            np.sum(~has_r21),               # without
-            np.sum(adopted_21),)            # adopted
+    # Mann+15 (Empirical Relations)
+    has_m15_er = ~np.isnan(benchmarks["teff_M15_BP_RP_feh"].values)
+    adopted_m15_er = benchmarks["label_source_teff"].values == "M15_ER"
+    median_teff_m15_er_sigma = \
+        np.median(benchmarks[adopted_m15_er]["label_adopt_sigma_teff"])
+    teff_m15_er_row = \
+        r"& Mann+15 (ER) & {:0.0f}\,K & - & {:d} & {:d} & {:d} \\".format(
+            median_teff_m15_er_sigma,       # median sigma
+            np.sum(has_m15_er),             # with
+            np.sum(~has_m15_er),            # without
+            np.sum(adopted_m15_er),)        # adopted
+    
+    # Casagrande+21
+    has_c21 = ~np.isnan(benchmarks["teff_C21_BP_Ks_logg_feh"].values)
+    adopted_c21 = benchmarks["label_source_teff"].values == "C21"
+    median_teff_c21_sigma = \
+        np.median(benchmarks[adopted_c21]["label_adopt_sigma_teff"])
+    teff_c21_row = \
+        r"& Casagrande+21 & {:0.0f}\,K & - & {:d} & {:d} & {:d} \\".format(
+            median_teff_c21_sigma,          # median sigma
+            np.sum(has_c21),                # with
+            np.sum(~has_c21),               # without
+            np.sum(adopted_c21),)           # adopted
 
     # -------------------------------------------------------------------------
     # logg
@@ -121,17 +139,17 @@ def make_table_sample_summary(obs_tab,):
         np.sum(has_default_logg),       # without
         np.sum(~has_default_logg))      # adopted
 
-    # Rains+21
-    has_r21 = ~np.isnan(benchmarks["teff_synth"].values)
-    adopted_r21 = benchmarks["label_source_logg"].values == "R21"
-    median_logg_r21_sigma = \
-        np.median(benchmarks[adopted_r21]["label_adopt_sigma_logg"])
-    logg_r21_row = \
+    # Mann+19
+    has_m19 = ~np.isnan(benchmarks["logg_m19"].values)
+    adopted_m19 = benchmarks["label_source_logg"].values == "M19"
+    median_logg_m19_sigma = \
+        np.median(benchmarks[adopted_m19]["label_adopt_sigma_logg"])
+    logg_m19_row = \
         r"& Rains+21 & {:0.2f}\,dex & - & {:d} & {:d} & {:d} \\".format(
-        median_logg_r21_sigma,          # median sigma
-        np.sum(has_r21),                # with
-        np.sum(~has_r21),               # without
-        np.sum(adopted_r21),)           # adopted
+        median_logg_m19_sigma,          # median sigma
+        np.sum(has_m19),                # with
+        np.sum(~has_m19),               # without
+        np.sum(adopted_m19),)           # adopted
 
     # -------------------------------------------------------------------------
     # [Fe/H]
@@ -224,6 +242,19 @@ def make_table_sample_summary(obs_tab,):
             np.sum(has_m15),                # with
             np.sum(~has_m15),               # without
             np.sum(adopted_m15))            # Adopted
+    
+    # Gaidos+2014
+    has_g15 = ~np.isnan(benchmarks["feh_g14"].values)
+    adopted_g14 = benchmarks["label_source_feh"].values == "G14"
+    median_feh_g14_sigma = \
+        np.nanmedian(benchmarks[adopted_g14]["label_adopt_sigma_feh"].values)
+    feh_g14_row = feh_row_fmt.format(
+            "Gaidos+2014",                    # label
+            median_feh_g14_sigma,           # median sigma
+            params.FEH_OFFSETS["G14"],      # offset
+            np.sum(has_g15),                # with
+            np.sum(~has_g15),               # without
+            np.sum(adopted_g14))            # Adopted
 
     # Rojas-Ayala+2012
     has_ra12 = ~np.isnan(benchmarks["feh_ra12"].values)
@@ -359,10 +390,11 @@ def make_table_sample_summary(obs_tab,):
     table_rows = [
         teff_row,
         teff_int_row,
-        teff_r21_row,
+        teff_m15_er_row,
+        teff_c21_row,
         "\hline",
         logg_row,
-        logg_r21_row,
+        logg_m19_row,
         "\hline",
         feh_row,
         feh_b16_row,
@@ -371,6 +403,7 @@ def make_table_sample_summary(obs_tab,):
         feh_m18_row,
         feh_s08_row,
         feh_m15_row,
+        feh_g14_row,
         feh_ra12_row,
         feh_other_row,
         feh_photometric_row,

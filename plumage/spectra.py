@@ -34,10 +34,15 @@ def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
     return catalogue
 
 
-def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
-                     ext_telluric_corr=3, include_subfolders=False, 
-                     use_counts_ext_and_flux=False, 
-                     correct_negative_fluxes=False,):
+def load_all_spectra(
+    spectra_folder="spectra/",
+    ext_snr=1,
+    ext_fluxed=2,
+    ext_telluric_corr=3,
+    include_subfolders=False, 
+    use_counts_ext_and_flux=False, 
+    correct_negative_fluxes=False,
+    do_remove_duplicates=True,):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations.
 
@@ -54,6 +59,20 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
     
     ext_telluric_corr: int
         The fits extension with fluxed *and* telluric corrected spectra.
+
+    include_subfolders: boolean, default: False
+        Whether to include subfolders within spectra_folder during import.
+
+    use_counts_ext_and_flux: boolean, default: False
+        Set to True if we're doing our own flux calibration and as such will
+        just be using the counts (not flux or telluric corrected) extension
+        from pyWiFeS.
+
+    correct_negative_fluxes: boolean, default: False
+        Whether to correct negative fluxes or not.
+
+    do_remove_duplicates: boolean, default: True
+        Whether to remove duplicates and take the higher-SNR observation.
 
     Returns
     -------
@@ -322,6 +341,29 @@ def load_all_spectra(spectra_folder="spectra/", ext_snr=1, ext_fluxed=2,
     # Create our resulting dataframe from a dict comprehension
     data = {col: vals for col, vals in zip(cols, data)}  
     observations = pd.DataFrame(data=data)
+
+    # Remove duplicates
+    if do_remove_duplicates:
+        obs_temp = observations.set_index("id")
+        id_counter = Counter(obs_temp.index.values)
+        is_dup = np.full(len(obs_temp), False)
+
+        # Loop over all observations
+        for id_i, id in enumerate(obs_temp.index.values):
+            # Check if this target has more than one observation
+            if id_counter[id] > 1:
+                # If so, consider it a duplicate if it does not have the
+                # the highest SNR
+                subset = obs_temp.loc[id]
+
+                if snrs_r[id_i] != np.nanmax(subset["snr_r"]):
+                    is_dup[id_i] = True
+
+        print("Excluding duplicate observations:\n", observations[is_dup])
+
+        observations = observations[~is_dup]
+        spectra_b = spectra_b[~is_dup]
+        spectra_r = spectra_r[~is_dup]
 
     # Print bad filenames
     print("Excluded %i bad (i.e. all nan) files: %s" % 

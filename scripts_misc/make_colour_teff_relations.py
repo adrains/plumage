@@ -1,7 +1,6 @@
 """Script to fit Mann+15 photometric relations using Gaia DR3 data.
 """
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import plumage.utils as putils
 from scipy.optimize import least_squares
@@ -235,7 +234,7 @@ m15_data = putils.load_info_cat(
     use_mann_code_for_masses=False,
     do_extinction_correction=False,
     do_skymapper_crossmatch=False,
-    gdr="_dr3",)
+    gdr="dr3",)
 
 # Remove any entries without bad RUWE
 m15_data = m15_data[m15_data["ruwe_dr3"] < 1.4].copy()
@@ -251,10 +250,10 @@ j_h = m15_data["J_mag"] - m15_data["H_mag"]
 # Fit colour with [Fe/H] relation
 if relation == "colour_feh":
     coeffs = fit_colour_teff_relation_feh(
-    colour,
-    m15_data["[Fe/H]"],
-    m15_data["Teff"],
-    m15_data["e_Teff"])
+        colour,
+        m15_data["[Fe/H]"],
+        m15_data["Teff"],
+        m15_data["e_Teff"])
 
     teffs_pred = calc_relation_teff_feh(coeffs, colour, m15_data["[Fe/H]"],)
 

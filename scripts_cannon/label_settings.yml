@@ -1,0 +1,72 @@
+# This file contains the common set of parameters used when preparing the
+# Cannon benchmark sample with prepare_stannon_training_sample.py.
+#
+# This is part of a series of Cannon scripts. The main sequence is:
+# 1) prepare_stannon_training_sample.py    --> label preparation
+# 2) train_stannon.py                      --> training and cross validation
+# 3) make_stannon_diagnostics.py           --> diagnostic plots + result tables
+# 4) run_stannon.py                        --> running on science spectra
+#
+# Where the values in this file currently apply to items 2) and 3).
+#
+# YAML specifications: https://yaml.org/spec/1.2.2/
+
+#------------------------------------------------------------------------------
+# Files
+#------------------------------------------------------------------------------
+# Fits file of spectra
+spectra_label: "cannon_mk"
+
+# Science target parameter TSV
+std_info_fn: "data/std_info.tsv"
+
+# Binary component TSVs
+tsv_primaries_fn: "data/cpm_primaries_dr3.tsv"
+tsv_secondaries_fn:  "data/cpm_secondaries_dr3.tsv"
+
+sampled_param_csv: "data/monty_sampled_params_n103.csv"
+
+# Import settings
+use_mann_code_for_masses: False
+in_paper: False
+only_observed: True
+do_extinction_correction: False
+do_skymapper_crossmatch: False
+gdr: "dr3"
+
+#------------------------------------------------------------------------------
+# Science target vetting
+#------------------------------------------------------------------------------
+ruwe_threshold: 1.5
+
+enforce_in_local_bubble: False
+enforce_general_ruwe: True
+
+# Some stars have e.g. a bad RUWE, but we want to include them anyway
+allow_exceptions: True
+exception_source_ids: 
+ - "5853498713190525696"  # Proxima Cen
+
+#------------------------------------------------------------------------------
+# Binary vetting
+#------------------------------------------------------------------------------
+# Thresholds for vetting binary pairs
+binary_max_delta_parallax: 0.2
+binary_max_delta_norm_PM: 5
+binary_max_delta_rv: 5
+binary_primary_BP_RP_bound: [-100, 1.5]
+
+# Booleans for binaries
+enforce_system_useful: True
+enforce_primary_ruwe: False
+enforce_primary_BP_RP_colour: True
+enforce_parallax_consistency: True
+enforce_pm_consistency: True
+enforce_rv_consistency: True
+enforce_secondary_ruwe: False
+enforce_secondary_2mass_unblended: True
+
+#------------------------------------------------------------------------------
+# Binary vetting
+#------------------------------------------------------------------------------
+synth_params_available: False
