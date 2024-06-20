@@ -32,7 +32,7 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 # Training labels
 #------------------------------------------------------------------------------
 # Import dataframe with benchmark parameters
-obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
+obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
 
 is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
 

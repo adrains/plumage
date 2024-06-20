@@ -36,6 +36,7 @@ FEH_OFFSETS = {
     "R21":np.nan,
     "B16":0.0,      # Computed from np.nanmedian(Fe_H_vf05-Fe_H_b16) in cpm_prim, 30 stars
     "RB20":0.00,    # Computed from np.nanmedian(Fe_H_vf05-Fe_H_rb16) in cpm_prim, 18 stars
+    "L18":0.0,      # TODO, compute the actual value
 }
 
 # Adopted uncertainties from VF05 Table 6
@@ -87,6 +88,12 @@ RB20_ABUND_SIGMA = {
     "Y_H":0.07,     # −0.87–1.35
 }
 
+# TODO: Read the paper and figure out what the actual uncertainties are
+L18_ABUND_SIGMA = {
+#   [X/H]:sigma     limits
+    "Ti_H":0.00,
+}
+
 # [Ti/H] offsets, computed from complete cpm_primary table
 TIH_OFFSETS = {
     "B16":-0.02,        # np.nanmedian(tih_vf05 - tih_b16), 30 stars
@@ -94,6 +101,7 @@ TIH_OFFSETS = {
     "RB20":0.00,        # np.nanmedian(tih_vf05 - tih_rb20), 18 stars
     "M18":-0.03,        # np.nanmedian(tih_vf05 - tih_m18), 46 stars
     "A12":0.00,         # TODO: Not computed
+    "L18":0.0,         # TODO: Not computed
     
 }
 
@@ -204,13 +212,11 @@ def prepare_labels(
 
         # Only accept interferometric, M+15, RA+12, NIR other, & CPM standards
         if not (~np.isnan(star_info["teff_int"])
-            or ~np.isnan(star_info["teff_vf05"])
-            or ~np.isnan(star_info["teff_s08"])
-            or ~np.isnan(star_info["Teff_L18"])
             or ~np.isnan(star_info["teff_m15"])
             or ~np.isnan(star_info["teff_g14"])
             or ~np.isnan(star_info["teff_ra12"])
             or ~np.isnan(star_info["feh_nir"])
+            or star_info["is_mid_k_dwarf"]
             or star_info["is_cpm"]):
             std_mask[star_i] = False
             continue
@@ -453,20 +459,29 @@ def select_Fe_H_label(star_info,):
     """Produces our adopted [Fe/H] values for this specific star.
 
     Our current [Fe/H] heirarchy is:
-     1: Binary Primary
-        i:   Valenti & Fischer 2005
-        ii:  Montes+2018
-        iii: Sousa+08
-        iv:  Mann+2014 (for VLM dwarfs)
-        v:   Newton+14
-        vi:  Other (TODO)
-     2: Mann+15
-     3: Rojas-Ayala+2012
-     4: Other NIR relations (TODO)
-     5: Rains+21 photometric [Fe/H]
-     6: Solar Neighbourhood default
-
-    TODO: Add in Brewer+2020 and Rice and Brewer 2020.
+     1: Cool K/M secondaries in binary systems
+        i:      Brewer+2016
+        ii:     Rice & Brewer 2020
+        iii:    Valenti & Fischer 2005
+        iv:     Montes+2018
+        v:      Sousa+08
+        vi:     Mann+2014 (for VLM dwarfs)
+        vii:    Mann+2013
+        viii:   Newton+14
+        ix:     Other (TODO)
+     2: Early-mid K dwarf (with directly measured chemistry)
+        i:      Brewer+2016
+        ii:     Rice & Brewer 2020
+        iii:    Valenti & Fischer 2005
+        iv:     Montes+2018
+        v:      Sousa+08
+        vi:     Luck+08
+     3: late-K dwarfs and M-dwarfs
+        i:      Mann+15
+        ii:     Gaidos+14
+        iii:    Rojas-Ayala+2012
+        iv:     Other NIR relations (TODO)
+        v:      Other (TODO)
 
     Parameters
     ----------
@@ -488,64 +503,64 @@ def select_Fe_H_label(star_info,):
     # -------------------------------------------------------------------------
     # [Fe/H] - binary
     # -------------------------------------------------------------------------
-    # B+16 > VF+05 > RB20 > M18 > others
+    # B+16 > RB20 > VF+05 > M18 > others
     if star_info["is_cpm"]:
         # Brewer+2016 --> follow-up from VF+05 on same scale with > precision
-        if ~np.isnan(star_info["Fe_H_b16"]):
+        if ~np.isnan(star_info["Fe_H_b16_prim"]):
             ref = "B16"
-            feh_corr = star_info["Fe_H_b16"] + FEH_OFFSETS[ref]
+            feh_corr = star_info["Fe_H_b16_prim"] + FEH_OFFSETS[ref]
             e_feh_corr = B16_ABUND_SIGMA["Fe_H"]
 
         # Rice & Brewer 2020 --> follow-up from VF+05 and B+16, but with Cannon
-        elif ~np.isnan(star_info["Fe_H_rb20"]):
+        elif ~np.isnan(star_info["Fe_H_rb20_prim"]):
             ref = "RB20"
-            feh_corr = star_info["Fe_H_rb20"] + FEH_OFFSETS[ref]
+            feh_corr = star_info["Fe_H_rb20_prim"] + FEH_OFFSETS[ref]
             e_feh_corr = RB20_ABUND_SIGMA["Fe_H"]
 
         # Valenti & Fischer 2005 --> Mann+15 base [Fe/H] scale
-        elif ~np.isnan(star_info["Fe_H_vf05"]):
+        elif ~np.isnan(star_info["Fe_H_vf05_prim"]):
             ref = "VF05"
-            feh_corr = star_info["Fe_H_vf05"] + FEH_OFFSETS[ref]
+            feh_corr = star_info["Fe_H_vf05_prim"] + FEH_OFFSETS[ref]
             e_feh_corr = VF05_ABUND_SIGMA["Fe_H"]
 
         # Montes+2018 --> large sample, but low precision on some stars
-        elif ~np.isnan(star_info["Fe_H_m18"]):
+        elif ~np.isnan(star_info["Fe_H_m18_prim"]):
             ref = "M18"
-            feh_corr = star_info["Fe_H_m18"] + FEH_OFFSETS[ref]
-            e_feh_corr = star_info["eFe_H_m18"]
+            feh_corr = star_info["Fe_H_m18_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = star_info["eFe_H_m18_prim"]
 
         # Sousa+08 (this is the base sample for Adibekyan+12 abundances)
-        elif ~np.isnan(star_info["feh_s08"]):
+        elif ~np.isnan(star_info["feh_s08_prim"]):
             ref = "Sou08"
-            feh_corr = star_info["feh_s08"] + FEH_OFFSETS[ref]
-            e_feh_corr = star_info["e_feh_s08"]
+            feh_corr = star_info["feh_s08_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = star_info["e_feh_s08_prim"]
 
         # Mann+2014 for VLM dwarfs
-        elif ~np.isnan(star_info["feh_m14"]):
+        elif ~np.isnan(star_info["feh_m14_prim"]):
             ref = "M14"
-            feh_corr = star_info["feh_m14"] + FEH_OFFSETS[ref]
-            e_feh_corr = star_info["e_feh_m14"]
+            feh_corr = star_info["feh_m14_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = star_info["e_feh_m14_prim"]
 
         # -----------------------------------------------------------------
         # Note that after here things are a bit ~misc~
 
         # Mann+13
-        elif ~np.isnan(star_info["feh_prim_m13"]):
-            ref = star_info["ref_feh_prim_m13"]
-            feh_corr = star_info["feh_prim_m13"] + FEH_OFFSETS[ref]
-            e_feh_corr = star_info["e_feh_prim_m13"]
+        elif ~np.isnan(star_info["feh_prim_m13_prim"]):
+            ref = star_info["ref_feh_prim_m13_prim"]
+            feh_corr = star_info["feh_prim_m13_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = star_info["e_feh_prim_m13_prim"]
 
         # Newton+14
-        elif ~np.isnan(star_info["feh_prim_n14"]):
-            ref = star_info["feh_prim_ref_n14"]
-            feh_corr = star_info["feh_prim_n14"] + FEH_OFFSETS["VF05"]
-            e_feh_corr = star_info["e_feh_prim_n14"]
+        elif ~np.isnan(star_info["feh_prim_n14_prim"]):
+            ref = star_info["feh_prim_ref_n14_prim"]
+            feh_corr = star_info["feh_prim_n14_prim"] + FEH_OFFSETS["VF05"]
+            e_feh_corr = star_info["e_feh_prim_n14_prim"]
 
         # Then check other entries
-        elif star_info["feh_prim_ref_other"] == "Ra07":
+        elif star_info["feh_prim_ref_other_prim"] == "Ra07":
             ref = "Ra07"
-            feh_corr = star_info["feh_prim_other"] + FEH_OFFSETS[ref]
-            e_feh_corr = star_info["e_feh_prim_other"]
+            feh_corr = star_info["feh_prim_other_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = star_info["e_feh_prim_other_prim"]
         
         # In case we're missing a value, alert
         else:
@@ -560,13 +575,34 @@ def select_Fe_H_label(star_info,):
     # -------------------------------------------------------------------------
     # [Fe/H] - single K-dwarfs
     # -------------------------------------------------------------------------
-    # M+15 > M+14 > RA+12 > NIR other > Rains+21 > default
-    
+    # Brewer+2016 --> follow-up from VF+05 on same scale with > precision
+    elif ~np.isnan(star_info["Fe_H_b16"]):
+        feh_value = star_info["Fe_H_b16"] + FEH_OFFSETS["B16"]
+        feh_sigma = B16_ABUND_SIGMA["Fe_H"]
+        feh_source = "B16"
+        feh_nondefault = True
+
+    # Rice & Brewer 2020 --> follow-up from VF+05 and B+16, but with Cannon
+    # Note: RB2020 reports params for M dwarfs, but these are *extremely*, so
+    # we have to make sure to only take the useful (i.e. mid-K and up) stars.
+    elif ~np.isnan(star_info["Fe_H_rb20"]) and star_info["useful_rb20"]:
+        feh_value = star_info["Fe_H_rb20"] + FEH_OFFSETS["RB20"]
+        feh_sigma = RB20_ABUND_SIGMA["Fe_H"]
+        feh_source = "RB20"
+        feh_nondefault = True
+
     # VF05 (K-dwarfs)
-    elif ~np.isnan(star_info["feh_vf05"]):
-        feh_value = star_info["feh_vf05"]
+    elif ~np.isnan(star_info["Fe_H_vf05"]):      # TODO: feh_vf05 =/= Fe_H_vf05
+        feh_value = star_info["Fe_H_vf05"]
         feh_sigma = VF05_ABUND_SIGMA["Fe_H"]
         feh_source = "VF05"
+        feh_nondefault = True
+
+    # Montes+2018 --> large sample, but low precision on some stars
+    elif ~np.isnan(star_info["Fe_H_m18"]):
+        feh_value = star_info["Fe_H_m18"] + FEH_OFFSETS["M18"]
+        feh_sigma = star_info["eFe_H_m18"]
+        feh_source = "M18"
         feh_nondefault = True
 
     # Sousa+08 (K-dwarfs)
@@ -576,7 +612,7 @@ def select_Fe_H_label(star_info,):
         feh_source = "Sou08"
         feh_nondefault = True
 
-    # Luck+2008 (K-dwarfs)
+    # Luck+2018 (K-dwarfs)
     elif not np.isnan(star_info["feh_L18"]):
         feh_value = star_info["feh_L18"]
         feh_sigma = np.nan    # TODO
@@ -586,6 +622,8 @@ def select_Fe_H_label(star_info,):
     # -------------------------------------------------------------------------
     # [Fe/H] - single M-dwarfs
     # -------------------------------------------------------------------------
+    # M+15 > G+14 > RA+12 > NIR other > Rains+21 > default
+
     # Mann+15
     elif not np.isnan(star_info["feh_m15"]):
         feh_value = star_info["feh_m15"]
@@ -705,8 +743,15 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     # Since B+20 / VF+05 / RB20 are our base [Fe/H] reference, we'll use them 
     # as our base reference for abundances as well. They also have lower 
     # uncertainties than other references. TODO: account for abundance systematics.
-    if not np.isnan(star_info["Ti_H_b16"]):
-        Ti_H_value = star_info["Ti_H_b16"] + TIH_OFFSETS["B16"]
+    if (not np.isnan(star_info["Ti_H_b16_prim"]) 
+        or not np.isnan(star_info["Ti_H_b16"])):
+        # Prefer chemistry from primary star
+        if not np.isnan(star_info["Ti_H_b16_prim"]):
+            col = "Ti_H_b16_prim"
+        else:
+            col = "Ti_H_b16"
+
+        Ti_H_value = star_info[col] + TIH_OFFSETS["B16"]
         Ti_H_sigma = B16_ABUND_SIGMA["Ti_H"]
         Ti_source = "B16"
         Ti_nondefault = True
@@ -714,8 +759,17 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
         lit_abund_assigned = True
 
     # RB 20
-    elif not np.isnan(star_info["Ti_H_rb20"]):
-        Ti_H_value = star_info["Ti_H_rb20"] + TIH_OFFSETS["RB20"]
+    # Note: RB2020 reports params for M dwarfs, but these are *extremely* wrong
+    # so we also need to make a BP-RP cut here
+    elif (not np.isnan(star_info["Ti_H_rb20_prim"])
+        or not np.isnan(star_info["Ti_H_rb20"])):
+        # Prefer chemistry from primary star
+        if not np.isnan(star_info["Ti_H_rb20_prim"]):
+            col = "Ti_H_rb20_prim"
+        else:
+            col = "Ti_H_rb20"
+
+        Ti_H_value = star_info[col] + TIH_OFFSETS["RB20"]
         Ti_H_sigma = RB20_ABUND_SIGMA["Ti_H"]
         Ti_source = "RB20"
         Ti_nondefault = True
@@ -723,8 +777,15 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
         lit_abund_assigned = True
 
     # VF+05
-    elif not np.isnan(star_info["Ti_H_vf05"]):
-        Ti_H_value = star_info["Ti_H_vf05"] + TIH_OFFSETS["VF05"]
+    elif (not np.isnan(star_info["Ti_H_vf05_prim"])
+        or not np.isnan(star_info["Ti_H_vf05"])):
+        # Prefer chemistry from primary star
+        if not np.isnan(star_info["Ti_H_vf05_prim"]):
+            col = "Ti_H_vf05_prim"
+        else:
+            col = "Ti_H_vf05"
+
+        Ti_H_value = star_info[col] + TIH_OFFSETS["VF05"]
         Ti_H_sigma = VF05_ABUND_SIGMA["Ti_H"]
         Ti_source = "VF05"
         Ti_nondefault = True
@@ -732,9 +793,16 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
         lit_abund_assigned = True
 
     # Montes+18
-    elif not np.isnan(star_info["Ti_H_m18"]):
-        Ti_H_value = star_info["Ti_H_m18"] + TIH_OFFSETS["M18"]
-        Ti_H_sigma =  star_info["eTi_H_m18"]
+    elif (not np.isnan(star_info["Ti_H_m18_prim"])
+        or not np.isnan(star_info["Ti_H_m18"])):
+        # Prefer chemistry from primary star
+        if not np.isnan(star_info["Ti_H_m18_prim"]):
+            col = "Ti_H_m18_prim"
+        else:
+            col = "Ti_H_m18"
+
+        Ti_H_value = star_info[col] + TIH_OFFSETS["M18"]
+        Ti_H_sigma =  star_info["e{}".format(col)]
         Ti_source = "M18"
         Ti_nondefault = True
 
@@ -745,11 +813,31 @@ def select_Ti_label(star_info, feh_adopted, feh_sigma_adopted):
     # computed from more lines (even if it does suffer from more LTE effects)
     # than the Ti II abundances, and will take the value *corrected* for Teff
     # systematics.
-    elif not np.isnan(star_info["Fe_H_a12"]):
-        Ti_H_value = star_info["TiI_Hc_a12"]       # Corrected Ti I abund
-        Ti_H_sigma = star_info["e_TiI_H_a12"]
+    elif (not np.isnan(star_info["Fe_H_a12_prim"])
+        or not np.isnan(star_info["Fe_H_a12"])):
+        # Prefer chemistry from primary star
+        if not np.isnan(star_info["Fe_H_a12_prim"]):
+            col = "TiI_Hc_a12_prim"
+            e_col = "e_TiI_H_a12_prim"
+        else:
+            col = "TiI_Hc_a12"
+            e_col = "e_TiI_H_a12"
+
+        Ti_H_value = star_info[col]       # Corrected Ti I abund
+        Ti_H_sigma = star_info[e_col]
 
         Ti_source = "A12"
+        Ti_nondefault = True
+
+        lit_abund_assigned = True
+
+    # Luck+18 --- Note: currently only for early-mid K dwarfs
+    elif not np.isnan(star_info["Ti_H_L18"]):
+        col = "Ti_H_L18"
+
+        Ti_H_value = star_info[col] + TIH_OFFSETS["L18"]
+        Ti_H_sigma =  L18_ABUND_SIGMA["Ti_H"]
+        Ti_source = "L18"
         Ti_nondefault = True
 
         lit_abund_assigned = True

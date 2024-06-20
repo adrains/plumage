@@ -924,7 +924,8 @@ def load_info_cat(
     unresolved_equal_mass_binary_mag_diff=0.75,
     dustmap="leike_glatzle_ensslin_2020",
     gdr="",
-    has_2mass=True,):
+    has_2mass=True,
+    do_use_mann_15_JHK=False,):
     """
 
     Incorporates the systematic offset in Gaia DR2 by subtracting the offset
@@ -1047,6 +1048,47 @@ def load_info_cat(
     # If no 2MASS, return early
     if not has_2mass:
         return info_cat
+
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # Swapping in Mann+15 photometry
+    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # For stars in Mann+15 with non-AAA 2MASS photometry, we'll adopt the
+    # Mann+2015 values as these won't be saturated for use with our photometric
+    # relations.
+    if do_use_mann_15_JHK:
+        swap_mask = np.logical_and(
+            info_cat["Qflg"] != "AAA",               # Stars w/ saturated 2MASS
+            ~np.isnan(info_cat["K_mag_m15"].values)) # Stars w/ M+15 photometry
+        
+        mags = ["J_mag", "H_mag", "K_mag"]
+        e_mags = ["e_J_mag", "e_H_mag", "e_K_mag"]
+
+        for mag, e_mag in zip(mags, e_mags):
+            # Grab 2MASS columns
+            tm_mag = info_cat[mag].values
+            e_tm_mag = info_cat[e_mag].values
+
+            # Rename to preserve data
+            info_cat.rename(columns={
+                mag:"{}_2M".format(mag), e_mag:"{}_2M".format(e_mag),},)
+            
+            # Replace saturated 2MASS with Mann+2015 data
+            tm_mag[swap_mask] = \
+                info_cat["{}_m15".format(mag)].values[swap_mask]
+            e_tm_mag[swap_mask] = \
+                info_cat["{}_m15".format(e_mag)].values[swap_mask]
+            
+            info_cat[mag] = tm_mag
+            info_cat[e_mag] = e_tm_mag
+        
+        # Also adjust the Qflag
+        tm_qflg = info_cat["Qflg"].values
+        info_cat.rename(columns={"Qflg":"Qflg_2M"},)
+        tm_qflg[swap_mask] = "AAA"
+        info_cat["Qflg"] = tm_qflg
+
+        # And add in a boolean for good measure
+        info_cat["using_m15_jhk_photometry"] = swap_mask
 
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Extinction

@@ -887,7 +887,12 @@ def plot_spectra_comparison(
     fig_size=(12,8),
     data_plot_label="Observed",
     data_plot_colour="k",
-    bp_rp_col="BP_RP_dr3",):
+    bp_rp_col="BP_RP_dr3",
+    fluxes_2=None,
+    fluxes_2_plot_label="",
+    fluxes_2_plot_colour="",
+    do_plot_galah_bands=False,
+    n_leg_col=2,):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
     """
@@ -921,6 +926,9 @@ def plot_spectra_comparison(
         labels_all = labels_all[selected_mask][sorted_indices]
         source_ids = obs_join.index.values
 
+        if fluxes_2 is not None:
+            fluxes_2 = fluxes_2[selected_mask][sorted_indices]
+
     # Mask out emission and telluric regions
     pplt.shade_excluded_regions(
         wave=sm.wavelengths,
@@ -931,9 +939,33 @@ def plot_spectra_comparison(
         alpha=0.25,
         hatch=None)
 
+    if do_plot_galah_bands:
+        bands = {
+            "blue":((4718, 4903), "dodgerblue"),
+            "green":((5649,5873), "forestgreen"),
+            "red":((6481, 6739), "tomato"),}
+        
+        for band in bands.keys():
+            banded_region = np.logical_and(
+                sm.wavelengths > bands[band][0][0],
+                sm.wavelengths < bands[band][0][1],
+            )
+            pplt.shade_excluded_regions(
+                wave=sm.wavelengths,
+                bad_px_mask=banded_region,
+                axis=ax,
+                res_ax=None,
+                colour=bands[band][1],
+                alpha=0.2,
+                hatch=None)
+
     # Do bad px masking
     masked_spectra = fluxes.copy()
     masked_spectra[bad_px_masks] = np.nan
+
+    if fluxes_2 is not None:
+        fluxes_2_masked = fluxes_2.copy()
+        fluxes_2_masked[bad_px_masks] = np.nan
 
     # For every star in source_ids, plot blue and red spectra
     for star_i, source_id in enumerate(source_ids):
@@ -961,6 +993,15 @@ def plot_spectra_comparison(
             linewidth=0.2,
             c="tomato",
             label=r"$\it{Cannon}$",)
+        
+        # [Optional] Plot third set of spectra
+        if fluxes_2 is not None:
+            ax.plot(
+                sm.wavelengths,
+                fluxes_2_masked[bm_i] + star_i*y_offset,
+                linewidth=0.2,
+                c=fluxes_2_plot_colour,
+                label=fluxes_2_plot_label,)
 
         # Label spectrum
         star_txt = (
@@ -981,7 +1022,7 @@ def plot_spectra_comparison(
 
         # Only plot one set of legend items
         if star_i == 0:
-            leg = ax.legend(loc="upper right", ncol=2,)
+            leg = ax.legend(loc="upper right", ncol=n_leg_col,)
 
             for legobj in leg.legendHandles:
                 legobj.set_linewidth(1.5)
