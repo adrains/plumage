@@ -183,6 +183,10 @@ def compute_mann_2019_masses(k_mag_abs):
     The implemented relation is the 5th order polynomial fit without the 
     dependence on [Fe/H].
 
+    Note that while this runs quickly, it is suggested to use the module/func
+    provided by Mann+2019 as  mk_mass.posterior() which properly considers
+    magnitude and distance uncertainties.
+
     Parameters
     ----------
     k_mag_abs: float array
@@ -198,16 +202,17 @@ def compute_mann_2019_masses(k_mag_abs):
     """
     # Zero point for the relation
     zp = 7.5
-    e_mass = 0.02
+
+    # Fractional mass uncertainty
+    frac_mass_sigma = 0.02
 
     # Coefficients for 5th order polynomial fit without [Fe/H] dependence
     coeff = np.array(
-        [-0.642, -0.208, -8.43*10**-4, 7.87*10**-3, 1.42*10**-4, -2.13*10**-4]
-        )
+        [-0.642, -0.208, -8.43*10**-4, 7.87*10**-3, 1.42*10**-4, -2.13*10**-4])
 
-    # Calculate masses
+    # Calculate masses + uncertainties
     masses = 10**polyval(k_mag_abs-zp, coeff)
-    e_masses = np.ones_like(masses) * e_mass
+    e_masses = masses * frac_mass_sigma
 
     return masses, e_masses
     
