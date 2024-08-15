@@ -24,9 +24,10 @@ std_info_fn: "data/std_info.tsv"
 tsv_primaries_fn: "data/cpm_primaries_dr3.tsv"
 tsv_secondaries_fn:  "data/cpm_secondaries_dr3.tsv"
 
+# CSV file of sampled chemo-dynamic parameters
 sampled_param_csv: "data/monty_sampled_params_n103.csv"
 
-# Import settings
+# Settings to use when importing TSV files
 use_mann_code_for_masses: False
 in_paper: False
 only_observed: True
@@ -37,36 +38,71 @@ gdr: "dr3"
 #------------------------------------------------------------------------------
 # Science target vetting
 #------------------------------------------------------------------------------
-ruwe_threshold: 1.5
+# Whether we enforce a cut on RUWE for benchmark stars
+ruwe_threshold: 1.4
+enforce_ruwe: False
 
+# Whether we require the system to be within the local bubble for simplified
+# treatment (or assumptions) about reddening
 enforce_in_local_bubble: False
-enforce_general_ruwe: True
 
-# Some stars have e.g. a bad RUWE, but we want to include them anyway
-allow_exceptions: True
-exception_source_ids: 
- - "5853498713190525696"  # Proxima Cen
+# Enforce a check on the column 'blended_2mass' in both the general and the CPM
+# secondaries tables. 
+enforce_2mass_unblended: True
+
+# Rather than making a naive cut on RUWE (which is known to not exclude 100% of
+# binaries and does nothing for young stars) we can instead exclude stars that
+# have inconsistent photometric (from Mann+15 and Mann+19 relations) and 
+# spectroscopic (from the Cannon) logg values. The photometric logg values come
+# from M_Ks, and the spectroscopic logg values from the optical where where any
+# potential blends with unresolved fainter companions will be less severe (due
+# to redder stars having less light in the optical). Currently stars with delta
+# logg > 0.06 are flagged as aberrant, which corresponds to roughly a 50%
+# binary at the lower mass end, and closer to a 30-40% binary at the higher 
+# mass end. We can, however, allow exceptions to this cut, though this is only
+# recommended for stars at the edge of the parameter space in e.g. Teff or
+# [Fe/H].
+enforce_aberrant_logg: True
+allow_aberrant_logg_exceptions: True
+
+# Allow other exceptions for stars that fail these checks in unintended ways
+allow_misc_exceptions: True
+misc_exceptions_source_ids: ["5853498713190525696"] # Proxima (no primary Gaia)
 
 #------------------------------------------------------------------------------
 # Binary vetting
 #------------------------------------------------------------------------------
-# Thresholds for vetting binary pairs
-binary_max_delta_parallax: 0.2
-binary_max_delta_norm_PM: 5
-binary_max_delta_rv: 5
-binary_primary_BP_RP_bound: [-100, 1.5]
-
-# Booleans for binaries
+# Check to ensure we haven't previously flagged the binary system as 'not 
+# useful', generally due to either 2MASS blending, secondary flagged as SB2, or
+# wildy different kinematics.
 enforce_system_useful: True
-enforce_primary_ruwe: False
-enforce_primary_BP_RP_colour: True
-enforce_parallax_consistency: True
-enforce_pm_consistency: True
-enforce_rv_consistency: True
-enforce_secondary_ruwe: False
-enforce_secondary_2mass_unblended: True
 
-#------------------------------------------------------------------------------
-# Binary vetting
-#------------------------------------------------------------------------------
-synth_params_available: False
+# FGK primary star must have RUWE <= 1.4
+enforce_primary_ruwe: False
+
+# FGK primary star must have BP-RP within certain bounds (i.e. not be too 
+# cool). We nominally set this limit such that FGK primaries are earlier than
+# mid-K in spectral type.
+binary_primary_BP_RP_bound: [-100, 1.5]
+enforce_primary_BP_RP_colour: True
+
+# Note that the next three sets of parameters concern the kinematics of the
+# FGK-K/M binary systems in plx, PM, and RV space. A better an more physically
+# motivated set of cuts would work directly with the kinematics of the stars in
+# velocity space (given a Galactic potential), but that remains very much TODO.
+
+# Enforce parallax consistency between binary pairs
+binary_max_delta_parallax: 0.2
+enforce_parallax_consistency: True
+
+# Enforce a 'normalised' proper motion consistency between binary pairs. We 
+# currently do this by normalising the total proper motion by the distance, and
+# ensure that the difference between this value for the primary and secondary
+# star is < binary_max_delta_norm_PM.
+binary_max_delta_norm_PM: 5
+enforce_pm_consistency: True
+
+# Enforce RV consistency between binary pairs, where the system is considered
+# consistent if delta RV < binary_max_delta_rv km/s.
+binary_max_delta_rv: 5
+enforce_rv_consistency: True

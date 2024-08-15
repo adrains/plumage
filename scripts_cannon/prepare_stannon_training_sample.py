@@ -13,6 +13,7 @@ import plumage.utils as pu
 import plumage.parameters as pp
 import stannon.utils as su
 import stannon.parameters as params
+import radius_estimation.radius_estimation as re
 
 #------------------------------------------------------------------------------
 # Import Settings
@@ -135,7 +136,6 @@ obs_join = obs_join[cols[~mm]].copy()
 # Collate [Fe/H]
 #------------------------------------------------------------------------------
 # Select adopted [Fe/H] values which are needed for empirical Teff relations
-# TODO: HACK in that we just run the function twice...
 feh_info_all = []
 
 for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()): 
@@ -147,7 +147,7 @@ feh_info_all = np.vstack(feh_info_all)
 feh_values = feh_info_all[:,0].astype(float)
 
 #------------------------------------------------------------------------------
-# Calculate empirical relations
+# Calculate Teff via empirical relations
 #------------------------------------------------------------------------------
 # Calculate Mann+2015 Teff
 teff_M15, e_teff_M15 = pp.compute_mann_2015_teff(
@@ -172,55 +172,135 @@ obs_join["e_teff_C21_BP_Ks_logg_feh"] = e_teff_C21
 pass
 
 #------------------------------------------------------------------------------
-# Make quality cuts
+# Calculate R* (Mann+15, Kiman+24) via empirical relations + logg
 #------------------------------------------------------------------------------
-cpm_keep_mask = np.full(len(obs_join), True)
+# Re-calculate radii using the Mann+15 M_Ks-R*-[Fe/H] relation. Note that the
+# resulting radii will be undefined (i.e. nan) for stars lacking [Fe/H] values.
+r_star_m15, e_r_star_m15 = pp.compute_mann_2015_radii(
+    k_mag_abs=obs_join["K_mag_abs"].values,
+    fehs=feh_values,
+    enforce_M_Ks_bounds=True,)
 
+obs_join["radius_m15"] = r_star_m15
+obs_join["e_radius_m15"] = e_r_star_m15
+
+# Also calculate the Kiman+2024 radii, as these will be needed for mid-K dwarfs
+G_RP = obs_join["G_mag_dr3"].values - obs_join["RP_mag_dr3"].values
+e_G_RP = (obs_join["e_G_mag_dr3"].values**2
+          + obs_join["e_RP_mag_dr3"].values**2)**0.5
+
+r_star_k24, e_low_r_star_k24, e_high_r_star_k24 = re.calc_radius(
+    flux_col="Fbp",
+    color_col="g_rp",
+    parallax=obs_join["plx_dr3"].values,
+    e_parallax=obs_join["e_plx_dr3"].values,
+    color=G_RP,
+    e_color=e_G_RP,
+    mag=obs_join["BP_mag_dr3"].values,
+    e_mag=obs_join["e_BP_mag_dr3"].values,
+    feh=feh_values,)
+
+# HACK Simply adopt the maximum uncertainty from the low/high uncertainties
+e_r_star_k24 = np.max(np.stack([e_low_r_star_k24, e_high_r_star_k24]), axis=0)
+
+obs_join["radius_k24"] = r_star_k24
+obs_join["e_radius_k24"] = e_r_star_k24
+
+# Adopt M+15 radii where possible, and K+24 radii for everything else
+missing_m15 = np.isnan(r_star_m15)
+r_star_adopt = r_star_m15.copy()
+r_star_adopt[missing_m15] = r_star_k24[missing_m15]
+
+e_r_star_adopt = e_r_star_m15.copy()
+e_r_star_adopt[missing_m15] = e_r_star_k24[missing_m15]
+
+# Update logg to reflect more reliable/precise R* values
+logg, e_logg = pp.compute_logg(
+    masses=obs_join["mass_m19"].values,
+    e_masses=obs_join["e_mass_m19"].values,
+    radii=r_star_adopt,
+    e_radii=e_r_star_adopt,)
+
+obs_join["logg_m19"] = logg
+obs_join["e_logg_m19"] = e_logg
+
+#------------------------------------------------------------------------------
+# Science target vetting
+#------------------------------------------------------------------------------
+n_star = len(obs_join)
+
+# Apply RUWE cut, but *only* for non-interferometric targets, since unresolved
+# binarity would be revealed there), and apply the mask
+if ls.enforce_ruwe:
+    bad_ruwe_mask = np.logical_and(
+        ~np.isnan(obs_join["teff_int"]),
+        obs_join["ruwe_dr3"] > ls.ruwe_threshold)
+else:
+    bad_ruwe_mask = np.full(n_star, False)
+        
+# In local bubble (i.e. minimal reddening)
+if ls.enforce_in_local_bubble:
+    too_distant_mask = obs_join["dist"] >= params.LOCAL_BUBBLE_DIST_PC
+else:
+    too_distant_mask = np.full(n_star, False)
+
+# 2MASS photometry is unblended
+if ls.enforce_2mass_unblended:
+    blended_2mass_mask = np.logical_or(
+        obs_join["blended_2mass"].values.astype(bool),
+        (obs_join["blended_2mass_prim"] == "yes").values.astype(bool))
+else:
+    blended_2mass_mask = np.full(n_star, False)
+
+# Enforce that stars do not have aberrant photometric vs spectroscopic logg
+# (but allow selected exceptions from the edges of the parameter space).
+if ls.enforce_aberrant_logg and ls.allow_aberrant_logg_exceptions:
+    has_aberrant_logg = np.logical_and(
+        obs_join["flagged_logg"].values.astype(bool),
+        ~obs_join["flagged_logg_exception"].values.astype(bool))
+
+# As above, but do *not* allow exceptions
+elif ls.enforce_aberrant_logg and not ls.allow_aberrant_logg_exceptions:
+    has_aberrant_logg = obs_join["flagged_logg"].values.astype(bool)
+else:
+    has_aberrant_logg = np.full(n_star, False)
+
+# Combine into a single mask for science target quality
+sci_keep_mask = np.all(np.stack([
+    ~bad_ruwe_mask,
+    ~too_distant_mask,
+    ~blended_2mass_mask,
+    ~has_aberrant_logg]), axis=0)
+
+#------------------------------------------------------------------------------
+# Binary vetting
+#------------------------------------------------------------------------------
 # Enforce the system has not been marked as not useful
 if ls.enforce_system_useful:
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        obs_join["useful"] != "no")
+    binary_syst_useful = (obs_join["useful"] != "no").values.astype(bool)
+else:
+    binary_syst_useful = np.full(n_star, True)
 
 # Primary RUWE <= 1.4
 if ls.enforce_primary_ruwe:
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        obs_join["ruwe_dr3_prim"] <= ls.ruwe_threshold)
-
-# Primary BP-RP
+    good_fgk_primary_ruwe = obs_join["ruwe_dr3_prim"] <= ls.ruwe_threshold
+else:
+    good_fgk_primary_ruwe = np.full(n_star, True)
+    
+# Primary BP-RP is not too cool
 if ls.enforce_primary_BP_RP_colour:
-    bp_rp_mask = np.logical_and(
-        obs_join["BP-RP_dr3_prim"] > ls.binary_primary_BP_RP_bound[0],
-        obs_join["BP-RP_dr3_prim"] < ls.binary_primary_BP_RP_bound[1])
-    cpm_keep_mask = np.logical_and(cpm_keep_mask, bp_rp_mask)
-
-# In local bubble (i.e. minimal reddening)
-if ls.enforce_in_local_bubble:
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        obs_join["dist"] <= params.LOCAL_BUBBLE_DIST_PC)
-
-# Secondary RUWE <= 1.4
-# TODO: surely this is unnecessary since it's not doing anything different
-# to the general RUWE check?
-if ls.enforce_secondary_ruwe:
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        obs_join["ruwe_dr3"] <= ls.ruwe_threshold)
-
-# Secondary 2MASS unblended
-if ls.enforce_secondary_2mass_unblended:
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        obs_join["blended_2mass"] != "yes")
+    good_primary_bp_rp_mask = np.logical_and(
+        obs_join["BP-RP_dr3_prim"].values > ls.binary_primary_BP_RP_bound[0],
+        obs_join["BP-RP_dr3_prim"].values < ls.binary_primary_BP_RP_bound[1])
+else:
+    good_primary_bp_rp_mask = np.full(n_star, True)
 
 # Parallaxes are consistent
 if ls.enforce_parallax_consistency:
-    delta_plx = np.abs(obs_join["plx_dr3"]-obs_join["plx_dr3_prim"])
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        delta_plx < ls.binary_max_delta_parallax)
+    delta_plx = np.abs(obs_join["plx_dr3"]-obs_join["plx_dr3_prim"]).values
+    consistent_syst_plx = delta_plx < ls.binary_max_delta_parallax
+else:
+    consistent_syst_plx = np.full(n_star, True)
 
 # Proper motions are consistent
 if ls.enforce_pm_consistency:
@@ -230,36 +310,45 @@ if ls.enforce_pm_consistency:
     pm_norm_diff = \
         total_pm_prim/obs_join["dist_prim"] - total_pm_sec/obs_join["dist"]
 
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        pm_norm_diff < ls.binary_max_delta_norm_PM)
+    consistent_syst_pm = pm_norm_diff.values < ls.binary_max_delta_norm_PM
+else:
+    consistent_syst_pm = np.full(n_star, True)
 
 # RVs are consistent
 if ls.enforce_rv_consistency:
-    delta_rv = np.abs(obs_join["rv_dr3_prim"]-obs_join["rv_dr3"])
-    cpm_keep_mask = np.logical_and(
-        cpm_keep_mask,
-        delta_rv < ls.binary_max_delta_rv)
+    delta_rv = np.abs(obs_join["rv_dr3_prim"]-obs_join["rv_dr3"]).values
+    consistent_syst_rvs = delta_rv < ls.binary_max_delta_rv
+else:
+    consistent_syst_rvs = np.full(n_star, True)
 
-# Note that we only want to apply this cut to the binary stars
-keep_mask = np.logical_or(~is_cpm, cpm_keep_mask)
+# Produce a single mask for binary system quality
+syst_keep_mask = np.all(np.stack([
+    binary_syst_useful,
+    good_fgk_primary_ruwe,
+    good_primary_bp_rp_mask,
+    consistent_syst_plx,
+    consistent_syst_rvs,]), axis=0)
 
-# Now apply the general RUWE cut (*only* for non-interferometric targets, since
-# unresolved binarity would be revealed there), and apply the mask
-if ls.enforce_general_ruwe:
-    keep_mask = np.logical_and(
-        keep_mask,
-        np.logical_or(
-            ~np.isnan(obs_join["teff_int"]),
-            obs_join["ruwe_dr3"] <= ls.ruwe_threshold))
+#------------------------------------------------------------------------------
+# Collating masks
+#------------------------------------------------------------------------------
+# Now combine general science target mask with the binary mask (but only apply
+# the binary mask to binary stars.)
+keep_mask = np.logical_and(
+    sci_keep_mask,
+    np.logical_or(syst_keep_mask, ~is_cpm),)
 
-# Update the mask
+# Store the masks in our dataframe
 obs_join["passed_quality_cuts"] = keep_mask
+obs_join["passed_sci_quality_cuts"] = sci_keep_mask
+obs_join["passed_syst_quality_cuts"] = syst_keep_mask
 
-# Manually correct any exceptions
-if ls.allow_exceptions:
-    for source_id in ls.exception_source_ids:
+# Finally, correct for any misc exceptions
+if ls.allow_misc_exceptions:
+    for source_id in ls.misc_exceptions_source_ids:
         obs_join.at[source_id, "passed_quality_cuts"] = True
+        obs_join.at[source_id, "passed_sci_quality_cuts"] = True
+        obs_join.at[source_id, "passed_syst_quality_cuts"] = True
 
 #------------------------------------------------------------------------------
 # Setup training labels
@@ -293,7 +382,7 @@ for col in obs_join.columns.values:
 # on save (though really this is the result of poor databasing and having
 # everything in a single colossal table for convenience).
 cols_to_remove = [
-    "Fbol_m15_old", "e_fbol_m15_old", "radius_m15", "e_radius_m15_old", 
+    "Fbol_m15_old", "e_fbol_m15_old", "radius_m15_old", "e_radius_m15_old", 
     "m_star_m15_old", "e_m_star_m15_old", "logg_m15_old", "e_logg_m15_old", 
     "teff_m15_old", "e_teff_m15_old", "feh_m15_old", "e_feh_m15_old", 
     "teff_ra12_old", "e_teff_ra12_old", "feh_ra12_old", "e_feh_ra12_old", 

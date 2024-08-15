@@ -7,7 +7,6 @@ from warnings import warn
 import astropy.units as units
 import astropy.constants as const
 from astropy.coordinates import SkyCoord
-import plumage.spectra as spec
 from tqdm import tqdm
 from astropy.io import fits
 from astropy.table import Table
@@ -20,88 +19,6 @@ from scipy.interpolate import LinearNDInterpolator
 #from dustmaps.leike2020 import Leike2020Query
 
 LOCAL_BUBBLE_DIST_PC = 70
-
-# -----------------------------------------------------------------------------
-# Spectrum comparison. TODO: unsure if these are used anymore.
-# -----------------------------------------------------------------------------
-def compare_to_standard_spectrum(spec_sci, spec_std):
-    """
-    """
-    # Get a wavelength mask
-    wl_mask = spec.make_wavelength_mask(spec_sci[0,:], True,
-                                        mask_sky_emission=True)
-
-    # Get the chi^2 of the fit
-    chi2 = np.nansum(((spec_sci[1,:][wl_mask] - spec_std[1,:][wl_mask]) 
-                        / spec_std[2,:][wl_mask])**2)
-
-    return chi2
-
-
-def compare_sci_to_all_standards(spec_sci, spec_stds, std_params):
-    """
-    """
-    chi2_all = np.ones(len(spec_stds))
-
-    for std_i, spec_std in enumerate(spec_stds):
-        chi2 = compare_to_standard_spectrum(spec_sci, spec_std)
-        chi2_all[std_i] = chi2
-
-    sorted_std_idx = np.argsort(chi2_all)
-
-    print(chi2_all[sorted_std_idx][:3])
-    print(std_params.iloc[sorted_std_idx][:3])
-
-    #wl_mask = spec.make_wavelength_mask(spec_sci[0,:], True,
-    #                                    mask_sky_emission=True)
-
-    #plt.plot(spec_sci[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
-    #plt.plot(spec_stds[0,:][wl_mask], spec_sci[1,:][wl_mask], label="Science")
-
-
-def compare_fits_to_lit(observations, std_info):
-    """Compares synthetic fits to literatue values
-    """
-    diff = []
-    source = []
-    n_matches = 0
-    n_dups = 0
-    dups = []
-
-    for i in range(len(observations)):
-        # ID
-    
-        sid = observations.iloc[i]["uid"]
-        is_obs = std_info["observed"].values
-        star_info = std_info[is_obs][std_info[is_obs]["source_id"]==sid]
-
-        if len(star_info) < 1:
-            diff.append([np.nan, np.nan, np.nan])
-            source.append(["",""])
-        elif len(star_info) > 1:
-            diff.append([np.nan, np.nan, np.nan])
-            n_dups += 1
-            dups.append(sid)
-            source.append(["",""])
-        else:
-            n_matches += 1
-            star_info = star_info.iloc[0]
-            synth_params = observations.iloc[i][[
-                "teff_synth", "logg_synth", "feh_synth"]].values
-            lit_params = star_info[["teff", "logg", "feh"]].values
-            diff.append(synth_params-lit_params)
-            source.append([star_info["kind"],star_info["source"]])
-    
-    print("{} matches".format(n_matches))
-    print("{} duplicates".format(n_dups))
-    
-    diff = np.array(diff).astype(float)
-
-    observations["teff_diff"] = diff[:,0]
-    observations["logg_diff"] = diff[:,1] 
-    observations["feh_diff"] = diff[:,2] 
-
-    return diff, np.array(source)
 
 # -----------------------------------------------------------------------------
 # Limb darkening
@@ -351,9 +268,9 @@ def compute_mann_2015_teff(
     return teffs, e_teffs
 
 
-def compute_mann_2015_radii(k_mag_abs):
+def compute_mann_2015_radii(k_mag_abs, fehs=None, enforce_M_Ks_bounds=False,):
     """Calculates stellar radii based on absolute 2MASS Ks band magnitudes
-    per the empirical relations in Table 1 of Mann et al. 2015. 
+    per the empirical relations in Table 1 of Mann et al. 2015.
 
     Paper:
         https://iopscience.iop.org/article/10.1088/0004-637X/804/1/64
@@ -361,13 +278,38 @@ def compute_mann_2015_radii(k_mag_abs):
     Erratum:
         https://iopscience.iop.org/article/10.3847/0004-637X/819/1/87
 
-    The implemented relation is the 3rd order polynomial fit without the 
-    dependence on [Fe/H].
+    Two relations are implemented:
+        a) 2nd order polynomial for R* in M_Ks (Eqn 4)
+        b) 2nd order polynomial for R* in M_Ks with [Fe/H] term (Eqn 5)
+
+    Eqn 4: R* = a + b*(M_Ks) + c*(M_Ks)^2
+    Eqn 5: R* = [a + b*(M_Ks) + c*(M_Ks)^2] * (1 + f*[Fe/H])
+        
+    Note that the values of the coefficients were taken from the *erratum*
+    Table 1. The relations are valid for:
+        i)   4.6 < M_Ks < 9.8
+        ii)  -0.6 < [Fe/H] < 0.5
+        iii) 0.1 < R* < 0.7 R_sun
+
+    With the paper noting that "However, because of sample selection biases,
+    the range of metallicities is significantly smaller for stars of spectral 
+    types later than M4 (mostly slightly metal-poor) and for the late-K dwarfs
+    (mostly metal-rich). There are also only 15 stars in total with spectral
+    types M5–M7 and only three stars with [Fe/H] < -0.5. These sample biases
+    should be considered when applying these formulae."
 
     Parameters
     ----------
     k_mag_abs: float array
         Array of absolute 2MASS Ks band magnitudes
+
+    fehs: float array, default: None
+        Array of [Fe/H] corresponding to k_mag_abs. If provided, we instead
+        use the M_Ks-[Fe/H] relation.
+
+    enforce_M_Ks_bounds: boolean, default: False
+        If True, we enforce the M_Ks bounds of the relations and set stars
+        outside the limits to nan.
 
     Returns
     -------
@@ -377,21 +319,35 @@ def compute_mann_2015_radii(k_mag_abs):
     e_masses: float array
         Uncertainties on stellar radii in solar units.
     """
-    # Percentage uncertainty on the result
-    e_radii_pc = 0.0289
+    # Values for Eqn 4 in Mann+2015
+    frac_radii_pc_M_Ks = 0.0289
+    coeff_M_Ks = np.array([1.9515, -0.3520, 0.01680])
 
-    # Coefficients for 3rd order polynomial fit without [Fe/H] dependence
-    coeff = np.array([1.9515, -0.3520, 0.01680])
+    # Values for Eqn 5 in Mann+2015
+    frac_radii_pc_M_Ks_feh = 0.027
+    coeff_M_Ks_feh = np.array([1.9305, -0.3466, 0.01647])
+    coeff_feh = 0.04458     # Note: erratum value!!
 
-    # Calculate radii
-    radii = polyval(k_mag_abs, coeff)
-    e_radii = radii * e_radii_pc
+    # 3rd order polynomial fit *without* [Fe/H] dependence
+    if fehs is None:
+        radii = polyval(k_mag_abs, coeff_M_Ks)
+        e_radii = radii * frac_radii_pc_M_Ks
+
+    # 3rd order polynomial fit *with* [Fe/H] dependence
+    else:
+        radii = polyval(k_mag_abs, coeff_M_Ks_feh) * (1 + coeff_feh * fehs)
+        e_radii = radii * frac_radii_pc_M_Ks_feh
+
+    if enforce_M_Ks_bounds:
+        outside_bounds = np.logical_or(k_mag_abs < 4.6, k_mag_abs > 9.8)
+        radii[outside_bounds] = np.nan
+        e_radii[outside_bounds] = np.nan
 
     return radii, e_radii
 
 
 def compute_logg(masses, e_masses, radii, e_radii,):
-    """
+    """Compute logg from mass and radius + propagate uncertainties.
 
     Parameters
     ----------

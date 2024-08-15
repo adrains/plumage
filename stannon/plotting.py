@@ -455,7 +455,7 @@ def plot_cannon_cmd(
             label=label,)
         
     # If we've been given a *second* highlight mask, also plot
-    if highlight_mask is not None:
+    if highlight_mask_2 is not None:
         label = "{} ({})".format(
             highlight_mask_label_2, int(np.sum(highlight_mask_2)))
         scatter = axis.scatter(
