@@ -143,7 +143,8 @@ def prepare_labels(
     obs_join,
     e_teff_quad=60,
     max_teff=4200,
-    synth_params_available=False,):
+    synth_params_available=False,
+    mid_K_BP_RP_bound=1.5,):
     """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
@@ -174,6 +175,10 @@ def prepare_labels(
 
     max_teff: int, default: 4200
         Maximum allowable benchmark temperature.
+
+    mid_K_BP_RP_bound: float, default: 1.5
+        Upper BP-RP bound beyond which we no longer consider direct 
+        determination of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
 
     Updated
     -------
@@ -261,7 +266,7 @@ def prepare_labels(
         # [Fe/H]
         # ---------------------------------------------------------------------
         feh_value, feh_sigma, feh_source, feh_nondefault = \
-            select_Fe_H_label(star_info)
+            select_Fe_H_label(star_info, mid_K_BP_RP_bound,)
         
         label_values[star_i, 2] = feh_value
         label_sigmas[star_i, 2] = feh_sigma
@@ -406,9 +411,15 @@ def select_teff_label(star_info, e_teff_quad, synth_params_available):
             teff_source = "C21"
             teff_nondefault = True
         
-        # Problem!
+        # Otherwise we don't have a Teff from either of the photometric
+        # relations, which presently means the star does not have a [Fe/H]
+        # since we're solely using the [Fe/H] sensitive relations.
         else:
-            raise ValueError("No valid Teff value, {}".format(star_info.name))
+            print("No valid Teff value, {}".format(star_info.name))
+            teff_value = np.nan
+            teff_sigma = np.nan
+            teff_source = ""
+            teff_nondefault = False
 
     return teff_value, teff_sigma, teff_source, teff_nondefault
             
@@ -455,7 +466,7 @@ def select_logg_label(star_info, synth_params_available):
     return logg_value, logg_sigma, logg_source, logg_nondefault
 
 
-def select_Fe_H_label(star_info,):
+def select_Fe_H_label(star_info, mid_K_BP_RP_bound):
     """Produces our adopted [Fe/H] values for this specific star.
 
     Our current [Fe/H] heirarchy is:
@@ -488,6 +499,10 @@ def select_Fe_H_label(star_info,):
     star_info: Pandas Series
         Single row of our obs_info DataFrame corresponding to a single star.
 
+    mid_K_BP_RP_bound: float
+        Upper BP-RP bound beyond which we no longer consider direct 
+        determination of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
+
     Returns
     -------
     feh_value, feh_sigma: float
@@ -500,6 +515,14 @@ def select_Fe_H_label(star_info,):
         False if the adopted value comes from an empirical relation, True
         otherwise.
     """
+    # First check that the star is below the mid-K BP-RP boundary, which
+    # corresponds to us trusting *directly* measured [Fe/H] and [X/Fe] from
+    # high-resolution spectra.
+    if star_info["BP-RP_dr3"] < mid_K_BP_RP_bound:
+        is_mid_K = True
+    else:
+        is_mid_K = False
+
     # -------------------------------------------------------------------------
     # [Fe/H] - binary
     # -------------------------------------------------------------------------
@@ -576,7 +599,7 @@ def select_Fe_H_label(star_info,):
     # [Fe/H] - single K-dwarfs
     # -------------------------------------------------------------------------
     # Brewer+2016 --> follow-up from VF+05 on same scale with > precision
-    elif ~np.isnan(star_info["Fe_H_b16"]):
+    elif is_mid_K and ~np.isnan(star_info["Fe_H_b16"]):
         feh_value = star_info["Fe_H_b16"] + FEH_OFFSETS["B16"]
         feh_sigma = B16_ABUND_SIGMA["Fe_H"]
         feh_source = "B16"
@@ -585,35 +608,36 @@ def select_Fe_H_label(star_info,):
     # Rice & Brewer 2020 --> follow-up from VF+05 and B+16, but with Cannon
     # Note: RB2020 reports params for M dwarfs, but these are *extremely*, so
     # we have to make sure to only take the useful (i.e. mid-K and up) stars.
-    elif ~np.isnan(star_info["Fe_H_rb20"]) and star_info["useful_rb20"]:
+    elif (is_mid_K and ~np.isnan(star_info["Fe_H_rb20"]) 
+          and star_info["useful_rb20"]):
         feh_value = star_info["Fe_H_rb20"] + FEH_OFFSETS["RB20"]
         feh_sigma = RB20_ABUND_SIGMA["Fe_H"]
         feh_source = "RB20"
         feh_nondefault = True
 
-    # VF05 (K-dwarfs)
-    elif ~np.isnan(star_info["Fe_H_vf05"]):      # TODO: feh_vf05 =/= Fe_H_vf05
+    # VF05 (K-dwarfs), TODO: feh_vf05 =/= Fe_H_vf05
+    elif is_mid_K and ~np.isnan(star_info["Fe_H_vf05"]):
         feh_value = star_info["Fe_H_vf05"]
         feh_sigma = VF05_ABUND_SIGMA["Fe_H"]
         feh_source = "VF05"
         feh_nondefault = True
 
     # Montes+2018 --> large sample, but low precision on some stars
-    elif ~np.isnan(star_info["Fe_H_m18"]):
+    elif is_mid_K and ~np.isnan(star_info["Fe_H_m18"]):
         feh_value = star_info["Fe_H_m18"] + FEH_OFFSETS["M18"]
         feh_sigma = star_info["eFe_H_m18"]
         feh_source = "M18"
         feh_nondefault = True
 
     # Sousa+08 (K-dwarfs)
-    elif ~np.isnan(star_info["feh_s08"]):
+    elif is_mid_K and ~np.isnan(star_info["feh_s08"]):
         feh_value = star_info["feh_s08"]
         feh_sigma = star_info["e_feh_s08"]
         feh_source = "Sou08"
         feh_nondefault = True
 
     # Luck+2018 (K-dwarfs)
-    elif not np.isnan(star_info["feh_L18"]):
+    elif is_mid_K and not np.isnan(star_info["feh_L18"]):
         feh_value = star_info["feh_L18"]
         feh_sigma = np.nan    # TODO
         feh_source = "L18"

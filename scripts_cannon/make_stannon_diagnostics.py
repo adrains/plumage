@@ -37,7 +37,7 @@ cannon_model_path = os.path.join("spectra", model_name)
 sm = stannon.load_model(cannon_model_path)
 
 # Import saved reference data and mask
-obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
+obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
 
 is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
 
@@ -70,7 +70,7 @@ splt.plot_label_recovery(
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
     fn_suffix=fn_label,
-    teff_lims=(2750,4300),
+    teff_lims=(2500,5000),
     teff_ticks=(500,250,200,100),
     logg_ticks=(0.25,0.125,0.1,0.05),
     feh_lims=(-0.95,0.65),
@@ -84,10 +84,11 @@ splt.plot_label_recovery_per_source(
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L), 
     obs_join=obs_join,
     fn_suffix=fn_label,
-    teff_lims=(2800,4300),
-    feh_lims=(-0.95,0.65),
+    teff_lims=(2800,5000),
+    feh_lims=(-1.05,0.65),
     teff_ticks=(500,250,200,100),
-    feh_ticks=(0.5,0.25,0.25,0.125),)
+    feh_ticks=(0.5,0.25,0.25,0.125),
+    do_plot_mid_K_panel=True,)
 
 # And finally plot the label recovery for any abundances we might be using
 if len(cs.abundance_labels) >= 1:
@@ -189,7 +190,21 @@ splt.plot_spectra_comparison(
     fn_label=fn_label,
     fig_size=cs.spec_comp_fig_size,)
 
-# Do the same, but across all wavelengths and for all stars
+# Do the same, but across all wavelengths
+splt.plot_spectra_comparison(
+    sm=sm,
+    obs_join=obs_join,
+    fluxes=sm.training_data,
+    bad_px_masks=sm.bad_px_mask,
+    labels_all=sm.training_labels,
+    source_ids=cs.representative_stars_source_ids,
+    sort_col_name="BP_RP_dr3",
+    x_lims=(cs.wl_min_model,cs.wl_max_model),
+    data_label="br",
+    fig_size=cs.spec_comp_fig_size,
+    fn_label=fn_label,)
+
+# Ditto, but now for all stars
 splt.plot_spectra_comparison(
     sm=sm,
     obs_join=obs_join,
@@ -199,7 +214,8 @@ splt.plot_spectra_comparison(
     source_ids=obs_join.index,
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_min_model,cs.wl_max_model),
-    data_label="d",
+    data_label="a",
+    fig_size=(12, 80),
     fn_label=fn_label,)
 
 #------------------------------------------------------------------------------
@@ -251,17 +267,20 @@ st.make_table_benchmark_overview(
     obs_tab=obs_join,
     label_names=cs.label_names,
     abundance_labels=cs.abundance_labels,
-    break_row=200,)
+    break_row=90,)
 
 #------------------------------------------------------------------------------
 # Benchmark CMD
 #------------------------------------------------------------------------------
+# TODO: masking for K dwarfs
 splt.plot_cannon_cmd(
     benchmark_colour=obs_join["BP_RP_dr3"],
     benchmark_mag=obs_join["K_mag_abs"],
     benchmark_feh=sm.training_labels[:,2],
     highlight_mask=obs_join["is_cpm"].values,
-    highlight_mask_label="Binary Benchmark",)
+    highlight_mask_label="Binary Benchmark",
+    highlight_mask_2=obs_join["is_mid_k_dwarf"].values,
+    highlight_mask_label_2="Early-Mid K Dwarf",)
 
 #------------------------------------------------------------------------------
 # GALAH-Gaia -- Valenti & Fischer 2005 diagnostic

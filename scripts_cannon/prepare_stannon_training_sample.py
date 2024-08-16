@@ -112,13 +112,19 @@ is_useful_rb20[is_nan] = False
 obs_join.astype({"useful_rb20":bool}, copy=False)
 obs_join["useful_rb20"] = is_useful_rb20
 
-is_mid_k_dwarf = np.any([
+has_mid_k_reference = np.any([
     ~np.isnan(obs_join["Teff_b16"].values),
     np.logical_and(~np.isnan(obs_join["Teff_rb20"].values), is_useful_rb20),
     ~np.isnan(obs_join["teff_vf05"].values),
     ~np.isnan(obs_join["Teff_m18"].values),
     ~np.isnan(obs_join["teff_s08"].values),
     ~np.isnan(obs_join["Teff_L18"].values),], axis=0).astype(bool)
+
+# Enforce our BP-RP bounds for what we consider a mid-K dwarf (i.e. where we
+# trust the models for direct [Fe/H] determination from high-R spectroscopy)
+is_mid_k_dwarf = np.logical_and(
+    has_mid_k_reference,
+    obs_join["BP-RP_dr3"].values < ls.mid_K_BP_RP_bound)
 
 obs_join["is_mid_k_dwarf"] = is_mid_k_dwarf
 
@@ -139,7 +145,7 @@ obs_join = obs_join[cols[~mm]].copy()
 feh_info_all = []
 
 for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()): 
-    feh_info = params.select_Fe_H_label(star_info)
+    feh_info = params.select_Fe_H_label(star_info, ls.mid_K_BP_RP_bound,)
     feh_info_all.append(feh_info)
 
 feh_info_all = np.vstack(feh_info_all)
@@ -148,6 +154,7 @@ feh_values = feh_info_all[:,0].astype(float)
 
 #------------------------------------------------------------------------------
 # Calculate Teff via empirical relations
+# TODO: do this *after* we recalculate gravity for Casagrande relation
 #------------------------------------------------------------------------------
 # Calculate Mann+2015 Teff
 teff_M15, e_teff_M15 = pp.compute_mann_2015_teff(
@@ -357,7 +364,8 @@ if ls.allow_misc_exceptions:
 params.prepare_labels(
     obs_join=obs_join,
     max_teff=5000,
-    synth_params_available=False)
+    synth_params_available=False,
+    mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,)
 
 # Format our dataframe so it will save correctly
 for col in obs_join.columns.values:

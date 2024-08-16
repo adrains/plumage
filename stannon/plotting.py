@@ -139,7 +139,8 @@ def plot_label_recovery_per_source(
     show_offset=True,
     fn_suffix="",
     teff_ticks=(500,250,100,50),
-    feh_ticks=(0.5,0.25,0.5,0.25),):
+    feh_ticks=(0.5,0.25,0.5,0.25),
+    do_plot_mid_K_panel=False,):
     """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
 
     Saves as paper/std_comp<fn_suffix>.<pdf/png>.
@@ -163,6 +164,9 @@ def plot_label_recovery_per_source(
         
     title_text: string, default: ''
         Text for fig.suptitle.
+
+    do_plot_mid_K_panel: boolean, default: False
+        Whether to plot an extra panel for mid-K dwarf benchmarks.
     """
     plt.close("all")
 
@@ -170,7 +174,13 @@ def plot_label_recovery_per_source(
     panel_label = "{:0.0f} Label".format(label_pred.shape[1])
 
     # Make plot
-    fig, (ax_teff_int, ax_feh_m15, ax_feh_ra12, ax_feh_cpm) = plt.subplots(1,4)
+    if do_plot_mid_K_panel:
+        fig, axes  = plt.subplots(1,5)
+        (ax_teff_int, ax_feh_m15, ax_feh_ra12, ax_feh_cpm, ax_feh_mid_k) = axes
+    else:
+        fig, axes = plt.subplots(1,4)
+        (ax_teff_int, ax_feh_m15, ax_feh_ra12, ax_feh_cpm) = axes
+
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.0)
 
     # Interferometric temperatures
@@ -263,6 +273,30 @@ def plot_label_recovery_per_source(
         panel_label=panel_label,
         plot_y_label=True,
         plot_resid_y_label=False,)
+    
+    # Mid-K dwarfs [Fe/H]
+    if do_plot_mid_K_panel:
+        feh_mask = obs_join["is_mid_k_dwarf"].values
+
+        pplt.plot_std_comp_generic(
+            fig=fig,
+            axis=ax_feh_mid_k,
+            lit=label_values[:,2][feh_mask],
+            e_lit=e_label_values[:,2][feh_mask],
+            fit=label_pred[:,2][feh_mask],
+            e_fit=e_label_pred[:,2][feh_mask],
+            colour=label_values[:,0][feh_mask],
+            fit_label=r"[Fe/H] ($\it{Cannon}$)",
+            lit_label=r"[Fe/H] (Mid-K Literature)",
+            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            x_lims=feh_lims,
+            y_lims=feh_lims,
+            cmap="magma",
+            show_offset=show_offset,
+            ticks=feh_ticks,
+            panel_label=panel_label,
+            plot_y_label=True,
+            plot_resid_y_label=False,)
 
     # Save plot
     fig.set_size_inches(16, 3)
