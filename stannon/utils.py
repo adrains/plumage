@@ -11,6 +11,8 @@ import pystan.plots as plots
 from tqdm import tqdm
 from tempfile import mkstemp
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
+from PyAstronomy.pyasl import instrBroadGaussFast
 
 __all__ = ["read", "sampling_kwds", "plots"]
 
@@ -352,3 +354,86 @@ class YAMLSettings:
 
     def __repr__(self):
         return self.param_dict.__repr__()
+    
+def broaden_cannon_fluxes(
+    wls,
+    spec_std_br,
+    e_spec_std_br,
+    target_delta_lambda,):
+    """Broadens spectra using PyAstronomy.instrBroadGaussFast.
+
+    TODO 1: option to take a pre-existing wavelength scale at the new
+    resolution to interpolate onto.
+
+    TODO 2: for optimal rigour, we should probably separately broaden spectra
+    from each WiFeS arm, rather than doing it together here.
+
+    Parameters
+    ----------
+    wls: 1D float array
+        Wavelength vector of shape [n_px]
+
+    spec_std_br, e_spec_std_br: 2D float array
+        Flux and uncertainty arrays of shape [n_star, n_px]
+
+    target_delta_lambda: float
+        Broadening kernel in wavelength units (same as wls) from which we
+        calculate R to pass to instrBroadGaussFast, which represents R at the
+        mean wavelength of our wavelength scale.
+    """
+    n_std = spec_std_br.shape[0]
+
+    # Determine mean wavelength
+    mean_lambda = np.mean(wls)
+
+    # Calculate target resolution given mean wavelength and target_delta_lambda
+    res = mean_lambda / target_delta_lambda
+
+    # Supersample?
+    pass
+
+    # New wl scale
+    wls_new = np.arange(wls[0], wls[-1], target_delta_lambda/2)
+    n_wl_new = len(wls_new)
+
+    # Broaden
+    spec_std_br_broad = np.zeros((n_std, n_wl_new))
+    e_spec_std_br_broad = np.zeros((n_std, n_wl_new))
+
+    for spec_i in tqdm(range(n_std), desc="Broadening", leave=False):
+        nan_mask = np.logical_or(
+            np.isnan(spec_std_br[spec_i]), np.isnan(e_spec_std_br[spec_i]))
+
+        # Fluxes (broaden + interpolate)
+        spec_broad = instrBroadGaussFast(
+            wvl=wls[~nan_mask],
+            flux=spec_std_br[spec_i][~nan_mask],
+            resolution=res,
+            equid=True,
+            edgeHandling="firstlast",)
+        
+        interp_spec = interp1d(
+            x=wls[~nan_mask],
+            y=spec_broad,
+            kind="cubic",
+            bounds_error=False,)
+        
+        spec_std_br_broad[spec_i] = interp_spec(wls_new)
+
+        # Uncertainties (broaden + interpolate)
+        e_spec_broad = instrBroadGaussFast(
+            wvl=wls[~nan_mask],
+            flux=e_spec_std_br[spec_i][~nan_mask],
+            resolution=res,
+            equid=True,
+            edgeHandling="firstlast",)
+        
+        interp_e_spec = interp1d(
+            x=wls[~nan_mask],
+            y=e_spec_broad,
+            kind="cubic",
+            bounds_error=False,)
+        
+        e_spec_std_br_broad[spec_i] = interp_e_spec(wls_new)
+
+    return wls_new, spec_std_br_broad, e_spec_std_br_broad

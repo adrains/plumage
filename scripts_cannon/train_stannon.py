@@ -77,6 +77,24 @@ spec_std_br = pu.load_fits_image_hdu("rest_frame_spec", cs.std_label, arm="br")
 e_spec_std_br = pu.load_fits_image_hdu(
     "rest_frame_sigma", cs.std_label, arm="br")
 
+# [Optional] Broaden fluxes to a lower resolution
+if cs.do_constant_in_wl_spectral_broadening:
+    wls_new, spec_std_br_broad, e_spec_std_br_broad = su.broaden_cannon_fluxes(
+        wls=wls,
+        spec_std_br=spec_std_br,
+        e_spec_std_br=e_spec_std_br,
+        target_delta_lambda=cs.target_delta_lambda,)
+        
+    # Swap references
+    wls_unbroadened = wls
+    spec_std_br_unbroadened = spec_std_br
+    e_spec_std_br_unbroadened = e_spec_std_br
+
+    wls = wls_new
+    spec_std_br = spec_std_br_broad
+    e_spec_std_br = e_spec_std_br_broad
+
+# Normalise fluxes
 fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
     stannon.prepare_cannon_spectra_normalisation(
         wls=wls,

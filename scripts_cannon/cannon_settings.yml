@@ -68,6 +68,11 @@ poly_order: 4
 wl_min_model: 4000
 wl_max_model: 7000
 
+# Settings for broadening WiFeS spectra to a lower resolution. Currently only
+# broadens spectra in wavelength, rather than velocity, space.
+do_constant_in_wl_spectral_broadening: False
+target_delta_lambda: 4.6875 # Å (BOSS spectra, 5000-7000 Å)
+
 # The Cannon model to use - either the 'basic' traditional Cannon model, or a
 # model with label uncertainties. If modelling abundances, the version with
 # label uncertainties should be used. Either 'basic' or 'label_uncertainties'.
@@ -101,7 +106,7 @@ lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0]
 spectra_std_scale_fac: 1.0
 
 model_save_path: "spectra"
-std_label: "cannon"
+std_label: "cannon_mk"
 
 # Whether to fit for abundances. At the moment our abundance heirarchy is
 # Montes+18 > Valenti+Fischer05 > Adibekyan+12. Not recommended to fit > 1-2.
@@ -149,6 +154,7 @@ adopted_label_uncertainties: [51, 0.04, 0.10, 0.06]
 
 # Here we've picked a set of spectral types ranging over our BP-RP range.
 representative_stars_source_ids: 
+- "3757613049856225792"      # M7V, LHS 292
 - "5853498713190525696"      # M5.5, GJ 551
 - "2595284016771502080"      # M5, LHS 3799
 - "2868199402451064064"      # M4.7, GJ 1288
@@ -161,9 +167,16 @@ representative_stars_source_ids:
 - "145421309108301184"       # K8, Gl 169
 - "4282578724832056576"      # M0.7, Gl 740
 - "3266980243936341248"      # M1V, NLTT 10349, most metal poor
+- "3057712188691831936"      # K7V, Gl 282B
+- "3630092241022731136"      # K5V, HD 118100
+- "4109034455276324608"      # K5V, V* V2215 Oph
+- "4706630501049679744"      # K4.5V, HD 55
+- "6412595290592307840"      # K5V, eps Ind
+- "19316224572460416"        # K3V, GJ 105
+- "2552925644460225152"      # K2.5V, GJ 33
 
 # Threshold at which to flag logg values in our results tabls
-aberrant_logg_threshold: 0.075
+aberrant_logg_threshold: 0.06
 
 # Valenti & Fischer 2005 files to compare Gaia+GALAH [Ti/Fe] chemodynamic rels
 vf05_full_file: "data/valenti_fischer_05.tsv"
@@ -178,7 +191,8 @@ spec_comp_fig_size: [14, 10]
 # For comparison purposes, we select one trained 3 label model, and one
 # trained 4 label model to compare performance via compare_stannon_models.py
 sm_1_path: "spectra/stannon_model_basic_3label_5024px_teff_logg_feh.pkl"
-sm_2_path: "spectra/stannon_model_basic_4label_5024px_teff_logg_feh_Ti_Fe.pkl"
+#sm_2_path: "spectra/stannon_model_basic_3label_5024px_teff_logg_feh.pkl"
+sm_2_path: "spectra/stannon_model_basic_4label_5024px_teff_logg_feh_Ti_Fe.fits"
 
 sm_1_label: "3 Label"
 sm_2_label: "4 Label"

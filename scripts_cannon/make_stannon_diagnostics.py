@@ -52,6 +52,15 @@ else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
 
+# Create name of subfolder to save everything to
+save_folder = "paper/{}_{}_{}L_{}S_{}P_{}".format(
+    cs.std_label,
+    cs.model_type,
+    sm.L,
+    sm.S,
+    sm.P,
+    "_".join(sm.label_names),)
+
 #------------------------------------------------------------------------------
 # Label Recovery
 #------------------------------------------------------------------------------
@@ -74,7 +83,8 @@ splt.plot_label_recovery(
     teff_ticks=(500,250,200,100),
     logg_ticks=(0.25,0.125,0.1,0.05),
     feh_lims=(-0.95,0.65),
-    feh_ticks=(0.5,0.25,0.4,0.2),)
+    feh_ticks=(0.5,0.25,0.4,0.2),
+    plot_folder=save_folder,)
 
 # Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
 splt.plot_label_recovery_per_source( 
@@ -88,7 +98,8 @@ splt.plot_label_recovery_per_source(
     feh_lims=(-1.05,0.65),
     teff_ticks=(500,250,200,100),
     feh_ticks=(0.5,0.25,0.25,0.125),
-    do_plot_mid_K_panel=True,)
+    do_plot_mid_K_panel=True,
+    plot_folder=save_folder,)
 
 # And finally plot the label recovery for any abundances we might be using
 if len(cs.abundance_labels) >= 1:
@@ -102,7 +113,8 @@ if len(cs.abundance_labels) >= 1:
         fn_suffix=fn_label,
         abundance_labels=cs.abundance_labels,
         feh_lims=(-0.15,0.4),
-        feh_ticks=(0.2,0.1,0.1,0.05))
+        feh_ticks=(0.2,0.1,0.1,0.05),
+        plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Theta Coefficients
@@ -137,7 +149,8 @@ splt.plot_theta_coefficients(
     fn_suffix=fn_label,
     line_list=line_list_b,
     species_to_plot=cs.species_to_plot,
-    only_plot_first_order_coeff=cs.only_plot_first_order_coeff,)
+    only_plot_first_order_coeff=cs.only_plot_first_order_coeff,
+    plot_folder=save_folder,)
 
 splt.plot_theta_coefficients(
     sm,
@@ -155,7 +168,8 @@ splt.plot_theta_coefficients(
     fn_suffix=fn_label,
     line_list=line_list_r,
     species_to_plot=cs.species_to_plot,
-    only_plot_first_order_coeff=cs.only_plot_first_order_coeff,)
+    only_plot_first_order_coeff=cs.only_plot_first_order_coeff,
+    plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Spectral Recovery
@@ -174,7 +188,8 @@ splt.plot_spectra_comparison(
     x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
     data_label="b",
     fn_label=fn_label,
-    fig_size=cs.spec_comp_fig_size,)
+    fig_size=cs.spec_comp_fig_size,
+    plot_folder=save_folder,)
 
 # Plot model spectrum performance for WiFeS red band
 splt.plot_spectra_comparison(
@@ -188,7 +203,8 @@ splt.plot_spectra_comparison(
     x_lims=(cs.wl_grating_changeover,cs.wl_max_model),
     data_label="r",
     fn_label=fn_label,
-    fig_size=cs.spec_comp_fig_size,)
+    fig_size=cs.spec_comp_fig_size,
+    plot_folder=save_folder,)
 
 # Do the same, but across all wavelengths
 splt.plot_spectra_comparison(
@@ -202,7 +218,8 @@ splt.plot_spectra_comparison(
     x_lims=(cs.wl_min_model,cs.wl_max_model),
     data_label="br",
     fig_size=cs.spec_comp_fig_size,
-    fn_label=fn_label,)
+    fn_label=fn_label,
+    plot_folder=save_folder,)
 
 # Ditto, but now for all stars
 splt.plot_spectra_comparison(
@@ -216,7 +233,8 @@ splt.plot_spectra_comparison(
     x_lims=(cs.wl_min_model,cs.wl_max_model),
     data_label="a",
     fig_size=(12, 80),
-    fn_label=fn_label,)
+    fn_label=fn_label,
+    plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Label Prediction
@@ -260,19 +278,19 @@ obs_join["logg_aberrant"] = has_aberrant_logg
 # Tables
 #------------------------------------------------------------------------------
 # Table summarising benchmark sample
-st.make_table_sample_summary(obs_join)
+st.make_table_sample_summary(obs_join, table_folder=save_folder,)
 
 # Tabulate our adopted and benchmark parameters
 st.make_table_benchmark_overview(
     obs_tab=obs_join,
     label_names=cs.label_names,
     abundance_labels=cs.abundance_labels,
-    break_row=90,)
+    break_row=90,
+    table_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Benchmark CMD
 #------------------------------------------------------------------------------
-# TODO: masking for K dwarfs
 splt.plot_cannon_cmd(
     benchmark_colour=obs_join["BP_RP_dr3"],
     benchmark_mag=obs_join["K_mag_abs"],
@@ -280,7 +298,8 @@ splt.plot_cannon_cmd(
     highlight_mask=obs_join["is_cpm"].values,
     highlight_mask_label="Binary Benchmark",
     highlight_mask_2=obs_join["is_mid_k_dwarf"].values,
-    highlight_mask_label_2="Early-Mid K Dwarf",)
+    highlight_mask_label_2="Early-Mid K Dwarf",
+    plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # GALAH-Gaia -- Valenti & Fischer 2005 diagnostic
@@ -288,7 +307,8 @@ splt.plot_cannon_cmd(
 splt.plot_abundance_trend_recovery(
     obs_join=obs_join,
     vf05_full_file=cs.vf05_full_file,
-    vf05_sampled_file=cs.vf05_sampled_file,)
+    vf05_sampled_file=cs.vf05_sampled_file,
+    plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Save updated fits

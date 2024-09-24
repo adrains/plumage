@@ -1,5 +1,6 @@
 """Functions to generate LaTeX tables.
 """
+import os
 import numpy as np
 import stannon.parameters as params
 from collections import OrderedDict
@@ -34,7 +35,7 @@ label_source_refs = {
     "R20":"rains_precision_2020",
 }
 
-def make_table_sample_summary(obs_tab,):
+def make_table_sample_summary(obs_tab, table_folder="paper",):
     """Creates a table summarising where each set of labels comes from, and
     how many are adopted from each sample (e.g. Mann+15).
     """
@@ -428,8 +429,14 @@ def make_table_sample_summary(obs_tab,):
 
     table = header + table_rows + footer
 
+    # Save table
+    if not os.path.isdir(table_folder):
+        os.mkdir(table_folder)
+
+    table_fn = os.path.join(table_folder, "table_benchmark_sample_summary.tex")
+
     np.savetxt(
-        fname="paper/table_benchmark_sample_summary.tex",
+        fname=table_fn,
         X=table,
         fmt="%s",)
 
@@ -438,7 +445,8 @@ def make_table_benchmark_overview(
     obs_tab,
     label_names,
     abundance_labels=[],
-    break_row=61,):
+    break_row=61,
+    table_folder="paper",):
     """Make a LaTeX table of our adopted benchmark stellar parameters, the
     source/s of those values, as well as the systematic corrected results for
     the benchmark set.
@@ -664,6 +672,10 @@ def make_table_benchmark_overview(
 
     low_row = 0
     
+    # Save table
+    if not os.path.isdir(table_folder):
+        os.mkdir(table_folder)
+
     for table_i, break_row in enumerate(break_rows):
         if table_i == 0:
             header = header_1
@@ -672,20 +684,31 @@ def make_table_benchmark_overview(
             header = header_2
             footer = footer_2
         table_x = header + table_rows[low_row:break_row] + footer + notes
+
+        table_fn = os.path.join(
+            table_folder,
+            "table_benchmark_params_{:0.0f}.tex".format(table_i))
+
         np.savetxt(
-            "paper/table_benchmark_params_{:0.0f}.tex".format(table_i),
-            table_x,
-            fmt="%s")
+            fname=table_fn,
+            X=table_x,
+            fmt="%s",)
+
         low_row = break_row
 
     # Do final part table
     if low_row < len(obs_tab):
         table_i += 1
         table_x = header_2 + table_rows[low_row:] + footer_2 + notes
+
+        table_fn = os.path.join(
+            table_folder,
+            "table_benchmark_params_{:0.0f}.tex".format(table_i))
+
         np.savetxt(
-            "paper/table_benchmark_params_{:0.0f}.tex".format(table_i),
-            table_x,
-            fmt="%s")
+            fname=table_fn,
+            X=table_x,
+            fmt="%s",)
 
 
 def make_table_parameter_fit_results(

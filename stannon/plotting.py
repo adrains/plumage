@@ -1,5 +1,6 @@
 """Plotting functions related to Stannon
 """
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.cm as cm
@@ -22,7 +23,8 @@ def plot_label_recovery(
     fn_suffix="",
     teff_ticks=(500,250,100,50),
     logg_ticks=(0.5,0.25,0.2,0.1),
-    feh_ticks=(0.5,0.25,0.5,0.25),):
+    feh_ticks=(0.5,0.25,0.5,0.25),
+    plot_folder="plots/",):
     """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
 
     Saves as paper/std_comp<fn_suffix>.<pdf/png>.
@@ -46,6 +48,9 @@ def plot_label_recovery(
         
     title_text: string, default: ''
         Text for fig.suptitle.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     plt.close("all")
 
@@ -121,11 +126,19 @@ def plot_label_recovery(
         panel_label=panel_label,
         plot_resid_y_label=False,)
 
-    # Save plot
     fig.set_size_inches(12, 3)
     fig.tight_layout()
-    fig.savefig("paper/cannon_param_recovery{}.pdf".format(fn_suffix))
-    fig.savefig("paper/cannon_param_recovery{}.png".format(fn_suffix), dpi=300)
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_param_recovery{}".format(fn_suffix))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_label_recovery_per_source(
@@ -140,7 +153,8 @@ def plot_label_recovery_per_source(
     fn_suffix="",
     teff_ticks=(500,250,100,50),
     feh_ticks=(0.5,0.25,0.5,0.25),
-    do_plot_mid_K_panel=False,):
+    do_plot_mid_K_panel=False,
+    plot_folder="plots/",):
     """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
 
     Saves as paper/std_comp<fn_suffix>.<pdf/png>.
@@ -167,6 +181,9 @@ def plot_label_recovery_per_source(
 
     do_plot_mid_K_panel: boolean, default: False
         Whether to plot an extra panel for mid-K dwarf benchmarks.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     plt.close("all")
 
@@ -298,11 +315,19 @@ def plot_label_recovery_per_source(
             plot_y_label=True,
             plot_resid_y_label=False,)
 
-    # Save plot
     fig.set_size_inches(16, 3)
     fig.tight_layout()
-    fig.savefig("paper/cannon_param_recovery_ps{}.pdf".format(fn_suffix))
-    fig.savefig("paper/cannon_param_recovery_ps{}.png".format(fn_suffix), dpi=200)
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_param_recovery_ps{}.pdf".format(fn_suffix))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_label_recovery_abundances(
@@ -315,7 +340,8 @@ def plot_label_recovery_abundances(
     feh_lims=(-1.0,0.75),
     show_offset=True,
     fn_suffix="",
-    feh_ticks=(0.5,0.25,0.5,0.25),):
+    feh_ticks=(0.5,0.25,0.5,0.25),
+    plot_folder="plots/",):
     """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
 
     Saves as paper/std_comp<fn_suffix>.<pdf/png>.
@@ -339,6 +365,9 @@ def plot_label_recovery_abundances(
         
     title_text: string, default: ''
         Text for fig.suptitle.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     plt.close("all")
 
@@ -391,14 +420,19 @@ def plot_label_recovery_abundances(
             ticks=feh_ticks,
             panel_label=panel_label,)
     
-    # Save plot
     fig.set_size_inches(4*n_abundances, 3)
     fig.tight_layout()
-    fig.savefig(
-        "paper/cannon_param_recovery_abundance{}.pdf".format(fn_suffix))
-    fig.savefig(
-        "paper/cannon_param_recovery_abundance{}.png".format(fn_suffix),
-        dpi=300)
+    
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_param_recovery_abundance{}.pdf".format(fn_suffix))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_cannon_cmd(
@@ -413,7 +447,8 @@ def plot_cannon_cmd(
     highlight_mask_label="",
     highlight_mask_2=None,
     highlight_mask_label_2="",
-    bp_rp_cutoff=0,):
+    bp_rp_cutoff=0,
+    plot_folder="plots/",):
     """Plots a colour magnitude diagram using the specified columns and saves
     the result as paper/{label}_cmd.pdf. Optionally can plot a second set of
     stars for e.g. comparison with standards.
@@ -441,6 +476,9 @@ def plot_cannon_cmd(
 
     label: string, default: 'tess'
         Label to use in filename, e.g. {label}_cmd.pdf
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     plt.close("all")
     fig, axis = plt.subplots()
@@ -521,8 +559,17 @@ def plot_cannon_cmd(
     axis.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))
 
     fig.tight_layout()
-    plt.savefig("paper/cannon_cmd.png", dpi=200)
-    plt.savefig("paper/cannon_cmd.pdf")
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_cmd")
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_kiel_diagram(
@@ -612,11 +659,17 @@ def plot_theta_coefficients(
     sm2=None,
     sm1_label="",
     sm2_label="",
-    use_logarithmic_scale_axis=False):
+    use_logarithmic_scale_axis=False,
+    plot_folder="plots/",):
     """Plot fluxes, values of first order theta coefficients for Teff, logg,
     and [Fe/H], as well as model scatter - all against wavelength.
 
+    Parameters
+    ----------
     TODO
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     # -------------------------------------------------------------------------
     # Setup
@@ -896,10 +949,16 @@ def plot_theta_coefficients(
 
     plt.xlabel(r"Wavelength (${\rm \AA}$)")
     
-    #plt.tight_layout()
-    plt.savefig("paper/theta_coefficients_{}{}.pdf".format(fn_label, fn_suffix))
-    plt.savefig("paper/theta_coefficients_{}{}.png".format(fn_label, fn_suffix),
-        dpi=200)
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "theta_coefficients_{}{}.pdf".format(fn_label, fn_suffix))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_spectra_comparison(
@@ -926,9 +985,17 @@ def plot_spectra_comparison(
     fluxes_2_plot_label="",
     fluxes_2_plot_colour="",
     do_plot_galah_bands=False,
-    n_leg_col=2,):
+    n_leg_col=2,
+    plot_folder="plots/",):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
+
+    Parameters
+    ----------
+    TODO
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     # Intialise
     plt.close("all")
@@ -1071,24 +1138,32 @@ def plot_spectra_comparison(
     ax.set_xlabel(r"Wavelength (${\rm \AA}$)")
     plt.tight_layout()
 
-    fn = "paper/cannon_spectra_comp_{}_{}".format(
-        data_label, fn_label).replace("__", "_")
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
 
-    plt.savefig("{}.pdf".format(fn))
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_spectra_comp_{}_{}".format(
+            data_label, fn_label).replace("__", "_"))
+
+    plt.savefig("{}.pdf".format(plot_fn))
 
     # Don't plot a PNG for the diagnostic plot of all spectra since the image
     # dimensions will be excessively large
     if fn_label != "d":
-        plt.savefig("{}.png".format(fn), dpi=300)
+        plt.savefig("{}.png".format(plot_fn), dpi=300)
 
     if do_plot_eps:
-        plt.savefig("{}.eps".format(fn))
+        plt.savefig("{}.eps".format(plot_fn))
+
 
 
 def plot_label_uncertainty_adopted_vs_true_labels(
     sm,
     n_bins=20,
-    fn_label="",):
+    fn_label="",
+    plot_folder="plots/",):
     """Function to plot histograms comparing the adopted and true label
     distributions (+the difference between them) at the conclusion of training
     a label uncertainties model. Currently works for three parameter and four
@@ -1103,6 +1178,9 @@ def plot_label_uncertainty_adopted_vs_true_labels(
 
     fn_label: string, default: ""
         Label of the filename.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     if sm.model_type != "label_uncertainties":
         raise ValueError("Stannon model must be label_uncertainties.")
@@ -1260,10 +1338,17 @@ def plot_label_uncertainty_adopted_vs_true_labels(
     # Tidy up and save
     # -------------------------------------------------------------------------
     plt.tight_layout()
+    
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
 
-    plt.savefig("paper/adopted_vs_true_label_hists{}.pdf".format(fn_label))
-    plt.savefig("paper/adopted_vs_true_label_hists{}.png".format(fn_label),
-                dpi=200)
+    plot_fn = os.path.join(
+        plot_folder,
+        "adopted_vs_true_label_hists{}.pdf".format(fn_label))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_delta_cannon_vs_marcs(
@@ -1273,7 +1358,8 @@ def plot_delta_cannon_vs_marcs(
     delta_thresholds=(0.1, 0.05, 0.02),
     fig_size=(12,3),
     plot_smooth_interpolated_fluxes=False,
-    s=None,):
+    s=None,
+    plot_folder="plots/",):
     """Plots a series of comparisons of Cannon vs MARCS spectra below the
     provided set of fractional flux tolerances.
 
@@ -1294,6 +1380,9 @@ def plot_delta_cannon_vs_marcs(
         subplot panel. For instance, delta_thresholds = (0.1, 0.05, 0.02) plots
         three panels showing only those wavelengths with fluxes within 10%, 5%,
         and 2%.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     # Sort our benchmarks by their BP-RP colour
     is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
@@ -1394,8 +1483,16 @@ def plot_delta_cannon_vs_marcs(
     fig.supylabel(r"$BP-RP$")
     ax.set_xlabel("Wavelength")
 
-    plt.savefig("paper/cannon_vs_marcs_delta_flux.pdf")
-    plt.savefig("paper/cannon_vs_marcs_delta_flux.png", dpi=200)
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_vs_marcs_delta_flux")
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_scatter_histogram_comparison(
@@ -1404,7 +1501,8 @@ def plot_scatter_histogram_comparison(
     sm_1_label,
     sm_2_label,
     n_bins=250,
-    hist_bin_lims=(0, 0.0005),):
+    hist_bin_lims=(0, 0.0005),
+    plot_folder="plots/",):
     """Plots a histogram comparison of the fitted model scatters for two 
     different trained Cannon models.
 
@@ -1421,6 +1519,9 @@ def plot_scatter_histogram_comparison(
 
     his_bin_lims: foat tuple, default (0, 0.0005)
         Lower and upper scatter limits to consider.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     bins = np.linspace(hist_bin_lims[0], hist_bin_lims[1], n_bins)
     plt.close("all")
@@ -1432,9 +1533,17 @@ def plot_scatter_histogram_comparison(
     ax.set_xlim(-0.000005, hist_bin_lims[1])
 
     plt.tight_layout()
-            
-    plt.savefig("paper/cannon_model_scatter_comparison_hist.pdf")
-    plt.savefig("paper/cannon_model_scatter_comparison_hist.png")
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "cannon_model_scatter_comparison_hist",)
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
 
 
 def plot_abundance_trend_recovery(
@@ -1446,10 +1555,13 @@ def plot_abundance_trend_recovery(
     vf05_feh_lim=-1.0,
     X_Fe_lims=(-0.275,0.45),
     show_offset=True,
-    X_Fe_ticks=(0.2,0.1,0.2,0.1),):
+    X_Fe_ticks=(0.2,0.1,0.2,0.1),
+    plot_folder="plots/",):
     """Function to compare literature [Ti/Fe] to that predicted from GALAH-Gaia
     chemodynamic relations, and overplot the adopted sample of binary benchmark
     FGK primaries. The literature sample is Valenti & Fischer 2005.
+
+    Note: Currently only [Ti/Fe] is supported.
 
     Parameters
     ----------
@@ -1480,7 +1592,8 @@ def plot_abundance_trend_recovery(
     X_Fe_ticks: float tuple, default: (0.2,0.1,0.2,0.1)
         [X/Fe] major and minor ticks for each axis.
 
-    Note: Currently only [Ti/Fe] is supported.
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
     """
     # Import VF05 full file
     vf05_full = pd.read_csv(vf05_full_file, sep="\t", dtype={"source_id":str})
@@ -1576,5 +1689,14 @@ def plot_abundance_trend_recovery(
 
     #leg = axis.legend(loc="best")
     plt.tight_layout()
-    plt.savefig("paper/vf05_Ti_Fe_vs_predicted.pdf")
-    plt.savefig("paper/vf05_Ti_Fe_vs_predicted.png", dpi=200)
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "vf05_Ti_Fe_vs_predicted")
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
