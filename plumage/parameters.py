@@ -268,7 +268,11 @@ def compute_mann_2015_teff(
     return teffs, e_teffs
 
 
-def compute_mann_2015_radii(k_mag_abs, fehs=None, enforce_M_Ks_bounds=False,):
+def compute_mann_2015_radii(
+    k_mag_abs,
+    fehs=None,
+    enforce_M_Ks_bounds=True,
+    enforce_feh_bounds=True,):
     """Calculates stellar radii based on absolute 2MASS Ks band magnitudes
     per the empirical relations in Table 1 of Mann et al. 2015.
 
@@ -307,9 +311,9 @@ def compute_mann_2015_radii(k_mag_abs, fehs=None, enforce_M_Ks_bounds=False,):
         Array of [Fe/H] corresponding to k_mag_abs. If provided, we instead
         use the M_Ks-[Fe/H] relation.
 
-    enforce_M_Ks_bounds: boolean, default: False
-        If True, we enforce the M_Ks bounds of the relations and set stars
-        outside the limits to nan.
+    enforce_M_Ks_bounds, enforce_feh_bounds: boolean, default: True
+        If True, we enforce the M_Ks or [Fe/H] (if using) bounds of the 
+        relations and set stars outside the limits to nan.
 
     Returns
     -------
@@ -338,8 +342,85 @@ def compute_mann_2015_radii(k_mag_abs, fehs=None, enforce_M_Ks_bounds=False,):
         radii = polyval(k_mag_abs, coeff_M_Ks_feh) * (1 + coeff_feh * fehs)
         e_radii = radii * frac_radii_pc_M_Ks_feh
 
+    # Default behaviour is to output NaN where M_Ks or [Fe/H] (if using) are
+    # beyond the bounds of the original relation.
     if enforce_M_Ks_bounds:
         outside_bounds = np.logical_or(k_mag_abs < 4.6, k_mag_abs > 9.8)
+        radii[outside_bounds] = np.nan
+        e_radii[outside_bounds] = np.nan
+
+    if fehs is not None and enforce_feh_bounds:
+        outside_bounds = np.logical_or(fehs < -0.6, fehs > 0.5)
+        radii[outside_bounds] = np.nan
+        e_radii[outside_bounds] = np.nan
+
+    return radii, e_radii
+
+
+def compute_kesseli_2019_radii(
+    k_mag_abs,
+    fehs,
+    enforce_M_Ks_bounds=True,
+    enforce_feh_bounds=True,):
+    """Calculates stellar radii based on the 2MASS M_Ks-[Fe/H] empirical 
+    relation in Equation 7 of Kesseli et al. 2019.
+
+    Paper:
+        https://ui.adsabs.harvard.edu/abs/2019AJ....157...63K/abstract
+    
+    Equation 7 is as follows (noting that the 'b' term is negated):
+
+        R* = [a - b*(M_Ks) + c*(M_Ks)^2)] * (1 + f*[Fe/H])
+        
+    Where:
+        a = 1.875 ± 0.05
+        b = −0.337 ± 0.01
+        c = 0.0161 ± 0.0009
+        f = 0.079 ± 0.01
+
+    And the scatter on the residuals is 6%, which we adopt as the uncertainty.
+        
+    The relation is valid for:
+        i)   4 < M_Ks < 11
+        ii)  -2.0 < [Fe/H] < 0.5
+
+    Parameters
+    ----------
+    k_mag_abs: float array
+        Array of absolute 2MASS Ks band magnitudes
+
+    fehs: float array
+        Array of [Fe/H] corresponding to k_mag_abs. 
+
+    enforce_M_Ks_bounds, enforce_feh_bounds: boolean, default: True
+        If True, we enforce the M_Ks or [Fe/H] bounds of the relations and set
+        stars outside the limits to nan.
+
+    Returns
+    -------
+    radii: float array
+        Resulting stellar radii in solar units.
+
+    e_masses: float array
+        Uncertainties on stellar radii in solar units.
+    """
+    # Values for Eqn 7 in Kesseli+2019
+    frac_radii_pc = 0.06
+    coeff = np.array([1.875, -0.337, 0.0161])
+    coeff_feh = 0.079
+
+    # Polynomial fit with [Fe/H] dependence
+    radii = ((coeff[0] + coeff[1]*k_mag_abs + coeff[2]*k_mag_abs**2) 
+             * (1 + coeff_feh * fehs))
+    e_radii = radii * frac_radii_pc
+
+    if enforce_M_Ks_bounds:
+        outside_bounds = np.logical_or(k_mag_abs < 4, k_mag_abs > 11)
+        radii[outside_bounds] = np.nan
+        e_radii[outside_bounds] = np.nan
+
+    if enforce_feh_bounds:
+        outside_bounds = np.logical_or(fehs < -2.0, fehs > 0.5)
         radii[outside_bounds] = np.nan
         e_radii[outside_bounds] = np.nan
 
@@ -395,7 +476,7 @@ def compute_casagrande_2021_teff(
     relation,
     teff_file="data/casagrande_colour_teff_2021_EDR3.dat",
     enforce_bounds=True,
-    teff_bounds=(4000,8000),):
+    regime="dwarf",):
     """Calculates Teff using a given colour relation and measure of stellar 
     logg and [Fe/H] per the Casagrande+2021 relations.
 
@@ -434,14 +515,18 @@ def compute_casagrande_2021_teff(
     enforce_bounds: boolean, default: True
         If True, temperatures outside of teff_bounds are set to nan.
 
-    teff_bounds: float tuple, default: (4000,8000)
-        Teff bounds associated with enforce_bounds.
+    regime: str, default: 'dwarf'
+        Stellar evolution regime for implementing colour limits, either 'dwarf'
+        or 'giant'. See Figure 4 of Casagrande+21.
 
     Returns
     -------
     teff, e_teff: float or float array
         Calculated stellar effective temperature and corresponding uncertainty.
     """
+    if regime not in ("dwarf", "giant"):
+        raise ValueError("Invalid value for 'regime'.")
+
     # Convert to arrays
     colour = np.atleast_1d(colour)
     loggs = np.atleast_1d(logg)
@@ -489,7 +574,10 @@ def compute_casagrande_2021_teff(
     e_teff = np.full(n_star, c21_teff.loc[relation]["sigma_teff"])
 
     if enforce_bounds:
-        oob = np.logical_or(teff < teff_bounds[0], teff > teff_bounds[1])
+        c_min = c21_teff.loc[relation]["c_min_{}".format(regime)]
+        c_max = c21_teff.loc[relation]["c_max_{}".format(regime)]
+
+        oob = np.logical_or(colour < c_min, colour > c_max)
         teff[oob] = np.nan
         e_teff[oob] = np.nan
 

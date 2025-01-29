@@ -144,7 +144,8 @@ def prepare_labels(
     e_teff_quad=60,
     max_teff=4200,
     synth_params_available=False,
-    mid_K_BP_RP_bound=1.5,):
+    mid_K_BP_RP_bound=1.7,
+    mid_K_MKs_bound=4.6,):
     """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
@@ -179,6 +180,10 @@ def prepare_labels(
     mid_K_BP_RP_bound: float, default: 1.5
         Upper BP-RP bound beyond which we no longer consider direct 
         determination of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
+
+    mid_K_MKs_bound: float
+        Upper MKs bound beyond which we no longer consider direct determination
+        of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
 
     Updated
     -------
@@ -266,7 +271,7 @@ def prepare_labels(
         # [Fe/H]
         # ---------------------------------------------------------------------
         feh_value, feh_sigma, feh_source, feh_nondefault = \
-            select_Fe_H_label(star_info, mid_K_BP_RP_bound,)
+            select_Fe_H_label(star_info, mid_K_BP_RP_bound, mid_K_MKs_bound)
         
         label_values[star_i, 2] = feh_value
         label_sigmas[star_i, 2] = feh_sigma
@@ -466,7 +471,7 @@ def select_logg_label(star_info, synth_params_available):
     return logg_value, logg_sigma, logg_source, logg_nondefault
 
 
-def select_Fe_H_label(star_info, mid_K_BP_RP_bound):
+def select_Fe_H_label(star_info, mid_K_BP_RP_bound, mid_K_MKs_bound,):
     """Produces our adopted [Fe/H] values for this specific star.
 
     Our current [Fe/H] heirarchy is:
@@ -503,6 +508,10 @@ def select_Fe_H_label(star_info, mid_K_BP_RP_bound):
         Upper BP-RP bound beyond which we no longer consider direct 
         determination of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
 
+    mid_K_MKs_bound: float
+        Upper MKs bound beyond which we no longer consider direct determination
+        of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
+
     Returns
     -------
     feh_value, feh_sigma: float
@@ -518,7 +527,8 @@ def select_Fe_H_label(star_info, mid_K_BP_RP_bound):
     # First check that the star is below the mid-K BP-RP boundary, which
     # corresponds to us trusting *directly* measured [Fe/H] and [X/Fe] from
     # high-resolution spectra.
-    if star_info["BP-RP_dr3"] < mid_K_BP_RP_bound:
+    if (star_info["K_mag_abs"] < mid_K_MKs_bound 
+        and star_info["BP-RP_dr3"] < mid_K_BP_RP_bound):
         is_mid_K = True
     else:
         is_mid_K = False

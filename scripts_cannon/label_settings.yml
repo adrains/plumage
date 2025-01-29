@@ -69,6 +69,10 @@ allow_aberrant_logg_exceptions: True
 allow_misc_exceptions: True
 misc_exceptions_source_ids: ["5853498713190525696"] # Proxima (no primary Gaia)
 
+# Upper BP-RP and MKs thresholds for what we consider a mid-K dwarf
+mid_K_BP_RP_bound: 1.7
+mid_K_MKs_bound: 5
+
 #------------------------------------------------------------------------------
 # Binary vetting
 #------------------------------------------------------------------------------
@@ -105,4 +109,4 @@ enforce_pm_consistency: True
 # Enforce RV consistency between binary pairs, where the system is considered
 # consistent if delta RV < binary_max_delta_rv km/s.
 binary_max_delta_rv: 5
-enforce_rv_consistency: True
+enforce_rv_consistency: False

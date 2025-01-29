@@ -1,0 +1,28 @@
+# Table 2, from erratum:
+# https://iopscience.iop.org/article/10.3847/0004-637X/819/1/87
+# T_eff Relation Coefficients, Y = Teff/3500
+X	a	b	c	d	e	f	g	sigma	chi^2
+BP - RP	3.245	-2.4309	1.043	-0.2127	0.01649	0	0	52	0.88
+V - J	2.840	-1.3453	0.3906	-0.0546	0.002913	0	0	55	0.93
+V - Ic	2.455	-1.5701	0.6891	-0.1500	0.01254	0	0	53	0.94
+r - z	1.547	-0.7053	0.3656	-0.1008	0.01046	0	0	58	1.06
+r - J	2.445	-1.2578	0.4340	-0.0720	0.004502	0	0	58	1.04
+BP - RP, [Fe/H]	2.835	-1.893	0.7860	-0.1594	0.01243	0.04417	0	45	0.60
+BP - RP (DR3), [Fe/H]	2.18138891	-1.05547875	0.36448032	-0.0657628	0.00481279	0.05078185	0	44	0.0
+V - J, [Fe/H]	2.515	-1.054	0.2965	-0.04150	0.002245	0.05262	0	42	0.53
+V - Ic, [Fe/H]	1.901	-0.6564	0.1471	-0.01274	0	0.04697	0	48	0.67
+r - z, [Fe/H]	1.572	-0.7220	0.3560	-0.09221	0.009071	0.05220	0	50	0.71
+r - J, [Fe/H]	2.532	-1.319	0.4449	-0.07151	0.004333	0.05629	0	47	0.63
+#BP - RP, J - H	3.172	-2.475	1.082	-0.2231	0.01738	0.08776	0.04355	49	0.78
+BP - RP, J - H	1.68697963	-0.49791818	0.08878905	-4.21041864	4.20462549	0.08938356	0.06111113	49	0
+V - J, J - H	2.769	-1.421	0.4284	-0.06133	0.003310	0.1333	0.05416	48	0.71
+V - Ic, J - H	1.568	-0.4381	0.07749	-0.005610	0	0.2441	-0.09257	52	0.85
+r - z, J - H	1.384	-0.6132	0.3110	-0.08574	0.008895	0.1865	-0.02039	55	0.90
+r - J, J - H	2.151	-1.092	0.3767	-0.06292	0.003950	0.1697	0.03106	52	0.79
+# Note. The first five formulae follow Equation (4), the middle five follow Equation (6) 
+# (f is the coefficient of the [Fe/H] term), and the last five follow Equation (7) 
+# (f and g are the coefficients for the J - H and ${(J-H)}^{2}$ terms, respectively). 
+# Equations using J - H as an additional variable are meant for when the metallicity 
+# is not known. a We report the scatter in the predicted  -  observed (from spectrum) 
+# Teff. Conservatively, these errors should be added (in quadrature) with our typical 
+# spectroscopic uncertainty (60 K).

@@ -13,6 +13,7 @@ import plumage.utils as pu
 import plumage.parameters as pp
 import stannon.utils as su
 import stannon.parameters as params
+import stannon.plotting as splt
 import radius_estimation.radius_estimation as re
 
 #------------------------------------------------------------------------------
@@ -138,6 +139,9 @@ cols = obs_join.columns.values
 mm = np.array(["_sec" in cv for cv in cols])
 obs_join = obs_join[cols[~mm]].copy()
 
+# Grab n_star for convenience
+N_STAR_ALL = len(obs_join)
+
 #------------------------------------------------------------------------------
 # Collate [Fe/H]
 #------------------------------------------------------------------------------
@@ -145,67 +149,66 @@ obs_join = obs_join[cols[~mm]].copy()
 feh_info_all = []
 
 for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()): 
-    feh_info = params.select_Fe_H_label(star_info, ls.mid_K_BP_RP_bound,)
+    feh_info = params.select_Fe_H_label(
+        star_info=star_info,
+        mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,
+        mid_K_MKs_bound=ls.mid_K_MKs_bound)
     feh_info_all.append(feh_info)
 
 feh_info_all = np.vstack(feh_info_all)
 
 feh_values = feh_info_all[:,0].astype(float)
 
-#------------------------------------------------------------------------------
-# Calculate Teff via empirical relations
-# TODO: do this *after* we recalculate gravity for Casagrande relation
-#------------------------------------------------------------------------------
-# Calculate Mann+2015 Teff
-teff_M15, e_teff_M15 = pp.compute_mann_2015_teff(
-    colour=obs_join["BP-RP_dr3"].values,
-    feh=feh_values,
-    relation="BP - RP (DR3), [Fe/H]")
-
-obs_join["teff_M15_BP_RP_feh"] = teff_M15
-obs_join["e_teff_M15_BP_RP_feh"] = e_teff_M15
-
-# Calculate Casagrande+2021 Teff
-teff_C21, e_teff_C21 = pp.compute_casagrande_2021_teff(
-    colour=obs_join["BP-K"].values,
-    logg=obs_join["logg_m19"].values,
-    feh=feh_values,
-    relation="(BP-Ks)",)
-
-obs_join["teff_C21_BP_Ks_logg_feh"] = teff_C21
-obs_join["e_teff_C21_BP_Ks_logg_feh"] = e_teff_C21
-
-# Sanity check the limits, since the relations break down at extreme colours
-pass
+# TEMPORARY archive of chosed [Fe/H]
+obs_join["feh_temp"] = feh_values.copy()
 
 #------------------------------------------------------------------------------
-# Calculate R* (Mann+15, Kiman+24) via empirical relations + logg
+# Calculate R* and logg via empirical relations
 #------------------------------------------------------------------------------
-# Re-calculate radii using the Mann+15 M_Ks-R*-[Fe/H] relation. Note that the
-# resulting radii will be undefined (i.e. nan) for stars lacking [Fe/H] values.
+# ---------------------------------------------
+# Mann+2015 -- metal rich M-dwarfs
+# ---------------------------------------------
 r_star_m15, e_r_star_m15 = pp.compute_mann_2015_radii(
     k_mag_abs=obs_join["K_mag_abs"].values,
-    fehs=feh_values,
-    enforce_M_Ks_bounds=True,)
+    fehs=feh_values.copy(),
+    enforce_M_Ks_bounds=True,
+    enforce_feh_bounds=True,)
 
 obs_join["radius_m15"] = r_star_m15
 obs_join["e_radius_m15"] = e_r_star_m15
 
-# Also calculate the Kiman+2024 radii, as these will be needed for mid-K dwarfs
+# ---------------------------------------------
+# Kesseli+2019 -- metal poor M-dwarfs
+# ---------------------------------------------
+r_star_k19, e_r_star_k19 = pp.compute_kesseli_2019_radii(
+    k_mag_abs=obs_join["K_mag_abs"].values,
+    fehs=feh_values.copy(),
+    enforce_M_Ks_bounds=True,
+    enforce_feh_bounds=True,)
+
+obs_join["radius_k19"] = r_star_k19
+obs_join["e_radius_k19"] = e_r_star_k19
+
+# ---------------------------------------------
+# Kiman+2024 -- K dwarfs
+# ---------------------------------------------
 G_RP = obs_join["G_mag_dr3"].values - obs_join["RP_mag_dr3"].values
 e_G_RP = (obs_join["e_G_mag_dr3"].values**2
           + obs_join["e_RP_mag_dr3"].values**2)**0.5
 
+e_BP_RP = (obs_join["e_BP_mag_dr3"].values**2
+           + obs_join["e_RP_mag_dr3"].values**2)**0.5
+
 r_star_k24, e_low_r_star_k24, e_high_r_star_k24 = re.calc_radius(
-    flux_col="Fbp",
-    color_col="g_rp",
+    flux_col="Fg",
+    color_col="bp_rp",
     parallax=obs_join["plx_dr3"].values,
     e_parallax=obs_join["e_plx_dr3"].values,
-    color=G_RP,
-    e_color=e_G_RP,
-    mag=obs_join["BP_mag_dr3"].values,
-    e_mag=obs_join["e_BP_mag_dr3"].values,
-    feh=feh_values,)
+    color=obs_join["BP-RP_dr3"].values,
+    e_color=e_BP_RP,
+    mag=obs_join["G_mag_dr3"].values,
+    e_mag=obs_join["e_G_mag_dr3"].values,
+    feh=obs_join["feh_temp"].values.copy(),)
 
 # HACK Simply adopt the maximum uncertainty from the low/high uncertainties
 e_r_star_k24 = np.max(np.stack([e_low_r_star_k24, e_high_r_star_k24]), axis=0)
@@ -213,15 +216,49 @@ e_r_star_k24 = np.max(np.stack([e_low_r_star_k24, e_high_r_star_k24]), axis=0)
 obs_join["radius_k24"] = r_star_k24
 obs_join["e_radius_k24"] = e_r_star_k24
 
-# Adopt M+15 radii where possible, and K+24 radii for everything else
-missing_m15 = np.isnan(r_star_m15)
-r_star_adopt = r_star_m15.copy()
-r_star_adopt[missing_m15] = r_star_k24[missing_m15]
+# ---------------------------------------------
+# Adopting radii
+# ---------------------------------------------
+# Initialise radii, e_radii, and reference arrays. Note that these will end up
+# remaining undefined (NaN, NaN, or "") for cases where the star is beyond the
+# bounds of the relation in magnitude, colour, or [Fe/H].
+r_star_adopt = np.full_like(r_star_m15, np.nan)
+e_r_star_adopt = np.full_like(r_star_m15, np.nan)
+radius_adopted_ref = np.full(N_STAR_ALL, "").astype(object)
 
-e_r_star_adopt = e_r_star_m15.copy()
-e_r_star_adopt[missing_m15] = e_r_star_k24[missing_m15]
+# Loop over all stars
+for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
+    # Adopt Mann+2015 for (BP-RP) >= 1.7, [Fe/H] >= -0.5
+    if star_info["K_mag_abs"] >= 4.6 and star_info["feh_temp"] >= -0.5:
+        r_star_adopt[star_i] = r_star_m15[star_i]
+        e_r_star_adopt[star_i] = e_r_star_m15[star_i]
+        radius_adopted_ref[star_i] = "M15"
 
-# Update logg to reflect more reliable/precise R* values
+    # Adopt Kesseli+2019 for (BP-RP) >= 1.7, [Fe/H] < -0.5
+    elif star_info["K_mag_abs"] > 4.6 and star_info["feh_temp"] < -0.5:
+        r_star_adopt[star_i] = r_star_k19[star_i]
+        e_r_star_adopt[star_i] = e_r_star_k19[star_i]
+        radius_adopted_ref[star_i] = "K19"
+
+    # Adopt Kiman+2024 for (BP-RP) < 1.7
+    elif star_info["K_mag_abs"] < 4.6:
+        r_star_adopt[star_i] = r_star_k24[star_i]
+        e_r_star_adopt[star_i] = e_r_star_k24[star_i]
+        radius_adopted_ref[star_i] = "K24"
+    
+    else:
+        print("#{}: {} has no radius.".format(star_i, source_id))
+
+        if source_id == "3545469496823737856":
+            import pdb; pdb.set_trace()
+
+obs_join["r_star_adopt"] = r_star_adopt
+obs_join["e_r_star_adopt"] = e_r_star_adopt
+obs_join["r_star_adopt_ref"] = radius_adopted_ref
+
+# ---------------------------------------------
+# Update logg
+# ---------------------------------------------
 logg, e_logg = pp.compute_logg(
     masses=obs_join["mass_m19"].values,
     e_masses=obs_join["e_mass_m19"].values,
@@ -230,6 +267,30 @@ logg, e_logg = pp.compute_logg(
 
 obs_join["logg_m19"] = logg
 obs_join["e_logg_m19"] = e_logg
+
+#------------------------------------------------------------------------------
+# Calculate Teff via empirical relations
+#------------------------------------------------------------------------------
+# Calculate Mann+2015 Teff
+teff_M15, e_teff_M15 = pp.compute_mann_2015_teff(
+    colour=obs_join["BP-RP_dr3"].values,
+    feh=feh_values.copy(),
+    relation="BP - RP (DR3), [Fe/H]")
+
+obs_join["teff_M15_BP_RP_feh"] = teff_M15
+obs_join["e_teff_M15_BP_RP_feh"] = e_teff_M15
+
+# Calculate Casagrande+2021 Teff
+teff_C21, e_teff_C21 = pp.compute_casagrande_2021_teff(
+    colour=obs_join["BP-RP_dr3"].values,
+    logg=obs_join["logg_m19"].values,
+    feh=feh_values.copy(),
+    relation="(BP-RP)",
+    enforce_bounds=True,
+    regime="dwarf",)
+
+obs_join["teff_C21_BP_Ks_logg_feh"] = teff_C21
+obs_join["e_teff_C21_BP_Ks_logg_feh"] = e_teff_C21
 
 #------------------------------------------------------------------------------
 # Science target vetting
@@ -365,7 +426,8 @@ params.prepare_labels(
     obs_join=obs_join,
     max_teff=5000,
     synth_params_available=False,
-    mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,)
+    mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,
+    mid_K_MKs_bound=ls.mid_K_MKs_bound,)
 
 # Format our dataframe so it will save correctly
 for col in obs_join.columns.values:
@@ -442,6 +504,21 @@ cols_to_remove = [
     'Na_H_b16_prim', 'Na_H_rb20_prim',]
 
 obs_join.drop(columns=cols_to_remove, inplace=True)
+
+#------------------------------------------------------------------------------
+# Plotting
+#------------------------------------------------------------------------------
+icb = obs_join["is_cannon_benchmark"].values
+
+splt.plot_cannon_cmd(
+    benchmark_colour=obs_join["BP_RP_dr3"][icb].values,
+    benchmark_mag=obs_join["K_mag_abs"][icb].values,
+    benchmark_feh=obs_join["label_adopt_feh"][icb].values,
+    highlight_mask=obs_join["is_cpm"][icb].values,
+    highlight_mask_label="Binary Benchmark",
+    highlight_mask_2=obs_join["is_mid_k_dwarf"][icb].values,
+    highlight_mask_label_2="Early-Mid K Dwarf",
+    plot_folder="paper",)
 
 #------------------------------------------------------------------------------
 # Save dataframe
