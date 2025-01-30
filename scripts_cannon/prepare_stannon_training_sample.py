@@ -275,7 +275,7 @@ obs_join["e_logg_m19"] = e_logg
 teff_M15, e_teff_M15 = pp.compute_mann_2015_teff(
     colour=obs_join["BP-RP_dr3"].values,
     feh=feh_values.copy(),
-    relation="BP - RP (DR3), [Fe/H]")
+    relation="BP - RP (DR3), [Fe/H], M15+K19")
 
 obs_join["teff_M15_BP_RP_feh"] = teff_M15
 obs_join["e_teff_M15_BP_RP_feh"] = e_teff_M15
@@ -289,8 +289,8 @@ teff_C21, e_teff_C21 = pp.compute_casagrande_2021_teff(
     enforce_bounds=True,
     regime="dwarf",)
 
-obs_join["teff_C21_BP_Ks_logg_feh"] = teff_C21
-obs_join["e_teff_C21_BP_Ks_logg_feh"] = e_teff_C21
+obs_join["teff_C21_BP_RP_logg_feh"] = teff_C21
+obs_join["e_teff_C21_BP_RP_logg_feh"] = e_teff_C21
 
 #------------------------------------------------------------------------------
 # Science target vetting

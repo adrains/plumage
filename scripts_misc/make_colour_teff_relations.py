@@ -2,10 +2,32 @@
 """
 import numpy as np
 import matplotlib.pyplot as plt
-import plumage.utils as putils
+import plumage.utils as pu
 from scipy.optimize import least_squares
 import matplotlib.ticker as plticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+# -----------------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------------
+# If true, we include the Kesseli+2019 sample of subdwarfs. These are gridded
+# in 100 K intervals, however the impact of this is mitigated by them having
+# larger Teff uncertainties (+/-100 K) than the Mann+2015 sample. For the
+# (BP-RP)-[Fe/H] relation this does not decrease performance for stars with
+# [Fe/H] > -0.5, but does reduce systematics and scatter for Teff recovery with
+# the subdwarf sample.
+include_K19_subdwarfs = True
+
+# Whether to make a RUWE cut. Testing with a (BP-RP)-[Fe/H] relation indicates
+# that the RUWE cut results in *worse* performance, so this is not recommended.
+make_ruwe_cut = False
+ruwe_threshold = 1.4
+
+# Which relation to use (either 'colour_feh' or 'colour_J-H')
+relation = "colour_feh"
+
+# Inflation factor for K+19 uncertainties
+K19x = 1.5
 
 # -----------------------------------------------------------------------------
 # Functions
@@ -33,15 +55,17 @@ def calc_relation_teff_feh(coeff, colours, fehs,):
     teffs_pred: 1D float array
         Array of predicted temperatures.
     """
+    c_unity = np.ones_like(colours)
+
     terms = [
-        coeff[0],               # a
+        coeff[0]*c_unity,       # a
         coeff[1]*colours,       # b
         coeff[2]*colours**2,    # c
         coeff[3]*colours**3,    # d
         coeff[4]*colours**4,    # e
         coeff[5]*fehs,]         # f
 
-    teffs_pred = np.sum(terms) * 3500
+    teffs_pred = np.sum(terms, axis=0) * 3500
 
     return teffs_pred
 
@@ -69,15 +93,17 @@ def calc_relation_teff_j_h(coeff, colours, j_h,):
     teffs_pred: 1D float array
         Array of predicted temperatures.
     """
+    c_unity = np.ones_like(colours)
+
     terms = [
-        coeff[0],               # a
+        coeff[0]*c_unity,       # a
         coeff[1]*colours,       # b
         coeff[2]*colours**2,    # c
         coeff[3]*colours**3,    # d
         coeff[4]*colours**4,    # e
         coeff[5]*j_h,           # f
         coeff[6]*j_h**2,]       # g
-
+    
     teffs_pred = np.sum(terms) * 3500
 
     return teffs_pred
@@ -222,13 +248,14 @@ def fit_colour_teff_relation_feh(colours, fehs, teffs_real, e_teffs_real):
     return coeff
 
 # -----------------------------------------------------------------------------
-# Fitting
+# Import
 # -----------------------------------------------------------------------------
-# File to load
+# ---------------------------------------------
+# Mann+2015
+# ---------------------------------------------
 mann_tsv = "data/mann15_all_dr3.tsv"
 
-# Import Mann+15 standards
-m15_data = putils.load_info_cat(
+m15_data = pu.load_info_cat(
     mann_tsv,
     clean=False,
     use_mann_code_for_masses=False,
@@ -236,39 +263,127 @@ m15_data = putils.load_info_cat(
     do_skymapper_crossmatch=False,
     gdr="dr3",)
 
-# Remove any entries without bad RUWE
-m15_data = m15_data[m15_data["ruwe_dr3"] < 1.4].copy()
+# ---------------------------------------------
+# Kiman+2019
+# ---------------------------------------------
+if include_K19_subdwarfs:
+    k19_tsv = "data/K19_all.tsv"
 
-# Which relation to use
-relation = "colour_feh"
-#relation = "colour_J-H"
+    k19_data = pu.load_info_cat(
+        k19_tsv,
+        clean=False,
+        use_mann_code_for_masses=False,
+        do_extinction_correction=False,
+        do_skymapper_crossmatch=False,
+        gdr="dr3",)
 
+    # ---------------------------------------------
+    # Merge
+    # ---------------------------------------------
+    data_tab = m15_data.join(
+        k19_data, "source_id_dr3", rsuffix="_k19", how="outer").copy()
+    data_tab.set_index("source_id_dr3", inplace=True)
+
+    # Drop nan rows
+    keep = [type(aa) == str for aa in data_tab.index.values]
+    data_tab = data_tab[keep].copy()
+
+    has_m15 = ~np.isnan(data_tab["[Fe/H]"].values)
+    has_k19 = ~np.isnan(data_tab["feh"].values)
+
+    data_tab["has_m15"] = has_m15
+    data_tab["has_k19"] = has_k19
+
+    # Drop nan rows
+    keep = [type(aa) == str for aa in data_tab.index.values]
+    data_tab = data_tab[keep].copy()
+    
+    # ---------------------------------------------
+    # Merge Gaia data
+    # ---------------------------------------------
+    data_tab.loc[has_k19, "BP-RP_dr3"] = data_tab.loc[has_k19, "BP-RP_dr3_k19"]
+    data_tab.loc[has_k19, "ruwe_dr3"] = data_tab.loc[has_k19, "ruwe_dr3_k19"]
+
+    # Remove any entries without bad RUWE
+    if make_ruwe_cut:
+        data_tab = data_tab[data_tab["ruwe_dr3"] < 1.4].copy()
+
+    n_star = len(data_tab)
+    has_m15 = data_tab["has_m15"]
+    has_k19 = data_tab["has_k19"]
+
+    # ---------------------------------------------
+    # Select Params
+    # ---------------------------------------------
+    adopt_k19 = np.logical_and(~has_m15, has_k19)
+
+    # [Fe/H]
+    feh_adopt = np.full(n_star, np.nan)
+    feh_adopt[has_m15] = data_tab["[Fe/H]"].values[has_m15]
+    feh_adopt[adopt_k19] = data_tab["feh"].values[adopt_k19]
+
+    # Teff
+    teff_adopt = np.full(n_star, np.nan)
+    e_teff_adopt = np.full(n_star, np.nan)
+
+    teff_adopt[has_m15] = data_tab["Teff"].values[has_m15]
+    e_teff_adopt[has_m15] = data_tab["e_Teff"].values[has_m15]
+
+    teff_adopt[adopt_k19] = data_tab["teff"].values[adopt_k19]
+    e_teff_adopt[adopt_k19] = data_tab["e_teff"].values[adopt_k19] * K19x
+
+    data_tab["feh_adopt"] = feh_adopt
+    data_tab["teff_adopt"] = teff_adopt
+    data_tab["e_teff_adopt"] = e_teff_adopt
+
+else:
+    data_tab = m15_data
+    data_tab.rename(
+        columns={"[Fe/H]":"feh_adopt", 
+                 "Teff":"teff_adopt",
+                 "e_Teff":"e_teff_adopt"},
+        inplace=True)
+
+    # Remove any entries without bad RUWE
+    if make_ruwe_cut:
+        data_tab = data_tab[data_tab["ruwe_dr3"] < 1.4].copy()
+
+# -----------------------------------------------------------------------------
+# Fitting
+# -----------------------------------------------------------------------------
 # Running
-colour = m15_data["BP-RP_dr3"]
-j_h = m15_data["J_mag"] - m15_data["H_mag"]
+colour = data_tab["BP-RP_dr3"].values
+j_h = data_tab["J_mag"] - data_tab["H_mag"].values
 
 # Fit colour with [Fe/H] relation
 if relation == "colour_feh":
     coeffs = fit_colour_teff_relation_feh(
         colour,
-        m15_data["[Fe/H]"],
-        m15_data["Teff"],
-        m15_data["e_Teff"])
+        data_tab["feh_adopt"].values,
+        data_tab["teff_adopt"].values,
+        data_tab["e_teff_adopt"].values)
 
-    teffs_pred = calc_relation_teff_feh(coeffs, colour, m15_data["[Fe/H]"],)
+    teffs_pred = calc_relation_teff_feh(coeffs, colour, data_tab["feh_adopt"],)
 
 # Fit colour with J-H relation
 elif relation == "colour_J-H":
     coeffs = fit_colour_teff_relation_jh(
         colour,
         j_h,
-        m15_data["Teff"],
-        m15_data["e_Teff"])
+        data_tab["teff_adopt"].values,
+        data_tab["e_teff_adopt"].values)
 
     teffs_pred = calc_relation_teff_j_h(coeffs, colour, j_h,)
 
 else:
     raise Exception("Unknown relation")
+
+# Round coefficients
+coeffs_orig = coeffs.copy()
+coeffs = np.round(coeffs, 4)
+
+print("Fitted Coefficients:")
+print("\t".join(coeffs.astype(str)))
 
 # -----------------------------------------------------------------------------
 # Plotting
@@ -276,29 +391,95 @@ else:
 plt.close("all")
 fig, comp_ax = plt.subplots(1)
 
-# Plot upper panel
-xx = np.linspace(np.min(m15_data["Teff"]), np.max(m15_data["Teff"]), 50)
+# ---------------------------------------------
+# Combined (or just Mann+15) sample
+# ---------------------------------------------
+xx = np.linspace(
+    np.min(data_tab["teff_adopt"]), np.max(data_tab["teff_adopt"]), 50)
 comp_ax.plot(xx, xx, "--", color="black", zorder=0)
 
 comp_ax.errorbar(
-    m15_data["Teff"], teffs_pred, yerr=m15_data["e_Teff"], zorder=0, fmt=".")
+    data_tab["teff_adopt"],
+    teffs_pred,
+    yerr=data_tab["e_teff_adopt"],
+    zorder=0,
+    fmt=".")
+
 sc1 = comp_ax.scatter(
-    m15_data["Teff"], teffs_pred, c=m15_data["[Fe/H]"], zorder=1)
+    data_tab["teff_adopt"],
+    teffs_pred,
+    c=data_tab["feh_adopt"],
+    zorder=1,
+    label="K/M Benchmark ({} stars)".format(len(data_tab)))
+
+# ---------------------------------------------
+# Kiman+2019 highlighting + extra annotations
+# ---------------------------------------------
+if include_K19_subdwarfs:
+    label = "Kesseli+2019 ({} stars)".format(int(np.sum(adopt_k19)))
+        
+    scatter = comp_ax.scatter(
+        data_tab["teff_adopt"][adopt_k19],
+        teffs_pred[adopt_k19],
+        marker="o",
+        c=data_tab["feh_adopt"][adopt_k19],
+        #facecolors='none',
+        edgecolor="k",
+        linewidths=1.2,
+        zorder=1,
+        label=label,)
+    
+    plt.legend()
+
+    # Performance
+    teffs_pred_m15 = calc_relation_teff_feh(
+        coeffs,
+        m15_data["BP-RP_dr3"].values,
+        m15_data["[Fe/H]"].values,)
+
+    teffs_pred_k19 = calc_relation_teff_feh(
+        coeffs,
+        data_tab["BP-RP_dr3"].values[adopt_k19],
+        data_tab["feh_adopt"].values[adopt_k19],)
+    
+    resid_m15 = m15_data["Teff"].values - teffs_pred_m15
+    delta_m15 = np.nanmedian(resid_m15)
+    sigma_m15 = np.nanstd(resid_m15)
+
+    comp_ax.text(
+        x=3200,
+        y=2750,
+        s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (M15)".format(
+            delta_m15, sigma_m15),
+        horizontalalignment="left",)
+
+    resid_k19 = data_tab["teff_adopt"].values[adopt_k19] - teffs_pred_k19
+    delta_k19 = np.nanmedian(resid_k19)
+    sigma_k19 = np.nanstd(resid_k19)
+
+    comp_ax.text(
+        x=3200,
+        y=2575,
+        s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (K19)".format(
+            delta_k19, sigma_k19),
+        horizontalalignment="left",)
 
 cb1 = fig.colorbar(sc1, ax=comp_ax)
 cb1.set_label("[Fe/H]")
 
-# Compute residuals
-resid = m15_data["Teff"] - teffs_pred
+# ---------------------------------------------
+# Residuals axis
+# ---------------------------------------------
+resid = data_tab["teff_adopt"] - teffs_pred
 resid_offset = np.median(resid)
 resid_std = np.std(resid)
 
 comp_ax.text(
-    x=3400,
-    y=2900,
-    s=r"$\sigma_{{T_{{\rm eff}}}}={:0.0f}\pm{:0.0f} K$".format(
+    x=3200,
+    y=2925,
+    s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (All)".format(
         resid_offset, resid_std),
-    horizontalalignment="center",)
+    horizontalalignment="left",)
 
 # Plot residuals
 divider = make_axes_locatable(comp_ax)
@@ -308,22 +489,35 @@ comp_ax.figure.add_axes(resid_ax, sharex=comp_ax)
 resid_ax.plot(xx, np.zeros(50), "--", color="black")
 
 resid_ax.errorbar(
-    x=m15_data["Teff"],
+    x=data_tab["teff_adopt"],
     y=resid,
-    xerr=m15_data["e_Teff"],
+    xerr=data_tab["e_teff_adopt"],
     yerr=np.full(resid.shape, resid_std),
     zorder=0,
     fmt=".",)
 
 sc2 = resid_ax.scatter(
-    m15_data["Teff"],
+    data_tab["teff_adopt"],
     resid,
-    c=m15_data["[Fe/H]"],
+    c=data_tab["feh_adopt"],
     zorder=1,)
+
+if include_K19_subdwarfs:
+    label = "K+19 ({})".format(int(np.sum(adopt_k19)))
+        
+    scatter = resid_ax.scatter(
+        data_tab["teff_adopt"][adopt_k19],
+        resid[adopt_k19],
+        marker="o",
+        c=data_tab["feh_adopt"][adopt_k19],
+        edgecolor="k",
+        linewidths=1.2,
+        zorder=1,
+        label=label,)
 
 # Other formatting
 comp_ax.set_ylabel(r"$T_{\rm eff}$ (K, Fit)")
-resid_ax.set_xlabel(r"$T_{\rm eff}$ (K, Mann+15)")
+resid_ax.set_xlabel(r"$T_{\rm eff}$ (K, Literature)")
 resid_ax.set_ylabel(r"Residual (K)")
 plt.setp(comp_ax.get_xticklabels(), visible=False)
 
@@ -349,5 +543,3 @@ plt.tight_layout()
 # Save plot
 plt.savefig("{}.pdf".format(fig_fn))
 plt.savefig("{}.png".format(fig_fn), dpi=300)
-
-

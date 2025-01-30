@@ -393,7 +393,7 @@ def select_teff_label(star_info, e_teff_quad, synth_params_available):
     else:
         # Grab booleans for convenience/readability
         has_M15_teff = not np.isnan(star_info["teff_M15_BP_RP_feh"])
-        has_C21_teff = not np.isnan(star_info["teff_C21_BP_Ks_logg_feh"])
+        has_C21_teff = not np.isnan(star_info["teff_C21_BP_RP_logg_feh"])
 
         # M-dwarfs
         if has_M15_teff and not has_C21_teff:
@@ -404,15 +404,15 @@ def select_teff_label(star_info, e_teff_quad, synth_params_available):
 
         # Late-K dwarfs
         elif has_M15_teff and has_C21_teff:
-            teff_value = star_info["teff_C21_BP_Ks_logg_feh"]
-            teff_sigma = star_info["e_teff_C21_BP_Ks_logg_feh"]
+            teff_value = star_info["teff_C21_BP_RP_logg_feh"]
+            teff_sigma = star_info["e_teff_C21_BP_RP_logg_feh"]
             teff_source = "C21"
             teff_nondefault = True
 
         # Mid-K and warmer
         elif not has_M15_teff and has_C21_teff:
-            teff_value = star_info["teff_C21_BP_Ks_logg_feh"]
-            teff_sigma = star_info["e_teff_C21_BP_Ks_logg_feh"]
+            teff_value = star_info["teff_C21_BP_RP_logg_feh"]
+            teff_sigma = star_info["e_teff_C21_BP_RP_logg_feh"]
             teff_source = "C21"
             teff_nondefault = True
         

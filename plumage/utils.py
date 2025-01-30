@@ -1306,6 +1306,9 @@ def load_info_cat(
     info_cat["phot_feh"] = phot_feh
     info_cat["e_phot_feh"] = e_phot_feh
 
+    # Return copy so it isn't fragmented by whatever we've done here.
+    info_cat = info_cat.copy()
+
     return info_cat
 
 

@@ -1469,7 +1469,6 @@ def calc_photometric_feh(
     elif use_bp_k_offset:
         # Do old way using only a single polynomial in colour
         if offset_poly_order_colour is None or offset_poly_order_mks is None:
-            print("Using original method.")
             feh_poly = np.polynomial.polynomial.Polynomial(params)
             feh_fit = feh_poly(delta_bp_k)
 
