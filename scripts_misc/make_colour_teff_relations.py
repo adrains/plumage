@@ -394,15 +394,15 @@ fig, comp_ax = plt.subplots(1)
 # ---------------------------------------------
 # Combined (or just Mann+15) sample
 # ---------------------------------------------
-xx = np.linspace(
-    np.min(data_tab["teff_adopt"]), np.max(data_tab["teff_adopt"]), 50)
+xx = np.linspace(2600, 4450, 50)
 comp_ax.plot(xx, xx, "--", color="black", zorder=0)
 
 comp_ax.errorbar(
     data_tab["teff_adopt"],
     teffs_pred,
-    yerr=data_tab["e_teff_adopt"],
+    xerr=data_tab["e_teff_adopt"],
     zorder=0,
+    elinewidth=0.5,
     fmt=".")
 
 sc1 = comp_ax.scatter(
@@ -448,7 +448,7 @@ if include_K19_subdwarfs:
 
     comp_ax.text(
         x=3200,
-        y=2750,
+        y=2825,
         s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (M15)".format(
             delta_m15, sigma_m15),
         horizontalalignment="left",)
@@ -459,7 +459,7 @@ if include_K19_subdwarfs:
 
     comp_ax.text(
         x=3200,
-        y=2575,
+        y=2700,
         s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (K19)".format(
             delta_k19, sigma_k19),
         horizontalalignment="left",)
@@ -474,9 +474,12 @@ resid = data_tab["teff_adopt"] - teffs_pred
 resid_offset = np.median(resid)
 resid_std = np.std(resid)
 
+e_resid = np.sqrt(
+    np.full(resid.shape, resid_std)**2 + data_tab["e_teff_adopt"].values**2)
+
 comp_ax.text(
     x=3200,
-    y=2925,
+    y=2950,
     s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (All)".format(
         resid_offset, resid_std),
     horizontalalignment="left",)
@@ -492,8 +495,9 @@ resid_ax.errorbar(
     x=data_tab["teff_adopt"],
     y=resid,
     xerr=data_tab["e_teff_adopt"],
-    yerr=np.full(resid.shape, resid_std),
+    yerr=e_resid,
     zorder=0,
+    elinewidth=0.5,
     fmt=".",)
 
 sc2 = resid_ax.scatter(
@@ -524,11 +528,16 @@ plt.setp(comp_ax.get_xticklabels(), visible=False)
 resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=100))
 resid_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
 
-resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=50))
-resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=100))
+resid_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=100))
+resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=200))
 
 comp_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=100))
 comp_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=200))
+
+comp_ax.set_xlim(2600, 4350)
+comp_ax.set_ylim(2600, 4350)
+
+resid_ax.set_xlim(2600, 4400)
 
 if relation == "colour_feh":
     comp_ax.set_title(r"$(BP-RP)-$[Fe/H]")
