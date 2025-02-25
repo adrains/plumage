@@ -12,6 +12,25 @@
 # YAML specifications: https://yaml.org/spec/1.2.2/
 
 #------------------------------------------------------------------------------
+# Training Sample
+#------------------------------------------------------------------------------
+# This section sets the training sample we adopt for this current training of
+# the Cannon, with adopted benchmarks drawn from our pool of potential stars
+# which have a) passed all quality cuts, and b) have a complete set of labels.
+
+# This is our model 'label' which serves as a simple shorthand name for the
+# model in question, e.g. 'MK' for a model including both M and K dwarfs.
+model_label: "M"
+
+# If False, we don't make any cuts to our sample and simply adopt all 
+# benchmarks with 'is_cannon_benchmark' = True.
+do_use_subset_of_benchmark_sample: True
+
+# M_Ks and BP-RP cuts to make for the sample, of form [min, max]
+training_sample_bounds_BP_RP: [1.7, 5]    # M: [1.7, 5], K: [0, 2]
+training_sample_min_M_Ks: [4, 11]         # M: [4, 11],  K: [0, 6]
+
+#------------------------------------------------------------------------------
 # Model Settings
 #------------------------------------------------------------------------------
 # Suppress ouput from Stan during training. It is recommended to always have
@@ -98,7 +117,7 @@ uniform_var_frac_error: 0.01
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
 # an array of ones if we don't want to scale the uncertainties.
-lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0]
+lit_std_scale_fac: [1.0, 1.0, 1.0]
 
 # Also for testing and as a complement to the previous setting we can scale the
 # uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
@@ -113,7 +132,7 @@ std_label: "cannon_mk"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: ["Ti_Fe"]
+abundance_labels: []
 
 base_labels: ["teff", "logg", "feh",]
 
@@ -122,7 +141,8 @@ base_labels: ["teff", "logg", "feh",]
 #------------------------------------------------------------------------------
 # Models are currently saved  with N_px in the filename.
 # TODO: come up with a more informative/robust labelling scheme.
-npx: 5024
+npx: 5024   # 4000-7000 A
+#npx: 5573    # 3500-7000 A
 
 # The grating at which the WiFeS B3000 spectra transition to R7000 spectra to
 # use when plotting separate 'b' and 'r' plots.
@@ -149,8 +169,8 @@ species_to_plot: ["Ca 1", "Ti 1", "Fe 1"]
 # and uncertainty will be adopted from just the interferometric set, whereas
 # logg and [Fe/H] will be taken from the complete sample. 
 # TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
-adopted_label_systematics: [-1, 0.0, 0.00, 0.01,]
-adopted_label_uncertainties: [51, 0.04, 0.10, 0.06]
+#adopted_label_systematics: [-1, 0.0, 0.00,]
+#adopted_label_uncertainties: [51, 0.04, 0.10,]
 
 # Here we've picked a set of spectral types ranging over our BP-RP range.
 representative_stars_source_ids: 

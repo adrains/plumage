@@ -1,5 +1,8 @@
 """Script to prepare the training dataset for use when training a Cannon model.
-The resulting training labels are saved to our fits file.
+The resulting training labels are saved to our fits file. Note that benchmarks
+prepared in this way represent *potential* benchmarks that might be used as
+part of the training sample for a given Cannon model--we need not use all
+possible benchmarks.
 
 This script is part of a series of Cannon scripts. The main sequence is:
  1) prepare_stannon_training_sample.py     --> label preparation
@@ -429,6 +432,9 @@ params.prepare_labels(
     mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,
     mid_K_MKs_bound=ls.mid_K_MKs_bound,)
 
+#------------------------------------------------------------------------------
+# Saving DataFrame
+#------------------------------------------------------------------------------
 # Format our dataframe so it will save correctly
 for col in obs_join.columns.values:
     if obs_join[col].dtype == np.dtype("O"):
@@ -443,9 +449,7 @@ for col in obs_join.columns.values:
     if col[0].isnumeric():
         obs_join.rename(columns={col:"_{}".format(col)}, inplace=True)
 
-#------------------------------------------------------------------------------
 # HACK: Dump unneeded columns so we can save the fits file.
-#------------------------------------------------------------------------------
 # This is a list of unneeded columns (e.g. extra abundances) that for now we're
 # dropping so that the fits file has < 1000 columns. Eventually we'll need to
 # update the saving/loading routine to split the dataframe into multiple HDUs

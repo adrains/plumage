@@ -609,7 +609,7 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits table
 # -----------------------------------------------------------------------------
-def load_fits_table(extension, label, path="spectra"):
+def load_fits_table(extension, label, path="spectra", ext_label="",):
     """Loads in the data from specified fits table HDU.
 
     Parameters
@@ -622,7 +622,11 @@ def load_fits_table(extension, label, path="spectra"):
         Unique label (e.g. std, TESS) for the resulting fits file.
     
     path: string
-        Path to save the fits file to
+        Path to save the fits file to.
+
+    ext_label: str, default: ''
+        Sublabel of the extension. At the moment only applicable to the 
+        'CANNON_MODEL' extension to note the specifics of the model.
 
     Returns
     -------
@@ -630,25 +634,33 @@ def load_fits_table(extension, label, path="spectra"):
         Dataframe containing information about each observation.
     """
     # List of valid extensions
-    valid_ext = ["OBS_TAB", "TRANSIT_FITS", "CANNON_INFO"]
+    valid_ext = ["OBS_TAB", "TRANSIT_FITS", "CANNON_INFO", "CANNON_MODEL"]
 
     # Needed to reapply the DataFrame index, which astropy does not respect
     ext_index = {
         "OBS_TAB":"source_id",
         "TRANSIT_FITS":"TOI",
-        "CANNON_INFO":"source_id_dr3"
+        "CANNON_INFO":"source_id_dr3",
+        "CANNON_MODEL":"source_id_dr3",
     }
 
+    # Input checking
     if extension not in valid_ext:
         raise ValueError("Invalid extension type. Must be in {}".format(
             valid_ext))
+
+    # Write out the full extention name
+    if ext_label != "":
+        ext_full = "{}_{}".format(extension, ext_label)
+    else:
+        ext_full = extension
 
     # Load in the fits file
     fits_path = os.path.join(path, "spectra_{}.fits".format(label))
 
     with fits.open(fits_path, mode="readonly") as fits_file:
-        if extension in fits_file:
-            obs_tab = Table(fits_file[extension].data)
+        if ext_full in fits_file:
+            obs_tab = Table(fits_file[ext_full].data)
             obs_pd = obs_tab.to_pandas()
         else:
             raise Exception("No table of that extension or wrong fits format")
@@ -669,7 +681,12 @@ def convert_1e20_to_nans(fits_table):
             fits_table[col][fits_table[col] == 1e20] = np.nan
 
 
-def save_fits_table(extension, dataframe, label, path="spectra"):
+def save_fits_table(
+    extension,
+    dataframe,
+    label,
+    path="spectra",
+    ext_label="",):
     """Update table of observations stored in given fits file.
 
     Parameters
@@ -684,14 +701,19 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
     
-    path: string
-        Path to save the fits file to
+    path: string, default: 'spectra'
+        Path to save the fits file to.
+
+    ext_label: str, default: ''
+        Sublabel of the extension. At the moment only applicable to the 
+        'CANNON_MODEL' extension to note the specifics of the model.
     """
     # Dict mapping extensions to their descriptions
     valid_ext = {
         "OBS_TAB":"Observation info table", 
         "TRANSIT_FITS":"Table of transit light curve fit results",
-        "CANNON_INFO":"Table of obs/lit info for Cannon benchmarks"}
+        "CANNON_INFO":"Table of obs/lit info for Cannon benchmarks",
+        "CANNON_MODEL":"Table of adopted benchmarks and model results."}
 
     if extension not in valid_ext.keys():
         raise ValueError("Invalid extension type. Must be in {}".format(
@@ -701,13 +723,19 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
     fits_path = os.path.join(path, "spectra_{}.fits".format(label))
 
     with fits.open(fits_path, mode="update") as fits_file:
-        if extension in fits_file:
+        # Write out the full extention name
+        if ext_label != "":
+            ext_full = "{}_{}".format(extension, ext_label)
+        else:
+            ext_full = extension
+
+        if ext_full in fits_file:
             # Update table
             astropy_tab = Table.from_pandas(dataframe.reset_index())
             convert_1e20_to_nans(astropy_tab)
 
             fits_tab = fits.BinTableHDU(astropy_tab)
-            fits_file[extension].data = fits_tab.data
+            fits_file[ext_full].data = fits_tab.data
             fits_file.flush()
         else:
             # Save table for first time
@@ -715,7 +743,7 @@ def save_fits_table(extension, dataframe, label, path="spectra"):
             convert_1e20_to_nans(astropy_tab)
 
             fits_tab = fits.BinTableHDU(astropy_tab)
-            fits_tab.header["EXTNAME"] = (extension, valid_ext[extension])
+            fits_tab.header["EXTNAME"] = (ext_full, valid_ext[extension])
             fits_file.append(fits_tab)
             fits_file.flush()
 

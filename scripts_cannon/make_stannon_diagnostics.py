@@ -36,12 +36,21 @@ cannon_model_path = os.path.join("spectra", model_name)
 
 sm = stannon.load_model(cannon_model_path)
 
-# Import saved reference data and mask
+# Import DataFrame for this particular model
+fits_ext_label = "{}_{}L_{}P_{}S".format(cs.model_label, sm.L, sm.P, sm.S)
+cannon_df = pu.load_fits_table(
+    extension="CANNON_MODEL",
+    label=cs.std_label,
+    path=cs.model_save_path,
+    ext_label=fits_ext_label)
+
+adopted_benchmark = cannon_df["adopted_benchmark"].values
+
+# Import saved reference data amd grab only the saved benchmark subset
 obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
+N_BENCHMARK_TOTAL = len(obs_join)
 
-is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
-
-obs_join = obs_join[is_cannon_benchmark]
+obs_join = obs_join[adopted_benchmark]
 
 is_binary = obs_join["is_cpm"].values
 
@@ -64,10 +73,39 @@ save_folder = "paper/{}_{}_{}L_{}S_{}P_{}".format(
 #------------------------------------------------------------------------------
 # Label Recovery
 #------------------------------------------------------------------------------
-# Work out uncertainties
+# Adopted label uncertainties and systematics based on cross validation
+# performance on the benchmark set. Quoted systematics are fit - lit, meaning
+# that a positive systematic means the Cannon has *overestimated* the value 
+# (and thus the systematic should be substracted).
+# TODO: store uncertainties in the Cannon model itself.
+label_pred_delta = np.nanmedian(sm.training_labels - labels_pred, axis=0)
+delta_text = "delta_teff = {:0.2f}, delta_logg = {:0.2f}, delta_feh = {:0.2f}"
+
 label_pred_std = np.nanstd(sm.training_labels - labels_pred, axis=0)
-std_text = "sigma_teff = {:0.2f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
+std_text = "sigma_teff = {:0.0f}, sigma_logg = {:0.2f}, sigma_feh = {:0.2f}"
+
+print("\nRaw uncertainties")
+print(delta_text.format(*label_pred_delta))
 print(std_text.format(*label_pred_std))
+
+# Round and adopt
+adopted_label_systematics = np.full(sm.L, np.nan)
+adopted_label_uncertainties = np.full(sm.L, np.nan)
+
+for lbl_i in range(sm.L):
+    # Round Teff label to integer
+    if lbl_i == 0:
+        adopted_label_systematics[0] = np.round(label_pred_delta[0], 0)
+        adopted_label_uncertainties[0] = np.round(label_pred_std[0], 0)
+
+    # All other labels get two decimal point significant figures
+    else:
+        adopted_label_systematics[lbl_i] = np.round(label_pred_delta[lbl_i], 2)
+        adopted_label_uncertainties[lbl_i] = np.round(label_pred_std[lbl_i], 2)
+
+print("\nRounded uncertainties")
+print(delta_text.format(*adopted_label_systematics))
+print(std_text.format(*adopted_label_uncertainties))
 
 fn_label = "_{}_{}_label_{}".format(
     cs.model_type, len(cs.label_names), "_".join(cs.label_names))
@@ -82,7 +120,7 @@ splt.plot_label_recovery(
     teff_lims=(2500,5000),
     teff_ticks=(500,250,200,100),
     logg_ticks=(0.25,0.125,0.1,0.05),
-    feh_lims=(-0.95,0.65),
+    feh_lims=(-1.1,0.65),
     feh_ticks=(0.5,0.25,0.4,0.2),
     plot_folder=save_folder,)
 
@@ -95,7 +133,7 @@ splt.plot_label_recovery_per_source(
     obs_join=obs_join,
     fn_suffix=fn_label,
     teff_lims=(2800,5000),
-    feh_lims=(-1.05,0.65),
+    feh_lims=(-1.1,0.65),
     teff_ticks=(500,250,200,100),
     feh_ticks=(0.5,0.25,0.25,0.125),
     do_plot_mid_K_panel=True,
@@ -249,30 +287,44 @@ pred_label_values, pred_label_sigmas_stat, chi2_all = sm.infer_labels(
     test_data_ivars=sm.masked_data_ivar)
 
 # Correct labels for systematics
-systematic_vector = np.tile(cs.adopted_label_systematics, np.sum(sm.data_mask))
+systematic_vector = np.tile(adopted_label_systematics, np.sum(sm.data_mask))
 systematic_vector = \
     systematic_vector.reshape([np.sum(sm.data_mask), cs.n_labels])
 pred_label_values_corr = pred_label_values - systematic_vector
 
 # Create uncertainties vector
-cross_val_sigma = np.tile(cs.adopted_label_uncertainties, np.sum(sm.data_mask))
+cross_val_sigma = np.tile(adopted_label_uncertainties, np.sum(sm.data_mask))
 cross_val_sigma = cross_val_sigma.reshape([np.sum(sm.data_mask), cs.n_labels])
 pred_label_sigmas_total = \
     np.sqrt(pred_label_sigmas_stat**2 + cross_val_sigma**2)
 
 # Save uncertainties
 for lbl_i, label in enumerate(cs.label_names):
-    obs_join["{}_cannon_value".format(label)] = pred_label_values_corr[:,lbl_i]
-    obs_join["{}_cannon_sigma_statistical".format(label)] = \
-        pred_label_sigmas_stat[:,lbl_i]
-    obs_join["{}_cannon_sigma_total".format(label)] = \
-        pred_label_sigmas_total[:,lbl_i]
+    # Labels
+    col_label_pred = "{}_cannon_value".format(label)
+    label_pred_values = np.full(N_BENCHMARK_TOTAL, np.nan)
+    label_pred_values[adopted_benchmark] = pred_label_values_corr[:,lbl_i]
+    cannon_df[col_label_pred] = label_pred_values
+
+    # Statistical uncertainties
+    col_label_pred = "{}_cannon_sigma_statistical".format(label)
+    sigma_pred_stat = np.full(N_BENCHMARK_TOTAL, np.nan)
+    sigma_pred_stat[adopted_benchmark] = pred_label_sigmas_stat[:,lbl_i]
+    cannon_df[col_label_pred] = sigma_pred_stat
+
+    # Total Uncertainties
+    col_label_pred = "{}_cannon_sigma_total".format(label)
+    sigma_pred_tot = np.full(N_BENCHMARK_TOTAL, np.nan)
+    sigma_pred_tot[adopted_benchmark] = pred_label_sigmas_total[:,lbl_i]
+    cannon_df[col_label_pred] = sigma_pred_tot
 
 # Flag abberant logg values
-delta_logg = \
+delta_logg = np.full(N_BENCHMARK_TOTAL, np.nan)
+delta_logg[adopted_benchmark] = \
     np.abs(obs_join["label_adopt_logg"].values - pred_label_values[:,1])
 has_aberrant_logg = delta_logg > cs.aberrant_logg_threshold
-obs_join["logg_aberrant"] = has_aberrant_logg
+cannon_df["delta_logg"] = delta_logg
+cannon_df["logg_aberrant"] = has_aberrant_logg
 
 #------------------------------------------------------------------------------
 # Tables
@@ -282,7 +334,8 @@ st.make_table_sample_summary(obs_join, table_folder=save_folder,)
 
 # Tabulate our adopted and benchmark parameters
 st.make_table_benchmark_overview(
-    obs_tab=obs_join,
+    benchmark_df=obs_join,
+    cannon_df=cannon_df,
     label_names=cs.label_names,
     abundance_labels=cs.abundance_labels,
     break_row=90,
@@ -304,26 +357,21 @@ splt.plot_cannon_cmd(
 #------------------------------------------------------------------------------
 # GALAH-Gaia -- Valenti & Fischer 2005 diagnostic
 #------------------------------------------------------------------------------
-splt.plot_abundance_trend_recovery(
-    obs_join=obs_join,
-    vf05_full_file=cs.vf05_full_file,
-    vf05_sampled_file=cs.vf05_sampled_file,
-    plot_folder=save_folder,)
+if sm.L > 3:
+    splt.plot_abundance_trend_recovery(
+        obs_join=obs_join,
+        vf05_full_file=cs.vf05_full_file,
+        vf05_sampled_file=cs.vf05_sampled_file,
+        plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Save updated fits
 #------------------------------------------------------------------------------
-# TODO: save the predicted parameters back to the fits file, but only for the
+# Save the predicted parameters back to the fits file, but only for the
 # benchmark stars.
-#pu.save_fits_table("CANNON_INFO", obs_join, "cannon")
-"""
-labels = ["label_cannon_{}".format(lbl) for lbl in cs.label_names]
-
-labels_all = np.full((154, cs.n_labels), np.nan)
-
-labels_all[is_cannon_benchmark] = labels_pred
-
-obs_join_all = pu.load_fits_table("CANNON_INFO", "cannon")
-
-obs_join_all[labels] = labels_all
-"""
+pu.save_fits_table(
+    extension="CANNON_MODEL",
+    dataframe=cannon_df,
+    label=cs.std_label,
+    path=cs.model_save_path,
+    ext_label=fits_ext_label)

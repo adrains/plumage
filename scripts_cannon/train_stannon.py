@@ -16,6 +16,7 @@ The parameters for steps 2) and 3) can be found in cannon_settings.py, which
 should be modified/duplicated and imported.
 """
 import numpy as np
+import pandas as pd
 import plumage.utils as pu
 import stannon.stannon as stannon
 import stannon.plotting as splt
@@ -29,13 +30,56 @@ cannon_settings_yaml = "scripts_cannon/cannon_settings.yml"
 cs = su.load_cannon_settings(cannon_settings_yaml)
 
 #------------------------------------------------------------------------------
-# Training labels
+# Training sample
 #------------------------------------------------------------------------------
 # Import dataframe with benchmark parameters
 obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
 
-is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
+# Now that we've collated all our labels and vetted all our targets, we still
+# need to select which stars the Cannon will actually be trained on. This uses
+# result in four different boolean arrays:
+#   1) 'passed_quality_cuts'        ---> benchmarks must have this as True
+#   2) 'has_complete_label_set'     ---> benchmarks must have this as True
+#   3) 'is_cannon_benchmark'        ---> *potential* benchmarks
+#   4) 'adopted_benchmark'          ---> *adopted* benchmarks
 
+# A Cannon model is assumed to be uniquely defined by:
+#   1) the model 'label', e.g. 'MK' for M and K dwarfs.
+#   2) Number of labels, L
+#   3) Number of pixels, P
+#   4) Number of benchmarks, S
+# And given these we save all results when using this model to a unique fits
+# HDU, which allows for the same fits file to contain the results of multiple
+# Cannon models using different sets of benchmarks, labels, or pixels.
+if cs.do_use_subset_of_benchmark_sample:
+    M_Ks = obs_join["K_mag_abs"].values
+    bp_rp = obs_join["BP_RP_dr3"].values
+    
+    icb = obs_join["is_cannon_benchmark"].values
+
+    within_bounds_M_Ks = np.logical_and(
+        M_Ks >= cs.training_sample_min_M_Ks[0],
+        M_Ks <= cs.training_sample_min_M_Ks[1],)
+    
+    within_bounds_BP_RP = np.logical_and(
+        bp_rp >= cs.training_sample_bounds_BP_RP[0],
+        bp_rp <= cs.training_sample_bounds_BP_RP[1],)
+    
+    adopted_benchmark = np.logical_and(
+        icb, np.logical_and(within_bounds_M_Ks, within_bounds_BP_RP))
+
+else:
+    adopted_benchmark = obs_join["is_cannon_benchmark"].values
+
+# Create new DataFrame for results
+result_df = pd.DataFrame(
+    data={"source_id_dr3":obs_join.index,
+          "adopted_benchmark":adopted_benchmark},)
+result_df.set_index("source_id_dr3", inplace=True)
+
+#------------------------------------------------------------------------------
+# Training labels
+#------------------------------------------------------------------------------
 # Grab benchmark labels
 label_value_cols = []
 label_var_cols = []
@@ -98,8 +142,8 @@ if cs.do_constant_in_wl_spectral_broadening:
 fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
     stannon.prepare_cannon_spectra_normalisation(
         wls=wls,
-        spectra=spec_std_br[is_cannon_benchmark],
-        e_spectra=e_spec_std_br[is_cannon_benchmark],
+        spectra=spec_std_br[adopted_benchmark],
+        e_spectra=e_spec_std_br[adopted_benchmark],
         wl_min_model=cs.wl_min_model,
         wl_max_model=cs.wl_max_model,
         wl_min_normalisation=cs.wl_min_normalisation,
@@ -123,7 +167,7 @@ print("\tlambda: \t\t = {:0.0f}-{:0.0f} A".format(
 print("\tn px: \t\t\t = {:0.0f}".format(np.sum(adopted_wl_mask)))
 print("\tn labels: \t\t = {:0.0f}".format(len(cs.label_names)))
 print("\tlabels: \t\t = {}".format(cs.label_names))
-print("\tn benchmarks: \t\t = {:0.0f}".format(np.sum(is_cannon_benchmark)))
+print("\tn benchmarks: \t\t = {:0.0f}".format(np.sum(adopted_benchmark)))
 print("\tGaussian Normalisation:\t = {}".format(
     cs.do_gaussian_spectra_normalisation))
 if cs.do_gaussian_spectra_normalisation:
@@ -148,12 +192,12 @@ print("\n", "%"*80, "\n\n", sep="")
 sm = stannon.Stannon(
     training_data=fluxes_norm,
     training_data_ivar=ivars_norm,
-    training_labels=label_values_all[is_cannon_benchmark],
-    training_ids=obs_join[is_cannon_benchmark].index.values,
+    training_labels=label_values_all[adopted_benchmark],
+    training_ids=obs_join[adopted_benchmark].index.values,
     label_names=cs.label_names,
     wavelengths=wls,
     model_type=cs.model_type,
-    training_variances=label_var_all[is_cannon_benchmark],
+    training_variances=label_var_all[adopted_benchmark],
     adopted_wl_mask=adopted_wl_mask,
     bad_px_mask=bad_px_mask,)
 
@@ -163,7 +207,7 @@ start_time = datetime.now()
 # Train model
 print("\n\n", "-"*100, sep="",)
 print("\nFitting initial Cannon model with {} benchmarks\n".format(
-    np.sum(is_cannon_benchmark)))
+    np.sum(adopted_benchmark)))
 print("-"*100, "\n\n", sep="",)
 print("Fitting started: {}\n".format(start_time.ctime()))
 sm.train_cannon_model(
@@ -199,15 +243,39 @@ if cs.do_cross_validation:
 
     labels_pred = sm.cross_val_labels
 
+    # Save cross validation label predictions
+    for label_i, label in enumerate(sm.label_names):
+        col = "label_cv_{}".format(label)
+        cv_label_values = np.full(len(obs_join), np.nan)
+        cv_label_values[adopted_benchmark] = sm.cross_val_labels[:,label_i]
+        result_df[col] = cv_label_values
+
 # ...or just test on training set (to give a quick idea of performance)
 else:
     labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
 
+print("Model training complete!")
+
+#------------------------------------------------------------------------------
+# Saving
+#------------------------------------------------------------------------------
 # Save model
 sm.save_model(cs.model_save_path)
 
-print("Model training complete!")
+# Store results DF
+fits_ext_label = "{}_{}L_{}P_{}S".format(
+    cs.model_label, sm.L, sm.P, sm.S)
+
+pu.save_fits_table(
+    extension="CANNON_MODEL",
+    dataframe=result_df,
+    label=cs.std_label,
+    path=cs.model_save_path,
+    ext_label=fits_ext_label)
+
+# TODO: save training settings
+pass
 
 #------------------------------------------------------------------------------
 # Diagnostics
