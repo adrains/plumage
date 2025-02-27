@@ -239,16 +239,25 @@ if cs.do_cross_validation:
         suppress_stan_output=cs.suppress_stan_output,
         init_uncertainty_model_with_basic_model=cs.init_with_basic_model,
         max_iter=cs.max_iter,
-        log_refresh_step=cs.log_refresh_step,)
+        log_refresh_step=cs.log_refresh_step,
+        n_statistical_samples=cs.n_cross_val_samples,)
 
     labels_pred = sm.cross_val_labels
+    labels_pred_sigma = sm.cross_val_sigmas
 
     # Save cross validation label predictions
     for label_i, label in enumerate(sm.label_names):
+        # Mean
         col = "label_cv_{}".format(label)
         cv_label_values = np.full(len(obs_join), np.nan)
         cv_label_values[adopted_benchmark] = sm.cross_val_labels[:,label_i]
         result_df[col] = cv_label_values
+
+        # Sigma
+        col = "sigma_label_cv_{}".format(label)
+        cv_label_sigmas = np.full(len(obs_join), np.nan)
+        cv_label_sigmas[adopted_benchmark] = sm.cross_val_sigmas[:,label_i]
+        result_df[col] = cv_label_sigmas
 
 # ...or just test on training set (to give a quick idea of performance)
 else:

@@ -93,6 +93,7 @@ class Stannon(object):
 
         # Initialise cross validation results
         self.cross_val_labels = np.nan * np.ones_like(self.training_labels)
+        self.cross_val_sigmas = np.nan * np.ones_like(self.training_labels)
 
         # Load in the model itself
         self.model = self.get_stannon_model()
@@ -123,6 +124,7 @@ class Stannon(object):
         new_sm.theta = copy.deepcopy(self.theta)
         new_sm.s2 = copy.deepcopy(self.s2)
         new_sm.cross_val_labels = copy.deepcopy(self.cross_val_labels)
+        new_sm.cross_val_sigmas = copy.deepcopy(self.cross_val_sigmas)
 
         # And true labels vector if applicable
         if self.model_type == "label_uncertainties":
@@ -313,6 +315,18 @@ class Stannon(object):
                              "must be equal to training_labels.")
         else:
             self._cross_val_labels = np.array(value)
+
+    @property
+    def cross_val_sigmas(self):
+        return self._cross_val_sigmas
+
+    @cross_val_sigmas.setter
+    def cross_val_sigmas(self, value):
+        if value.shape != self.training_labels.shape:
+            raise ValueError("Dimensions of cross_val_sigmas is incorrect,"
+                             "must be equal to training_labels.")
+        else:
+            self._cross_val_sigmas = np.array(value)
 
     #--------------------------------------------------------------------------
     # Class functions
@@ -797,6 +811,73 @@ class Stannon(object):
         return labels_all, errs_all, chi2_all
 
 
+    def infer_labels_with_MC_flux(
+        self,
+        test_data,
+        test_data_ivars,
+        n_samples=100,):
+        """Wrapper function around infer_labels() used to run MC label
+        inference when sampling the uncertainties on the input fluxes. 
+
+        Parameters
+        ----------
+        test_data: float array
+            Science fluxes to infer labels for, of shape [n_spectra, n_pixels].
+            Must be normalised the same as training spectra.
+
+        test_data_ivars: float array
+            Science flux inverse variances, of shape [n_spectra, n_pixels].
+            Must be normalised the same as training spectra.
+
+        n_samples: int, default: 100
+            If > 1, we run MC sampling by sampling the uncertainties on the
+            fluxes in order to predict the means *and* standard deviations on
+            the cross-validation labels.
+
+        Returns
+        -------
+        label_means, label_sigmas: float array
+            Arrays of means and sigmas computed from the sampled distributions
+            of inferred labels, of shape [n_spectra, n_label].
+        """
+        # Grab dimensions for convenience
+        N_STARS = test_data.shape[0]
+
+        # Report back mean and std of the resulting distribution
+        label_means = np.zeros((N_STARS, self.L))
+        label_sigmas = np.zeros((N_STARS, self.L))
+
+        for star_i, (flux, ivar) in enumerate(zip(test_data, test_data_ivars)):
+            # Convert to sigma
+            sigma = np.sqrt(1/ivar)
+            
+            # Tile fluxes and errors to 2D
+            fluxes_2D = np.broadcast_to(flux[None,:], (n_samples, self.P))
+            sigmas_2D = np.broadcast_to(sigma[None,:], (n_samples, self.P))
+
+            ivar_2D = 1/sigmas_2D**2
+
+            # Sample fluxes
+            fluxes_2D_sampled = \
+                np.random.normal(loc=fluxes_2D, scale=sigmas_2D)
+            
+            # Clip this to be >= 0
+            fluxes_2D_sampled = \
+                np.clip(fluxes_2D_sampled, a_min=0, a_max=None,)
+
+            # Infer labels (making sure to use ivars, not sigmas!)
+            labels_pred, _, _ = self.infer_labels(
+                test_data=fluxes_2D_sampled,
+                test_data_ivars=ivar_2D,)
+            
+            # Compute statistics
+            label_means[star_i] = np.mean(labels_pred, axis=0)
+            label_sigmas[star_i] = np.std(labels_pred, axis=0)
+
+        # All done
+        return label_means, label_sigmas
+
+
     def make_sigma_clipped_bad_px_mask(self, flux_sigma_to_clip=5):
         """Generate a bad pixel mask via sigma clipping using a trained Cannon
         model.
@@ -833,7 +914,8 @@ class Stannon(object):
         init_uncertainty_model_with_basic_model,
         max_iter,
         log_refresh_step,
-        show_timing=True,):
+        show_timing=True,
+        n_statistical_samples=1,):
         """Runs leave-one-out cross validation for the current training set,
         and saves the N predicted labels as self.cross_val_labels.
 
@@ -866,14 +948,20 @@ class Stannon(object):
 
         show_timing: boolean, default True
             Whether to show the duration of cross-validation when finished.
+
+        n_statistical_samples: int, default: 1
+            If > 1, we run MC sampling by sampling the uncertainties on the
+            fluxes in order to predict the means *and* standard deviations on
+            the cross-validation labels.
         """
         print("\n", "%"*100, "%"*100, sep="\n",)
         print("\n\t\t\t\t\tRunning cross validation\n",)
         print("%"*100, "%"*100, "\n", sep="\n",)
         start_time = datetime.now()
 
-        # Initialise output array
+        # Initialise output arrays
         self.cross_val_labels = np.ones_like(self.training_labels) * np.nan
+        self.cross_val_sigmas = np.ones_like(self.training_labels) * np.nan
 
         # Do leave-one-out training and testing for all. To do this, we create
         # a duplicate object containing data on N-1 benchmarks, train, and test
@@ -915,14 +1003,27 @@ class Stannon(object):
                 max_iter=max_iter,
                 log_refresh_step=log_refresh_step,)
 
-            # Predict labels for the missing standard using the newly trained
-            # Cannon model.
-            labels_pred, _, _ = cv_sm.infer_labels(
-                self.masked_data[~dm],
-                self.masked_data_ivar[~dm])
+            # Predict labels for the missing standard
+            # Option 1) predict the labels once using real spectra + sigmas
+            if n_statistical_samples == 1:
+                labels_pred, _, _ = cv_sm.infer_labels(
+                    test_data=self.masked_data[~dm],
+                    test_data_ivars=self.masked_data_ivar[~dm])
+            
+                # Store predicted label value
+                self.cross_val_labels[std_i] = labels_pred
 
-            # Add the predicted label to our master list of cross_val labels
-            self.cross_val_labels[std_i] = labels_pred
+            # Option 2) predict label means *and* their standard deviations
+            # by running label prediction N times via a MC approach.
+            else:
+                labels_pred, labels_sigma = cv_sm.infer_labels_with_MC_flux(
+                    self.masked_data[~dm],
+                    self.masked_data_ivar[~dm],
+                    n_samples=n_statistical_samples,)
+
+                # Store predicted label mean and standard deviations
+                self.cross_val_labels[std_i] = labels_pred
+                self.cross_val_sigmas[std_i] = labels_sigma
 
         if show_timing:
             t_elapsed = datetime.now() - start_time
@@ -969,6 +1070,7 @@ class Stannon(object):
             "theta":self.theta,
             "s2":self.s2,
             "cross_val_labels":self.cross_val_labels,
+            "cross_val_sigmas":self.cross_val_sigmas,
             "bad_px_mask":self.bad_px_mask,
             "L":self.L,
             "P":self.P,
@@ -1044,6 +1146,7 @@ def load_model(filename):
     sm.theta = class_dict["theta"]
     sm.s2 = class_dict["s2"]
     sm.cross_val_labels = class_dict["cross_val_labels"]
+    sm.cross_val_sigmas = class_dict["cross_val_sigmas"]
 
     if class_dict["model_type"] == "label_uncertainties":
         if "true_labels" in class_dict:
@@ -1131,6 +1234,7 @@ def _load_fits_model(filename):
         class_dict["theta"] = fits_file["THETA"].data
         class_dict["s2"] = fits_file["S2"].data
         class_dict["cross_val_labels"] = fits_file["CROSS_VAL_LABELS"].data
+        class_dict["cross_val_sigmas"] = fits_file["CROSS_VAL_SIGMAS"].data
 
         if model_type == "label_uncertainties":
             class_dict["true_labels"] = fits_file["TRUE_LABELS"].data
@@ -1260,9 +1364,16 @@ def _save_fits_model(filename, class_dict,):
         "Labels recovered in leave-one-out cross val, [n_star, n_label].")
     hdu.append(cross_val_img)
 
+    # HDU 14: Cross validation label sigmas
+    cross_val_img =  fits.PrimaryHDU(class_dict["cross_val_sigmas"])
+    cross_val_img.header["EXTNAME"] = (
+        "CROSS_VAL_SIGMAS",
+        "Label sigmas recovered in leave-one-out cross val, [n_star, n_label]")
+    hdu.append(cross_val_img)
+
     if (class_dict["model_type"] == "label_uncertainties" 
         and "true_labels" in class_dict):
-            # HDU 14: True labels
+            # HDU 15: True labels
             true_label_img =  fits.PrimaryHDU(class_dict["true_labels"])
             true_label_img.header["EXTNAME"] = (
                 "TRUE_LABELS",
