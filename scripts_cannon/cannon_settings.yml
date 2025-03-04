@@ -26,9 +26,16 @@ model_label: "M"
 # benchmarks with 'is_cannon_benchmark' = True.
 do_use_subset_of_benchmark_sample: True
 
-# M_Ks and BP-RP cuts to make for the sample, of form [min, max]
-training_sample_bounds_BP_RP: [1.7, 5]    # M: [1.7, 5], K: [0, 2]
-training_sample_min_M_Ks: [4, 11]         # M: [4, 11],  K: [0, 6]
+# Parameterising the BP-RP - M_Ks main sequence by a linear line, we use two
+# lines perpendicularto this to denote the cool K dwarf boundary, and the warm
+# M dwarf boundary when training separate models. The main sequence line is:
+# M_Ks = 1.93 * (BP-RP) + 2.08, and by inverting the gradient we get a
+# perpendicular line which can be determined by its intercept. Pre-fit values:
+#   M dwarfs - warm: 8.23, cool: 100
+#   K dwarfs - warm: -100, cool: 9.86
+BP_RP_vs_M_Ks_cut_gradient: -1.93
+M_Ks_intercept_warm: 8.24
+M_Ks_intercept_cool: 100
 
 #------------------------------------------------------------------------------
 # Model Settings

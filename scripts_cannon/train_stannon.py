@@ -55,21 +55,30 @@ if cs.do_use_subset_of_benchmark_sample:
     M_Ks = obs_join["K_mag_abs"].values
     bp_rp = obs_join["BP_RP_dr3"].values
     
+    # Grab mask of candidate benchmarks
     icb = obs_join["is_cannon_benchmark"].values
 
-    within_bounds_M_Ks = np.logical_and(
-        M_Ks >= cs.training_sample_min_M_Ks[0],
-        M_Ks <= cs.training_sample_min_M_Ks[1],)
+    # Accept those benchmarks fainter (> M_Ks) than the warm M_Ks bound
+    warm_MKs_bounds = (
+        cs.BP_RP_vs_M_Ks_cut_gradient * bp_rp + cs.M_Ks_intercept_warm)
+    within_warm_MKs_bounds = M_Ks >= warm_MKs_bounds
+
+    # Accept those benchmarks brighter (< M_Ks) than the cool M_Ks bound
+    cool_MKs_bounds = (
+        cs.BP_RP_vs_M_Ks_cut_gradient * bp_rp + cs.M_Ks_intercept_cool)
+    within_cool_MKs_bound = M_Ks <= cool_MKs_bounds
+
+    # Adopt benchmarks candidate benchmarks within the warm and cool bounds
+    within_bounds = np.logical_and(
+        within_warm_MKs_bounds, within_cool_MKs_bound)
     
-    within_bounds_BP_RP = np.logical_and(
-        bp_rp >= cs.training_sample_bounds_BP_RP[0],
-        bp_rp <= cs.training_sample_bounds_BP_RP[1],)
-    
-    adopted_benchmark = np.logical_and(
-        icb, np.logical_and(within_bounds_M_Ks, within_bounds_BP_RP))
+    adopted_benchmark = np.logical_and(icb, within_bounds)
 
 else:
     adopted_benchmark = obs_join["is_cannon_benchmark"].values
+
+if np.sum(adopted_benchmark) == 0:
+    raise Exception("Zero benchmarks selected!")
 
 # Create new DataFrame for results
 result_df = pd.DataFrame(

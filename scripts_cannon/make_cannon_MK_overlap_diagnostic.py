@@ -193,6 +193,9 @@ def plot_cannon_overlap_diagnostics(
             cax = axis.scatter(
                 info_overlap[label_adopt], resid, c=colour, cmap=cmap)
             cb = fig.colorbar(cax, ax=axis)
+            tick_locator = plticker.MaxNLocator(nbins=5)
+            cb.locator = tick_locator
+            cb.update_ticks()
             
             # Annotate systematic + std of the residuals
             resid_med = np.median(resid)
@@ -264,8 +267,8 @@ n_px = 5024
 n_label = 3
 
 n_star_MK = 195
-n_star_K = 87
-n_star_M = 142
+n_star_K = 99
+n_star_M = 137
 
 # Names of each of the three models
 model_names = ("M", "K", "M+K")
