@@ -28,6 +28,7 @@ FEH_OFFSETS = {
     "M18":0.02,     # Computed from np.nanmedian(Fe_H_vf05-Fe_H_m18) in cpm_prim, 46 stars
     "Sou06":0.0,    # TODO Confirm this
     "Sou08":0.0,    # TODO Confirm this
+    "A12":0.0,      # TODO Based on Sousa+08
     "Soz09":0.0,    # TODO Confirm this
     "M14":0.0,      # Probably safe to assume this is zero?
     "RA12":0.01,    # Computed from np.nanmedian(obs_join["feh_m15"] - obs_join["feh_ra12"])
@@ -36,7 +37,7 @@ FEH_OFFSETS = {
     "R21":np.nan,
     "B16":0.0,      # Computed from np.nanmedian(Fe_H_vf05-Fe_H_b16) in cpm_prim, 30 stars
     "RB20":0.00,    # Computed from np.nanmedian(Fe_H_vf05-Fe_H_rb16) in cpm_prim, 18 stars
-    "L18":0.0,      # TODO, compute the actual value
+    "L18":-0.01,     # Computed from np.nanmedian(feh_vf05 - feh_L18) for 271 CMed stars
 }
 
 # Adopted uncertainties from VF05 Table 6
@@ -562,6 +563,18 @@ def select_Fe_H_label(star_info, mid_K_BP_RP_bound, mid_K_MKs_bound,):
             feh_corr = star_info["Fe_H_m18_prim"] + FEH_OFFSETS[ref]
             e_feh_corr = star_info["eFe_H_m18_prim"]
 
+        # Luck+18 
+        elif ~np.isnan(star_info["Fe_H_L18_prim"]):
+            ref = "L18"
+            feh_corr = star_info["Fe_H_L18_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = 0.025  # Pg. 18, Section 3.2.4
+
+        # Adibekyan+12
+        elif ~np.isnan(star_info["Fe_H_a12_prim"]):
+            ref = "A12"
+            feh_corr = star_info["Fe_H_a12_prim"] + FEH_OFFSETS[ref]
+            e_feh_corr = 0.03   # From paper, pg. 2, section 2.
+
         # Sousa+08 (this is the base sample for Adibekyan+12 abundances)
         elif ~np.isnan(star_info["feh_s08_prim"]):
             ref = "Sou08"
@@ -639,18 +652,25 @@ def select_Fe_H_label(star_info, mid_K_BP_RP_bound, mid_K_MKs_bound,):
         feh_source = "M18"
         feh_nondefault = True
 
+    # Luck+2018 (K-dwarfs)
+    elif is_mid_K and not np.isnan(star_info["feh_L18"]):
+        feh_value = star_info["feh_L18"]
+        feh_sigma = 0.025   # Pg. 18, Section 3.2.4
+        feh_source = "L18"
+        feh_nondefault = True
+
+    # Adibekyan+12 (K-dwarfs)
+    elif ~np.isnan(star_info["Fe_H_a12"]):
+        feh_value = star_info["Fe_H_a12"]
+        feh_sigma = 0.03   # From paper, pg. 2, section 2.
+        feh_source = "A12"
+        feh_nondefault = True
+
     # Sousa+08 (K-dwarfs)
     elif is_mid_K and ~np.isnan(star_info["feh_s08"]):
         feh_value = star_info["feh_s08"]
         feh_sigma = star_info["e_feh_s08"]
         feh_source = "Sou08"
-        feh_nondefault = True
-
-    # Luck+2018 (K-dwarfs)
-    elif is_mid_K and not np.isnan(star_info["feh_L18"]):
-        feh_value = star_info["feh_L18"]
-        feh_sigma = np.nan    # TODO
-        feh_source = "L18"
         feh_nondefault = True
 
     # -------------------------------------------------------------------------
