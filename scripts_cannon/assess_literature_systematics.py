@@ -3,7 +3,12 @@ chemistry benchmarks.
 """
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.ticker as plticker
 
+#------------------------------------------------------------------------------
+# Literature samples + info
+#------------------------------------------------------------------------------
 samples = {
     "VF05":"data/VF05.tsv",             # Const sigma for: all
     "A12":"data/A12_gaia_all.tsv",      # Const sigma for: Fe
@@ -33,6 +38,7 @@ species_all = {
             "Fe", "Ni", "Y"],
 }
 
+# For those samples with constant adopted sigma for each [X/H]
 sigmas = {
     "VF05":{"M":0.029,
             "Na":0.032,
@@ -74,7 +80,6 @@ sigmas = {
             "Y":0.07,}    # −0.87–1.35
 }
 
-
 #------------------------------------------------------------------------------
 # Initial Import + Unique IDs
 #------------------------------------------------------------------------------
@@ -98,12 +103,15 @@ unique_ids.remove("-")
 unique_ids.remove(np.nan)
 
 # Create new DataFrame to be used for crossmatching to later
-df_comb = pd.DataFrame(data=unique_ids, columns="source_id_dr3")
+df_comb = pd.DataFrame(data=unique_ids, columns=["source_id_dr3"],)
 df_comb.set_index("source_id_dr3", inplace=True)
 
 #------------------------------------------------------------------------------
 # Collate columns of interest
 #------------------------------------------------------------------------------
+# Here we are going to put all [X/H] columns in a standard format for each
+# literature sample, as well as selecting BP-RP for use when correcting for
+# systematics.
 dataframes_cut = {}
 
 #=========================================
@@ -128,6 +136,7 @@ for species in species_all["VF05"]:
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["VF05"] = VF05[cols].copy()
 
 #=========================================
@@ -193,6 +202,7 @@ A12.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["A12"] = A12[cols].copy()
 
 #=========================================
@@ -210,12 +220,14 @@ RA12.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["RA12"] = RA12[cols].copy()
 
 #=========================================
 # Mann+2015
 #=========================================
 M15 = dataframes["M15"]
+M15.rename(columns={"BP-RP_dr3":"bp_rp"}, inplace=True)
 
 abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["M15"]]
 abund_cols_new = ["{}_H_M15".format(ss) for ss in species_all["M15"]]
@@ -227,6 +239,7 @@ M15.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["M15"] = M15[cols].copy()
 
 #=========================================
@@ -251,6 +264,7 @@ for species in species_all["B16"]:
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["B16"] = B16[cols].copy()
 
 #=========================================
@@ -268,6 +282,7 @@ M18.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["M18"] = M18[cols].copy()
 
 #=========================================
@@ -378,6 +393,7 @@ L18.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["L18"] = L18[cols].copy()
 
 #=========================================
@@ -402,10 +418,199 @@ for species in species_all["RB20"]:
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
 dataframes_cut["RB20"] = RB20[cols].copy()
 
 #------------------------------------------------------------------------------
 # Join all separate tables
 #------------------------------------------------------------------------------
 for ref in dataframes_cut.keys():
-    df_comb = df_comb.join(dataframes_cut[ref], "source_id_dr3",)
+    dataframes_cut[ref].rename(
+        columns={"bp_rp":"bp_rp_{}".format(ref)}, inplace=True)
+    df_comb = df_comb.join(
+        dataframes_cut[ref], "source_id_dr3", rsuffix="_{}".format(ref))
+
+# Grab only a single BP-RP column
+bp_rp_cols = ["bp_rp_{}".format(ref) for ref in dataframes_cut.keys()]
+
+# NOTE: by taking the median (rather than any single value) we are assuming
+# that the only difference in BP-RP will be due to rounding issues caused by
+# selecting a different number of significant figures.
+bp_rp_adopt = np.nanmedian(df_comb[bp_rp_cols].values, axis=1)
+
+df_comb["BP_RP"] = bp_rp_adopt
+
+df_comb.drop(columns=bp_rp_cols, inplace=True)
+
+#------------------------------------------------------------------------------
+# Fitting + Correcting Residuals, Plotting
+#------------------------------------------------------------------------------
+comp_ref = "VF05"
+references_to_compare = ["A12", "B16", "M18", "L18", "RB20"]
+
+BP_RP_LIMS = (0.52, 1.35)
+X_F_LIMS = (-0.35, 0.35)
+POLY_ORDER = 4
+OUTLIER_DEX = 0.3
+
+DO_LIMIT_Y_EXTENT = True
+
+plt.close("all")
+fig, axes = plt.subplots(
+    nrows=5, ncols=2, sharex=True, sharey="row", figsize=(16, 10))
+
+fig.subplots_adjust(
+    left=0.05,
+    bottom=0.05,
+    right=0.98,
+    top=0.97,
+    hspace=0.01,
+    wspace=0.01)
+
+# Loop over all comparisons
+for ref_i, ref in enumerate(references_to_compare):
+    # Grab value + sigma column names
+    feh_ref = "Fe_H_{}".format(comp_ref)
+    e_feh_ref = "e_Fe_H_{}".format(comp_ref)
+
+    feh_comp = "Fe_H_{}".format(ref)
+    e_feh_comp = "e_Fe_H_{}".format(ref)
+
+    #=========================================
+    # Fit residuals and correct
+    #=========================================
+    # Compute the residuals and the combined uncertainties
+    resid = df_comb[feh_ref].values - df_comb[feh_comp].values
+    e_resid = np.sqrt(
+        df_comb[e_feh_ref].values**2 + df_comb[e_feh_comp].values**2)
+    
+    # Perform polynomial fitting
+    n_overlap = np.sum(~np.isnan(resid))
+    overlap_mask = ~np.isnan(resid)
+    fit_mask = np.logical_and(overlap_mask, np.abs(resid) < OUTLIER_DEX)
+
+    poly = np.polynomial.Polynomial.fit(
+        df_comb["BP_RP"].values[fit_mask], resid[fit_mask], POLY_ORDER)
+    
+    # Correct for the fit
+    resid_corr = resid - poly(df_comb["BP_RP"].values)
+
+    # Compute statistics before and after
+    med = np.nanmedian(resid)
+    std = np.nanstd(resid)
+
+    med_corr = np.nanmedian(resid_corr)
+    std_corr = np.nanstd(resid_corr)
+
+    #=========================================
+    # Left Hand Panels: raw residuals + fit
+    #=========================================
+    xx = np.arange(BP_RP_LIMS[0], BP_RP_LIMS[1], 0.01)
+    axes[ref_i, 0].plot(xx, poly(xx), color="r", linewidth=1.0)
+    
+    axes[ref_i, 0].errorbar(
+        x=df_comb["BP_RP"].values,
+        y=resid,
+        yerr=e_resid,
+        fmt="o",
+        alpha=0.8,
+        ecolor="k",
+        label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
+    
+    axes[ref_i, 0].legend(loc="lower right")
+    
+    axes[ref_i, 0].set_ylabel(r"$\Delta$[Fe/H]")
+
+    axes[ref_i, 0].hlines(
+        y=0,
+        xmin=BP_RP_LIMS[0],
+        xmax=BP_RP_LIMS[1],
+        linestyles="--",
+        colors="k",
+        linewidth=0.5,)
+    
+    # Annotate statistics
+    txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
+    txt = txt.replace("-0.00", "0.00")
+
+    axes[ref_i, 0].text(
+        x=0.5,
+        y=0.25,
+        s=txt,
+        horizontalalignment="center",
+        verticalalignment="center",
+        transform=axes[ref_i, 0].transAxes,
+        bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+    
+    # Display polynomial coefficients
+    coefs = poly.coef[::-1]
+    exponents = np.arange(3, 0, -1)
+    ft = r"{:0.3}\cdot(BP-RP)^{:0.0f}"
+
+    fit_list = [ft.format(cc, ee) for (cc, ee) in zip(coefs, exponents)]
+    fit_list.append("{:0.3f}".format(coefs[-1]))
+    fit_txt = r"${}$".format("+".join(fit_list).replace("+-", "-"))
+
+    axes[ref_i, 0].text(
+        x=0.01,
+        y=0.04,
+        s=fit_txt,
+        horizontalalignment="left",
+        verticalalignment="center",
+        color="r",
+        fontsize="x-small",
+        transform=axes[ref_i, 0].transAxes,)
+        #bbox=dict(facecolor="r", edgecolor="None", alpha=0.5),)
+
+    #=========================================
+    # Right Hand Panels: corrected residuals
+    #=========================================
+    axes[ref_i, 1].errorbar(
+        x=df_comb["BP_RP"].values,
+        y=resid_corr,
+        yerr=e_resid,
+        fmt="o",
+        alpha=0.8,
+        ecolor="k",
+        label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
+    
+    axes[ref_i, 1].legend(loc="lower right")
+
+    axes[ref_i, 1].hlines(
+        y=0,
+        xmin=BP_RP_LIMS[0],
+        xmax=BP_RP_LIMS[1],
+        linestyles="--",
+        colors="k",
+        linewidth=0.5,)
+    
+    txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med_corr, std_corr)
+    txt = txt.replace("-0.00", "0.00")
+
+    axes[ref_i, 1].text(
+        x=0.5,
+        y=0.2,
+        s=txt,
+        horizontalalignment="center",
+        verticalalignment="center",
+        transform=axes[ref_i, 1].transAxes,
+        bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+    
+    if DO_LIMIT_Y_EXTENT:
+        axes[ref_i, 1].set_ylim(X_F_LIMS[0], X_F_LIMS[1])
+
+    axes[ref_i,0].yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
+    axes[ref_i,0].yaxis.set_minor_locator(plticker.MultipleLocator(base=0.1))
+
+axes[0,0].set_title("Best-fit Residuals")
+axes[0,1].set_title("Corrected Residuals")
+
+axes[ref_i, 0].set_xlim(BP_RP_LIMS[0], BP_RP_LIMS[1])
+axes[ref_i, 0].set_xlabel(r"$BP-RP$")
+axes[ref_i, 1].set_xlabel(r"$BP-RP$")
+
+axes[ref_i,0].xaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
+axes[ref_i,0].xaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
+
+plt.savefig("paper/chemical_trends_Fe_H.pdf")
+plt.savefig("paper/chemical_trends_Fe_H.png", dpi=200)
