@@ -222,7 +222,7 @@ def plot_label_recovery_per_source(
         panel_label=panel_label,)
 
     # Mann+15 [Fe/H]
-    feh_mask = ~np.isnan(obs_join["feh_m15"])
+    feh_mask = ~np.isnan(obs_join["Fe_H_M15"])
 
     pplt.plot_std_comp_generic(
         fig=fig,
@@ -245,7 +245,7 @@ def plot_label_recovery_per_source(
         plot_resid_y_label=False,)
 
     # Rojas-Ayala+12 [Fe/H]
-    feh_mask = ~np.isnan(obs_join["feh_ra12"])
+    feh_mask = ~np.isnan(obs_join["Fe_H_RA12"])
 
     pplt.plot_std_comp_generic(
         fig=fig,

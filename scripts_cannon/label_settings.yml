@@ -20,6 +20,9 @@ spectra_label: "cannon_mk"
 # Science target parameter TSV
 std_info_fn: "data/std_info.tsv"
 
+# TSV of uniform literature chemistry corrected for systematics
+lit_chem: "data/lit_chemistry_corrected_Fe_H.tsv"
+
 # Binary component TSVs
 tsv_primaries_fn: "data/cpm_primaries_dr3.tsv"
 tsv_secondaries_fn:  "data/cpm_secondaries_dr3.tsv"
@@ -34,6 +37,46 @@ only_observed: True
 do_extinction_correction: False
 do_skymapper_crossmatch: False
 gdr: "dr3"
+
+#------------------------------------------------------------------------------
+# Abundance Priorities + abundances to determine labels for
+#------------------------------------------------------------------------------
+# Abund order of preference (highest priority to lowest)
+ABUND_ORDER_K: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20",]
+ABUND_ORDER_M: ["M15", "G14b", "G14a", "RA12"]
+ABUND_ORDER_BINARY: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20",]
+
+# Abundance labels to compute, e.g. ['Fe_H', 'Ti_Fe']
+abundance_labels: ["Fe_H"]
+
+#------------------------------------------------------------------------------
+# Benchmark citations
+#------------------------------------------------------------------------------
+# Citations for Teff, logg, and abundances (based on default Zotero format).
+# These are used when constructing summary tables to go in the paper.
+BENCHMARK_CITATIONS:
+  VF05: "valenti_spectroscopic_2005"
+  R07: "ramirez_oxygen_2007"
+  D09: "demory_mass-radius_2009"
+  vB09: "van_belle_directly_2009"
+  RA12: "rojas-ayala_metallicity_2012"
+  vB12: "von_braun_gj_2012"
+  A12: "adibekyan_chemical_2012"
+  B12: "boyajian_stellar_2012-1"
+  M13: "mann_prospecting_2013"
+  vB14: "von_braun_stellar_2014"
+  G14a: "gaidos_m_2014"
+  G14b: "gaidos_trumpeting_2014"
+  M15: "mann_how_2015"
+  T15: "terrien_near-infrared_2015"
+  B16: "brewer_spectral_2016"
+  L18: "luck_abundances_2018"
+  M18: "montes_calibrating_2018"
+  R19: "rabus_discontinuity_2019"
+  R20: "rains_precision_2020"
+  RB20: "rice_stellar_2020"
+  R21: "rains_characterization_2021"
+  C21: "casagrande_galah_2021"
 
 #------------------------------------------------------------------------------
 # Science target vetting

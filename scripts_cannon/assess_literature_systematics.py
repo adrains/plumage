@@ -1,19 +1,27 @@
 """Script to assess systematics and overlap between different literature
-chemistry benchmarks.
+chemistry benchmarks. While we need a bespoke approach (to a limited extent) to
+import each literature catalogue, we put measured abundances into a standard
+format and single table which greatly simplifies working with chemical
+benchmarks subsequently.
 """
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
+import stannon.parameters as sp
 
 #------------------------------------------------------------------------------
 # Literature samples + info
 #------------------------------------------------------------------------------
+# Mapping of samples to TSV files with a complete Gaia DR3 crossmatch
 samples = {
     "VF05":"data/VF05.tsv",             # Const sigma for: all
+    "R07":"data/R07_dr3_all.tsv",       # Individual sigmas
     "A12":"data/A12_gaia_all.tsv",      # Const sigma for: Fe
     "RA12":"data/RA12_dr3_all.tsv",     # Individual sigmas
-    "G14":"data/G14_gaia_all.tsv",      # Individual sigmas
+    "M13":"data/M13_prim_dr3.tsv",      # Individual sigmas
+    "G14a":"data/G14a_gaia_all.tsv",    # Individual sigmas
+    "G14b":"data/G14b_gaia_all.tsv",    # Individual sigmas
     "M15":"data/mann15_all_dr3.tsv",    # Individual sigmas
     "B16":"data/B16_dr3_all.tsv",       # Const sigma for: all
     "M18":"data/montes18_prim.tsv",     # Individual sigmas
@@ -21,12 +29,17 @@ samples = {
     "RB20":"data/RB20_dr3_all.tsv",     # Const sigma for: all
 }
 
+# Mapping of chemical species within each sample
 species_all = {
     "VF05":["M", "Na", "Si", "Ti", "Fe", "Ni"],
+    # Note: R07 report FeI, FeII, and Fe, and O for LTE and NLTE
+    "R07":["Fe", "O"],  
     "A12":["Na", "Mg", "Al", "Si", "Ca", "Ti", "Cr", "Ni", "Mn", "Fe", "Co", 
            "Sc", "Mn", "V"],
     "RA12":["M", "Fe"],
-    "G14":["Fe"],
+    "M13":["M", "Na", "Si", "Ti", "Fe", "Ni"],
+    "G14a":["Fe"],
+    "G14b":["Fe"],
     "M15":["Fe"],
     "B16":["C", "N", "O", "Na", "Mg", "Al", "Si", "Ca", "Ti", "V", "Cr", "Mn",
            "Fe", "Ni", "Y"],
@@ -40,7 +53,8 @@ species_all = {
             "Fe", "Ni", "Y"],
 }
 
-# For those samples with constant adopted sigma for each [X/H]
+# Mapping of abundance uncertainties for those samples with constant adopted
+# sigma for each [X/H].
 sigmas = {
     "VF05":{"M":0.029,
             "Na":0.032,
@@ -82,6 +96,16 @@ sigmas = {
             "Y":0.07,}    # −0.87–1.35
 }
 
+# If this is true, then we don't accept stars from the non-M dwarf specific
+# catalogues beyond this BP-RP cut. Specifically this is to address the M 
+# dwarfs in RB20 that have been run through an FGK Cannon model, but more
+# generally it excludes any high-resolution studies where we assume the optical
+# is no longer a suitable source of direct parameter measurement via EW or
+# spectral synthesis-based analyses.
+ENFORCE_K_DWARF_BP_RP_COLOUR_CUT = False
+K_DWARF_BP_RP_MAX = 1.7
+cool_dwarf_catalogues = ["RA12", "G14a", "G14b", "M15"]
+
 #------------------------------------------------------------------------------
 # Initial Import + Unique IDs
 #------------------------------------------------------------------------------
@@ -95,6 +119,11 @@ for ref in samples.keys():
         dtype={"source_id":str, "source_id_dr3":str},)
     df.rename(columns={"source_id":"source_id_dr3"}, inplace=True)
     df.set_index("source_id_dr3", inplace=True)
+
+    # [Optional] Exclude stars beyond BP-RP cut from non-M dwarf catalogues
+    if ENFORCE_K_DWARF_BP_RP_COLOUR_CUT and ref not in cool_dwarf_catalogues:
+        within_bounds = df["bp_rp"] < K_DWARF_BP_RP_MAX
+        df = df[within_bounds]
 
     all_ids += df.index.values.tolist()
     dataframes[ref] = df
@@ -116,10 +145,16 @@ df_comb.set_index("source_id_dr3", inplace=True)
 # systematics.
 dataframes_cut = {}
 
+# We assyme that Any entries with no Gaia crossmatch have one of the following
+# values for source_id and are accordingly dropped before proceeding.
+default_ids = ["", "-", np.nan]
+
 #=========================================
-# Valenti & Fischer 2005
+# Valenti & Fischer 2005 - 2005ApJS..159..141V
 #=========================================
 VF05 = dataframes["VF05"]
+has_sid = np.array([sid not in default_ids for sid in VF05.index.values])
+VF05 = VF05[has_sid].copy()
 n_VF05 = len(VF05)
 
 abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["VF05"]]
@@ -142,9 +177,51 @@ cols.append("bp_rp")
 dataframes_cut["VF05"] = VF05[cols].copy()
 
 #=========================================
-# Adibekyan+2012
+# Ramírez+2007 - 2007A&A...465..271R
+#=========================================
+R07 = dataframes["R07"]
+has_sid = np.array([sid not in default_ids for sid in R07.index.values])
+R07 = R07[has_sid].copy()
+
+# Ramirez+07 only reports a combined [Fe/H] abundance where Teff > 5400,
+# meaning that stars cooler than this only have [FeI/H] and [FeII/H]. Their
+# combined value involves a systematic correction of FeI, then a average
+# weighted by the indidual line scatter. They state that the FeI abundances
+# have a lower scatter and are more internally consistent, but are more
+# sensitive to adopted atmospheric parameters versus FeII. Given this, to
+# maximise the number of stars with parameters in the crossmatch, we'll take
+# the author's [Fe/H] values where possible, and will adopt [Fe/H] = [FeII/H]
+# otherwise (which will come with a higher uncertainty).
+Fe_H_adopted = np.full_like(R07["[Fe/H]"].values, np.nan)
+e_Fe_H_adopted = np.full_like(R07["e_[Fe/H]"].values, np.nan)
+has_Fe_H_comb = ~np.isnan(R07["[Fe/H]"].values)
+
+Fe_H_adopted[has_Fe_H_comb] = R07["[Fe/H]"].values[has_Fe_H_comb]
+e_Fe_H_adopted[has_Fe_H_comb] = R07["e_[Fe/H]"].values[has_Fe_H_comb]
+
+Fe_H_adopted[~has_Fe_H_comb] = R07["[Fe/H]2"].values[~has_Fe_H_comb]
+e_Fe_H_adopted[~has_Fe_H_comb] = R07["e_[Fe/H]2"].values[~has_Fe_H_comb]
+
+R07["Fe_H_R07"] = Fe_H_adopted
+R07["e_Fe_H_R07"] = e_Fe_H_adopted
+
+# Take the NLTE Oxygen abundances
+R07.rename(columns={"[O/H]N":"O_H_R07", "e_[O/H]N":"e_O_H_R07"}, inplace=True)
+
+abund_cols_new = ["{}_H_R07".format(ss) for ss in species_all["R07"]]
+sigma_cols_new = ["e_{}_H_R07".format(ss) for ss in species_all["R07"]]
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["R07"] = R07[cols].copy()
+
+#=========================================
+# Adibekyan+2012 - 2012A&A...545A..32A
 #=========================================
 A12 = dataframes["A12"]
+has_sid = np.array([sid not in default_ids for sid in A12.index.values])
+A12 = A12[has_sid].copy()
 
 # Some columns have been corrected for a temperature systematic (see S3.2). 
 # Swap the column names such that the *corrected* columns match the standard
@@ -208,9 +285,11 @@ cols.append("bp_rp")
 dataframes_cut["A12"] = A12[cols].copy()
 
 #=========================================
-# Rojas-Ayala+2012
+# Rojas-Ayala+2012 - 2012ApJ...748...93R
 #=========================================
 RA12 = dataframes["RA12"]
+has_sid = np.array([sid not in default_ids for sid in RA12.index.values])
+RA12 = RA12[has_sid].copy()
 
 abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["RA12"]]
 abund_cols_new = ["{}_H_RA12".format(ss) for ss in species_all["RA12"]]
@@ -226,28 +305,73 @@ cols.append("bp_rp")
 dataframes_cut["RA12"] = RA12[cols].copy()
 
 #=========================================
-# Mann+2015
+# Mann+2013 - 2013AJ....145...52M
 #=========================================
-G14 = dataframes["G14"]
-G14.rename(columns={"BP_RP":"bp_rp"}, inplace=True)
+M13 = dataframes["M13"]
+has_sid = np.array([sid not in default_ids for sid in M13.index.values])
+M13 = M13[has_sid].copy()
 
-abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["G14"]]
-abund_cols_new = ["{}_H_G14".format(ss) for ss in species_all["G14"]]
-G14.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["M13"]]
+abund_cols_new = ["{}_H_M13".format(ss) for ss in species_all["M13"]]
+M13.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
 
-sigma_cols_old = ["e_[{}/H]".format(ss) for ss in species_all["G14"]]
-sigma_cols_new = ["e_{}_H_G14".format(ss) for ss in species_all["G14"]]
-G14.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+sigma_cols_old = ["e_[{}/H]".format(ss) for ss in species_all["M13"]]
+sigma_cols_new = ["e_{}_H_M13".format(ss) for ss in species_all["M13"]]
+M13.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
 cols.append("bp_rp")
-dataframes_cut["G14"] = G14[cols].copy()
+dataframes_cut["M13"] = M13[cols].copy()
 
 #=========================================
-# Mann+2015
+# Gaidos+2014a - 2014ApJ...791...54G
+#=========================================
+G14a = dataframes["G14a"]
+has_sid = np.array([sid not in default_ids for sid in G14a.index.values])
+G14a = G14a[has_sid].copy()
+G14a.rename(columns={"BP_RP":"bp_rp"}, inplace=True)
+
+abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["G14a"]]
+abund_cols_new = ["{}_H_G14a".format(ss) for ss in species_all["G14a"]]
+G14a.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_old = ["e_[{}/H]".format(ss) for ss in species_all["G14a"]]
+sigma_cols_new = ["e_{}_H_G14a".format(ss) for ss in species_all["G14a"]]
+G14a.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["G14a"] = G14a[cols].copy()
+
+#=========================================
+# Gaidos+2014b - 2014MNRAS.443.2561G
+#=========================================
+G14b = dataframes["G14b"]
+has_sid = np.array([sid not in default_ids for sid in G14b.index.values])
+G14b = G14b[has_sid].copy()
+G14b.rename(columns={"BP_RP":"bp_rp"}, inplace=True)
+
+abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["G14b"]]
+abund_cols_new = ["{}_H_G14b".format(ss) for ss in species_all["G14b"]]
+G14b.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_old = ["e_[{}/H]".format(ss) for ss in species_all["G14b"]]
+sigma_cols_new = ["e_{}_H_G14b".format(ss) for ss in species_all["G14b"]]
+G14b.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["G14b"] = G14b[cols].copy()
+
+#=========================================
+# Mann+2015 - 2015ApJ...804...64M
 #=========================================
 M15 = dataframes["M15"]
+has_sid = np.array([sid not in default_ids for sid in M15.index.values])
+M15 = M15[has_sid].copy()
 M15.rename(columns={"BP-RP_dr3":"bp_rp"}, inplace=True)
 
 abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["M15"]]
@@ -264,9 +388,16 @@ cols.append("bp_rp")
 dataframes_cut["M15"] = M15[cols].copy()
 
 #=========================================
-# Brewer+2016
+# Terrien+2015 - 2015ApJS..220...16T
+#=========================================
+pass
+
+#=========================================
+# Brewer+2016 - 2016ApJS..225...32B
 #=========================================
 B16 = dataframes["B16"]
+has_sid = np.array([sid not in default_ids for sid in B16.index.values])
+B16 = B16[has_sid].copy()
 n_B16 = len(B16)
 
 abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["B16"]]
@@ -289,9 +420,11 @@ cols.append("bp_rp")
 dataframes_cut["B16"] = B16[cols].copy()
 
 #=========================================
-# Montes+2018
+# Montes+2018 - 2018MNRAS.479.1332M
 #=========================================
 M18 = dataframes["M18"]
+has_sid = np.array([sid not in default_ids for sid in M18.index.values])
+M18 = M18[has_sid].copy()
 
 abund_cols_old = ["{}_H".format(ss) for ss in species_all["M18"]]
 abund_cols_new = ["{}_H_M18".format(ss) for ss in species_all["M18"]]
@@ -307,7 +440,7 @@ cols.append("bp_rp")
 dataframes_cut["M18"] = M18[cols].copy()
 
 #=========================================
-# Luck 18
+# Luck 18 - 2018AJ....155..111L
 #=========================================
 # Before doing anything, we need to compute the solar reference values
 L18_sun = pd.read_csv("data/L18_solar.tsv", delimiter="\t", index_col="ID")
@@ -344,6 +477,8 @@ for species in species_all["L18"]:
 #=========================================
 # Now we can continue to our sample proper
 L18 = dataframes["L18"]
+has_sid = np.array([sid not in default_ids for sid in L18.index.values])
+L18 = L18[has_sid].copy()
 n_L18 = len(L18)
 
 # We need to combine the uncertainties for some species across ionisation
@@ -418,9 +553,11 @@ cols.append("bp_rp")
 dataframes_cut["L18"] = L18[cols].copy()
 
 #=========================================
-# Rice & Brewer 2020
+# Rice & Brewer 2020 - 2020ApJ...898..119R
 #=========================================
 RB20 = dataframes["RB20"]
+has_sid = np.array([sid not in default_ids for sid in RB20.index.values])
+RB20 = RB20[has_sid].copy()
 n_RB20 = len(RB20)
 
 abund_cols_old = ["{}/H".format(ss) for ss in species_all["RB20"]]
@@ -441,6 +578,11 @@ for species in species_all["RB20"]:
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
 cols.append("bp_rp")
 dataframes_cut["RB20"] = RB20[cols].copy()
+
+#=========================================
+# Monty GALAH+Gaia [X/Fe] predictions
+#=========================================
+pass
 
 #------------------------------------------------------------------------------
 # Join all separate tables
@@ -467,9 +609,9 @@ df_comb.drop(columns=bp_rp_cols, inplace=True)
 # Fitting + Correcting Residuals
 #------------------------------------------------------------------------------
 # Species to correct of form 'X_H'. Currently all species must be in 'comp_ref'
-species_to_correct = ["Na_H", "Si_H", "Ti_H", "Fe_H", "Ni_H",]
+species_to_correct = ["Fe_H"] #["Na_H", "Si_H", "Ti_H", "Fe_H", "Ni_H",]
 comp_ref = "VF05"
-references_to_compare = ["A12", "B16", "M18", "L18", "RB20"]
+references_to_compare = ["R07", "A12", "B16", "M18", "L18", "RB20"]
 
 POLY_ORDER = 4
 OUTLIER_DEX = 0.3
@@ -487,34 +629,93 @@ fit_dict = {}
 for ref_i, ref in enumerate(references_to_compare):
     for species in species_to_correct:
         # Grab value + sigma column names
-        feh_ref = "{}_{}".format(species, comp_ref)
-        e_feh_ref = "e_{}_{}".format(species, comp_ref)
+        abund_ref = "{}_{}".format(species, comp_ref)
+        e_abund_ref = "e_{}_{}".format(species, comp_ref)
 
-        feh_comp = "{}_{}".format(species, ref)
-        e_feh_comp = "e_{}_{}".format(species, ref)
+        abund_comp = "{}_{}".format(species, ref)
+        e_abund_comp = "e_{}_{}".format(species, ref)
 
         #=========================================
-        # Fit residuals and correct
+        # Fit residuals with polynomial
         #=========================================
+        n_abund_before = np.sum(~np.isnan(df_comb[abund_comp].values))
+
         # Compute the residuals and the combined uncertainties
-        resid = df_comb[feh_ref].values - df_comb[feh_comp].values
+        resid = df_comb[abund_ref].values - df_comb[abund_comp].values
         e_resid = np.sqrt(
-            df_comb[e_feh_ref].values**2 + df_comb[e_feh_comp].values**2)
+            df_comb[e_abund_ref].values**2 + df_comb[e_abund_comp].values**2)
         
         # Perform polynomial fitting
         n_overlap = np.sum(~np.isnan(resid))
-        overlap_mask = ~np.isnan(resid)
-        fit_mask = np.logical_and(overlap_mask, np.abs(resid) < OUTLIER_DEX)
+        resid_mask = ~np.isnan(resid)
+        fit_mask = np.logical_and(resid_mask, np.abs(resid) < OUTLIER_DEX)
 
-        poly = np.polynomial.Polynomial.fit(
-            df_comb["BP_RP"].values[fit_mask], resid[fit_mask], POLY_ORDER)
+        bp_rp = df_comb["BP_RP"].values
         
-        # Correct for the fit
-        df_comb_corr[feh_comp] += poly(df_comb["BP_RP"].values)
+        poly = np.polynomial.Polynomial.fit(
+            bp_rp[fit_mask], resid[fit_mask], POLY_ORDER)
+        
+        #=========================================
+        # Correct systematics below/within/above bounds
+        #=========================================
+        # The polynomial correction is only valid within the BP-RP bounds of
+        # the overlapping sample. However, for our correction we'll evaluate it
+        # from one point in from each end to prevent outliers from having too
+        # much of an influence.
+        bp_rp_sorted = bp_rp[resid_mask].copy()
+        bp_rp_sorted.sort()
+
+        min_BP_RP = bp_rp_sorted[1]
+        max_BP_RP = bp_rp_sorted[-2]
+        
+        # Store bounds in polynomial object for plotting later
+        poly.BP_RP_bounds = (min_BP_RP, max_BP_RP)
+
+        # Work out beyond bounds
+        abund = df_comb_corr[abund_comp].values
+
+        is_below = bp_rp < min_BP_RP
+        within_bounds = np.logical_and(bp_rp >= min_BP_RP, bp_rp <= max_BP_RP)
+        is_above = bp_rp > max_BP_RP
+
+        test = is_below + within_bounds + is_above
+
+        has_data = ~np.isnan(abund)
+        n_below = np.sum(np.logical_and(has_data, is_below))
+        n_above = np.sum(np.logical_and(has_data, is_above))
+        #print("{} {} {} {}".format(ref, species, n_below, n_above))
+        poly.n_beyond_bounds = (n_below, n_above)
+
+        # Correct for the fit (below, overlapping, & above BP-RP bounds)
+        abund_corr = np.full_like(abund, np.nan)
+        abund_corr[is_below] = abund[is_below] + poly(min_BP_RP)
+        abund_corr[within_bounds] = \
+            abund[within_bounds] + poly(bp_rp[within_bounds])
+        abund_corr[is_above] = abund[is_above] + poly(max_BP_RP)
+
+        n_abund_after = np.sum(~np.isnan(abund_corr))
+
+        df_comb_corr[abund_comp] = abund_corr
 
         # Store polynomial
         fit_dict[(ref, species)] = poly
+    
+    print(ref, n_abund_before, n_abund_after)
 
+#------------------------------------------------------------------------------
+# Computing [X/Fe]
+#------------------------------------------------------------------------------
+# Compute [X/Fe] for the species we've corrected for systematics
+X_Fe_to_compute =  [ss.replace("_H", "") for ss in species_to_correct]
+
+sp.compute_X_Fe(
+    chem_df=df_comb_corr,
+    species=X_Fe_to_compute,
+    samples=samples.keys(),)
+
+#------------------------------------------------------------------------------
+# Save to file
+#------------------------------------------------------------------------------
 # Dump corrected DataFrame
 df_comb_corr.to_csv(save_filename, sep="\t")
 
@@ -523,7 +724,7 @@ df_comb_corr.to_csv(save_filename, sep="\t")
 #------------------------------------------------------------------------------
 # For every species, we want to plot two panels per reference showing the
 # residuals fit with a polynomial trend, and then the corrected residuals.
-BP_RP_LIMS = (0.52, 1.35)
+BP_RP_LIMS = (0.52, 1.4)
 X_F_LIMS = (-0.35, 0.35)
 DO_LIMIT_Y_EXTENT = True
 
@@ -531,7 +732,11 @@ DO_LIMIT_Y_EXTENT = True
 for species in species_to_correct:
     plt.close("all")
     fig, axes = plt.subplots(
-        nrows=5, ncols=2, sharex=True, sharey="row", figsize=(16, 10))
+        nrows=len(references_to_compare),
+        ncols=2,
+        sharex=True,
+        sharey="row",
+        figsize=(16, 10))
 
     fig.subplots_adjust(
         left=0.05,
@@ -544,23 +749,23 @@ for species in species_to_correct:
     # Loop over all comparisons
     for ref_i, ref in enumerate(references_to_compare):
         # Grab value + sigma column names
-        feh_ref = "{}_{}".format(species, comp_ref)
-        e_feh_ref = "e_{}_{}".format(species, comp_ref)
+        abund_ref = "{}_{}".format(species, comp_ref)
+        e_abund_ref = "e_{}_{}".format(species, comp_ref)
 
-        feh_comp = "{}_{}".format(species, ref)
-        e_feh_comp = "e_{}_{}".format(species, ref)
+        abund_comp = "{}_{}".format(species, ref)
+        e_abund_comp = "e_{}_{}".format(species, ref)
 
         #=========================================
         # Compute residuals
         #=========================================
         # Compute the residuals and the combined uncertainties
-        resid = df_comb[feh_ref].values - df_comb[feh_comp].values
+        resid = df_comb[abund_ref].values - df_comb[abund_comp].values
         e_resid = np.sqrt(
-            df_comb[e_feh_ref].values**2 + df_comb[e_feh_comp].values**2)
+            df_comb[e_abund_ref].values**2 + df_comb[e_abund_comp].values**2)
         
         # Compute the corrected residuals
         resid_corr = \
-            df_comb_corr[feh_ref].values - df_comb_corr[feh_comp].values
+            df_comb_corr[abund_ref].values - df_comb_corr[abund_comp].values
 
         # Compute statistics before and after
         med = np.nanmedian(resid)
@@ -569,13 +774,53 @@ for species in species_to_correct:
         med_corr = np.nanmedian(resid_corr)
         std_corr = np.nanstd(resid_corr)
 
+        n_overlap = np.sum(~np.isnan(resid_corr))
+
         #=========================================
         # Left Hand Panels: raw residuals + fit
         #=========================================
+        # Plot polynomial correction within bounds
         poly = fit_dict[(ref, species)]
-        xx = np.arange(BP_RP_LIMS[0], BP_RP_LIMS[1], 0.01)
-        axes[ref_i, 0].plot(xx, poly(xx), color="r", linewidth=1.0)
+        xx = np.linspace(poly.BP_RP_bounds[0], poly.BP_RP_bounds[1], 100)
+        axes[ref_i, 0].plot(xx, poly(xx), color="r", linewidth=1.0, zorder=10)
+
+        # Plot and annotate correction *below* polynomial bounds
+        axes[ref_i, 0].hlines(
+            y=poly(poly.BP_RP_bounds[0]),
+            xmin=BP_RP_LIMS[0],
+            xmax=poly.BP_RP_bounds[0],
+            color="r",
+            linewidth=1.0,
+            linestyle="--",)
+
+        axes[ref_i, 0].text(
+            x=0.025,
+            y=0.925,
+            s=r"$\leftarrow {:0.0f}$".format(poly.n_beyond_bounds[0]),
+            horizontalalignment="center",
+            verticalalignment="center",
+            color="r",
+            transform=axes[ref_i, 0].transAxes,)
         
+        # Plot and annotate correction *above* polynomial bounds
+        axes[ref_i, 0].hlines(
+            y=poly(poly.BP_RP_bounds[1]),
+            xmin=poly.BP_RP_bounds[1],
+            xmax=BP_RP_LIMS[1],
+            color="r",
+            linewidth=1.0,
+            linestyle="--",)
+        
+        axes[ref_i, 0].text(
+            x=0.975,
+            y=0.925,
+            s=r"${:0.0f} \rightarrow$".format(poly.n_beyond_bounds[1]),
+            horizontalalignment="center",
+            verticalalignment="center",
+            color="r",
+            transform=axes[ref_i, 0].transAxes,)
+        
+        # Plot the residuals
         axes[ref_i, 0].errorbar(
             x=df_comb["BP_RP"].values,
             y=resid,
@@ -590,6 +835,7 @@ for species in species_to_correct:
         axes[ref_i, 0].set_ylabel(
             r"$\Delta$[{}]".format(species.replace("_", "/")))
 
+        # Plot resid=0 line
         axes[ref_i, 0].hlines(
             y=0,
             xmin=BP_RP_LIMS[0],
@@ -620,10 +866,13 @@ for species in species_to_correct:
         fit_list.append("{:0.3f}".format(coefs[-1]))
         fit_txt = r"${}$".format("+".join(fit_list).replace("+-", "-"))
 
+        # Also display BP-RP limits
+        lims = "\t$[{:0.2f}, {:0.2f}]$".format(*poly.BP_RP_bounds)
+
         axes[ref_i, 0].text(
             x=0.01,
             y=0.04,
-            s=fit_txt,
+            s=fit_txt + lims,
             horizontalalignment="left",
             verticalalignment="center",
             color="r",

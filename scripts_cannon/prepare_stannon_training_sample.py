@@ -5,10 +5,11 @@ part of the training sample for a given Cannon model--we need not use all
 possible benchmarks.
 
 This script is part of a series of Cannon scripts. The main sequence is:
- 1) prepare_stannon_training_sample.py     --> label preparation
- 2) train_stannon.py                       --> training and cross validation
- 3) make_stannon_diagnostics.py            --> diagnostic plots + result tables
- 4) run_stannon.py                         --> running on science spectra
+ 1) assess_literature_systematics.py       --> benchmark chemistry compilation
+ 2) prepare_stannon_training_sample.py     --> label preparation
+ 3) train_stannon.py                       --> training and cross validation
+ 4) make_stannon_diagnostics.py            --> diagnostic plots + result tables
+ 5) run_stannon.py                         --> running on science spectra
 """
 import numpy as np
 import pandas as pd
@@ -28,6 +29,23 @@ ls = su.load_yaml_settings(label_settings)
 #------------------------------------------------------------------------------
 # Imports and crossmatch catalogues
 #------------------------------------------------------------------------------
+def drop_cols(df, suffixes_to_drop,):
+    """Function to drop unnecessary columns based on suffix. This is used to
+    drop previous literature chemistry crossmatches that we now no longer
+    need due to the standardised approach made available by having a single
+    DataFrame of systematic-corrected literature chemistry."""
+    columns = df.columns.values
+    col_keep_mask = np.full_like(columns, True).astype(bool)
+
+    for col_i, col in enumerate(df.columns.values):
+        if np.any([suffix in col for suffix in suffixes_to_drop]):
+            col_keep_mask[col_i] = False
+
+    df.drop(columns=columns[~col_keep_mask], inplace=True)
+
+#=========================================
+# Crossmatch observed sample to literature DF
+#=========================================
 # Import literature info
 #  - Note that since we don't use any photometry with the Cannon, and since our
 #  stellar parameters come from our results table, we can set a bunch of the
@@ -56,6 +74,26 @@ obs_std.index.rename("source_id_dr2", inplace=True)
 obs_join = obs_std.join(std_info, "source_id_dr2", rsuffix="_info")
 obs_join.set_index("source_id_dr3", inplace=True)
 
+# Drop unnecessary columns
+obs_suffixes_to_drop = [
+    "g14", "m15", "ra12", "vf05", "s08", "L18", "b16", "rb20", "m18", "a12"]
+
+drop_cols(obs_join, obs_suffixes_to_drop)
+
+#=========================================
+# Crossmatch to corrected chemistry DF
+#=========================================
+lit_chem_df = pd.read_csv(
+    ls.lit_chem,
+    sep="\t",
+    dtype={"source_id_dr3":str},)
+lit_chem_df.set_index("source_id_dr3", inplace=True)
+
+obs_join = obs_join.join(lit_chem_df, "source_id_dr3", rsuffix="_chem")
+
+#=========================================
+# F/G/K - K/M Binaries
+#=========================================
 # Import our two tables of CPM information
 tsv_primaries = "data/cpm_primaries_dr3.tsv"
 tsv_secondaries = "data/cpm_secondaries_dr3.tsv"
@@ -98,6 +136,27 @@ cpm_prim.rename(columns=cols_dict, inplace=True)
 
 # Now merge prim and sec CPM info on prim_name
 cpm_join = cpm_sec.join(cpm_prim, "prim_name", rsuffix="_prim")
+cpm_join.rename(
+    columns={"source_id_dr3_prim_prim":"source_id_dr3_prim"}, inplace=True)
+
+# Drop unnecessary columns
+cpm_suffixes_to_drop = [
+    "n14", "m13", "m14", "other", "vf05", "s08", "L18", "b16", "rb20", "m18",
+    "a12",]
+
+drop_cols(cpm_join, cpm_suffixes_to_drop)
+
+# Merge CPM table with literature chemistry table, but drop M-dwarf specific
+# chemistry information as these aren't relevant to F/G/K primaries.
+lit_chem_suffixes_to_drop = ["RA12", "RA12", "M15"]
+drop_cols(lit_chem_df, lit_chem_suffixes_to_drop)
+lit_chem_df.reset_index(inplace=True)
+cols = lit_chem_df.columns.values
+
+new_cols = ["{}_prim".format(col) for col in cols]
+lit_chem_df.rename(columns=dict(zip(cols, new_cols)), inplace=True)
+lit_chem_df.set_index("source_id_dr3_prim", inplace=True)
+cpm_join = cpm_join.join(lit_chem_df, "source_id_dr3_prim",)
 
 # Finally, merge the CPM info with obs_join to have everything in one dataframe
 obs_join = obs_join.join(cpm_join, "source_id_dr3", rsuffix="_sec").copy()
@@ -106,23 +165,20 @@ obs_join = obs_join.join(cpm_join, "source_id_dr3", rsuffix="_sec").copy()
 is_cpm = np.array([type(val) == str for val in obs_join["prim_name"].values])
 obs_join["is_cpm"] = is_cpm
 
-# Add a column for K dwarf benchmarks. Note that we need to exclude the bad
-# parameters for RB20 for cool stars.
-is_nan = [True if type(rr) == float else False
-          for rr in obs_join["useful_rb20"].values]
-is_useful_rb20 = obs_join["useful_rb20"].values
-is_useful_rb20[is_nan] = False
-
-obs_join.astype({"useful_rb20":bool}, copy=False)
-obs_join["useful_rb20"] = is_useful_rb20
-
+#=========================================
+# General cleanup
+#=========================================
+# Add a column for K dwarf benchmarks.
+# TODO: either use ABUND_ORDER_K from YAML file, or perpendicular cut to main
+# sequence in BP-RP and M_Ks.
 has_mid_k_reference = np.any([
-    ~np.isnan(obs_join["Teff_b16"].values),
-    np.logical_and(~np.isnan(obs_join["Teff_rb20"].values), is_useful_rb20),
-    ~np.isnan(obs_join["teff_vf05"].values),
-    ~np.isnan(obs_join["Teff_m18"].values),
-    ~np.isnan(obs_join["teff_s08"].values),
-    ~np.isnan(obs_join["Teff_L18"].values),], axis=0).astype(bool)
+        ~np.isnan(obs_join["Fe_H_VF05"].values),
+        ~np.isnan(obs_join["Fe_H_A12"].values),
+        ~np.isnan(obs_join["Fe_H_B16"].values),
+        ~np.isnan(obs_join["Fe_H_M18"].values),
+        ~np.isnan(obs_join["Fe_H_L18"].values),
+        ~np.isnan(obs_join["Fe_H_RB20"].values),],
+    axis=0).astype(bool)
 
 # Enforce our BP-RP bounds for what we consider a mid-K dwarf (i.e. where we
 # trust the models for direct [Fe/H] determination from high-R spectroscopy)
@@ -152,17 +208,21 @@ N_STAR_ALL = len(obs_join)
 feh_info_all = []
 
 for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()): 
-    feh_info = params.select_Fe_H_label(
+    feh_info = params.select_abund_label(
         star_info=star_info,
+        abund="Fe_H",
         mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,
-        mid_K_MKs_bound=ls.mid_K_MKs_bound)
+        mid_K_MKs_bound=ls.mid_K_MKs_bound,
+        abund_order_k=ls.ABUND_ORDER_K,
+        abund_order_m=ls.ABUND_ORDER_M,
+        abund_order_binary=ls.ABUND_ORDER_BINARY,)
     feh_info_all.append(feh_info)
 
 feh_info_all = np.vstack(feh_info_all)
 
 feh_values = feh_info_all[:,0].astype(float)
 
-# TEMPORARY archive of chosed [Fe/H]
+# TEMPORARY archive of chosen [Fe/H]
 obs_join["feh_temp"] = feh_values.copy()
 
 #------------------------------------------------------------------------------
@@ -248,12 +308,6 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         r_star_adopt[star_i] = r_star_k24[star_i]
         e_r_star_adopt[star_i] = e_r_star_k24[star_i]
         radius_adopted_ref[star_i] = "K24"
-    
-    else:
-        print("#{}: {} has no radius.".format(star_i, source_id))
-
-        if source_id == "3545469496823737856":
-            import pdb; pdb.set_trace()
 
 obs_join["r_star_adopt"] = r_star_adopt
 obs_join["e_r_star_adopt"] = e_r_star_adopt
@@ -427,7 +481,10 @@ if ls.allow_misc_exceptions:
 # Prepare our labels (update DataFrame in place)
 params.prepare_labels(
     obs_join=obs_join,
-    max_teff=5000,
+    abundance_labels=ls.abundance_labels,
+    abund_order_k=ls.ABUND_ORDER_K,
+    abund_order_m=ls.ABUND_ORDER_M,
+    abund_order_binary=ls.ABUND_ORDER_BINARY,
     synth_params_available=False,
     mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,
     mid_K_MKs_bound=ls.mid_K_MKs_bound,)
@@ -449,66 +506,6 @@ for col in obs_join.columns.values:
     if col[0].isnumeric():
         obs_join.rename(columns={col:"_{}".format(col)}, inplace=True)
 
-# HACK: Dump unneeded columns so we can save the fits file.
-# This is a list of unneeded columns (e.g. extra abundances) that for now we're
-# dropping so that the fits file has < 1000 columns. Eventually we'll need to
-# update the saving/loading routine to split the dataframe into multiple HDUs
-# on save (though really this is the result of poor databasing and having
-# everything in a single colossal table for convenience).
-cols_to_remove = [
-    "Fbol_m15_old", "e_fbol_m15_old", "radius_m15_old", "e_radius_m15_old", 
-    "m_star_m15_old", "e_m_star_m15_old", "logg_m15_old", "e_logg_m15_old", 
-    "teff_m15_old", "e_teff_m15_old", "feh_m15_old", "e_feh_m15_old", 
-    "teff_ra12_old", "e_teff_ra12_old", "feh_ra12_old", "e_feh_ra12_old", 
-    "mh_old", "e_mh_old", "teff_other", "e_teff_other", "radius_other",
-    "e_radius_other", "mass_other", "e_mass_other", "logg_other",
-    "e_logg_other", "feh_other", "e_feh_other", "in_tess_paper", "has_ra12",
-    "has_g14", "has_m15", "has_vf05", "has_s08", "has_L18", "has_b16",
-    "has_m18", "has_rb20", "has_sc", "collated_by_prim", "has_n14_prim",
-    "has_m13_prim", "has_m14_prim", "has_m18_prim", "has_vf05_prim",
-    "has_a12_prim", "has_s08_prim", "has_b18_prim", "has_rb20_prim",
-    "ra_dr2", "dec_dr2", "plx_dr2", "e_plx_dr2", "pm_ra_dr2",
-    "pm_dec_dr2", "dup_dr2", "G_mag_dr2", "e_G_mag_dr2", "BP_mag_dr2",
-    "e_BP_mag_dr2", "Rp_mag_dr2", "e_RP_mag_dr2", "BP_RP_excess_dr2",
-    "BP_RP_dr2", "rv_dr2", "e_rv_dr2", "ruwe_dr2", "comments_gaia_dr2", 
-    'Cr_H_L18', 'Cr_H_b16', 'Cr_H_rb20', 'Cr_H_m18', 'eCr_H_m18', 
-    'Cr_H_m18_prim', 'eCr_H_m18_prim', 'Cr_H_b16_prim', 'Cr_H_rb20_prim',
-    'Ni_H_vf05', 'Ni_H_L18', 'Ni_H_b16', 'Ni_H_rb20', 'Ni_H_m18', 'eNi_H_m18',
-    'Ni_H_a12', 'e_Ni_H_a12', 'o_Ni_H_a12','Ni_H_m18_prim', 'eNi_H_m18_prim',
-    'Ni_H_vf05_prim', 'Ni_H_a12_prim', 'e_Ni_H_a12_prim', 'o_Ni_H_a12_prim',
-    'Ni_H_b16_prim', 'Ni_H_rb20_prim', 'Sc_H_L18', 'Sc_H_m18', 'eSc_H_m18',
-    'Sc_H_m18_prim', 'eSc_H_m18_prim', 'Mn_H_L18', 'Mn_H_b16', 'Mn_H_rb20', 
-    'Mn_H_m18', 'eMn_H_m18', 'Mn_H_a12', 'e_Mn_H_a12', 'o_Mn_H_a12',
-    'Mn_H_m18_prim', 'eMn_H_m18_prim', 'Mn_H_a12_prim', 'e_Mn_H_a12_prim',
-    'o_Mn_H_a12_prim', 'Mn_H_b16_prim', 'Mn_H_rb20_prim', 'Co_H_L18',
-    'Co_H_m18', 'eCo_H_m18', 'Co_H_a12', 'e_Co_H_a12', 'o_Co_H_a12',
-    'Co_Hc_a12', 'Co_H_m18_prim', 'eCo_H_m18_prim', 'Co_H_a12_prim',
-    'e_Co_H_a12_prim', 'o_Co_H_a12_prim', 'Co_Hc_a12_prim', 'Y_H_L18',
-    'Y_H_b16', 'Y_H_rb20', 'Y_H_b16_prim', 'Y_H_rb20_prim', 'Al_H_L18',
-    'Al_H_b16', 'Al_H_rb20', 'Al_H_m18', 'eAl_H_m18', 'Al_H_a12', 'e_Al_H_a12',
-    'o_Al_H_a12', 'Al_Hc_a12', 'Al_H_m18_prim', 'eAl_H_m18_prim',
-    'Al_H_a12_prim', 'e_Al_H_a12_prim', 'o_Al_H_a12_prim', 'Al_Hc_a12_prim',
-    'Al_H_b16_prim', 'Al_H_rb20_prim', 'Mg_H_L18', 'Mg_H_b16', 'Mg_H_rb20',
-    'Mg_H_m18', 'eMg_H_m18', 'Mg_H_a12', 'e_Mg_H_a12', 'o_Mg_H_a12',
-    'Mg_H_m18_prim', 'eMg_H_m18_prim', 'Mg_H_a12_prim', 'e_Mg_H_a12_prim',
-    'o_Mg_H_a12_prim', 'Mg_H_b16_prim', 'Mg_H_rb20_prim', 'Ca_H_L18',
-    'Ca_H_b16', 'Ca_H_rb20', 'Ca_H_m18', 'eCa_H_m18', 'Ca_H_a12', 'e_Ca_H_a12',
-    'o_Ca_H_a12', 'Ca_H_m18_prim', 'eCa_H_m18_prim', 'Ca_H_a12_prim',
-    'e_Ca_H_a12_prim', 'o_Ca_H_a12_prim', 'Ca_H_b16_prim', 'Ca_H_rb20_prim',
-    'C_Hmean_L18', 'C_H_b16', 'C_H_rb20', 'C_H_b16_prim', 'C_H_rb20_prim',
-    'N_H_b16', 'N_H_rb20', 'N_H_b16_prim', 'N_H_rb20_prim', 'O_Hmean_L18',
-    'O_H_b16', 'O_H_rb20', 'O_H_b16_prim','O_H_rb20_prim', 'V_H_L18',
-    'V_H_b16', 'V_H_rb20', 'V_H_m18', 'eV_H_m18', 'V_H_a12','e_V_H_a12',
-    'o_V_H_a12', 'V_Hc_a12', 'V_H_m18_prim', 'eV_H_m18_prim', 'V_H_a12_prim',
-    'e_V_H_a12_prim', 'o_V_H_a12_prim', 'V_Hc_a12_prim', 'V_H_b16_prim',
-    'V_H_rb20_prim', 'Na_H_vf05', 'Na_H_L18', 'Na_H_b16', 'Na_H_rb20',
-    'Na_H_m18', 'eNa_H_m18', 'Na_H_a12', 'e_Na_H_a12', 'o_Na_H_a12',
-    'Na_Hc_a12', 'Na_H_m18_prim', 'eNa_H_m18_prim', 'Na_H_vf05_prim',
-    'Na_H_a12_prim', 'e_Na_H_a12_prim', 'o_Na_H_a12_prim', 'Na_Hc_a12_prim',
-    'Na_H_b16_prim', 'Na_H_rb20_prim',]
-
-obs_join.drop(columns=cols_to_remove, inplace=True)
-
 #------------------------------------------------------------------------------
 # Plotting
 #------------------------------------------------------------------------------
@@ -517,7 +514,7 @@ icb = obs_join["is_cannon_benchmark"].values
 splt.plot_cannon_cmd(
     benchmark_colour=obs_join["BP_RP_dr3"][icb].values,
     benchmark_mag=obs_join["K_mag_abs"][icb].values,
-    benchmark_feh=obs_join["label_adopt_feh"][icb].values,
+    benchmark_feh=obs_join["label_adopt_Fe_H"][icb].values,
     highlight_mask=obs_join["is_cpm"][icb].values,
     highlight_mask_label="Binary Benchmark",
     highlight_mask_2=obs_join["is_mid_k_dwarf"][icb].values,

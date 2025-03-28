@@ -34,7 +34,7 @@ do_use_subset_of_benchmark_sample: True
 #   M dwarfs - warm: 8.23, cool: 100
 #   K dwarfs - warm: -100, cool: 9.86
 BP_RP_vs_M_Ks_cut_gradient: -1.93
-M_Ks_intercept_warm: 8.24
+M_Ks_intercept_warm: 8.23
 M_Ks_intercept_cool: 100
 
 #------------------------------------------------------------------------------
@@ -146,7 +146,7 @@ std_label: "cannon_mk"
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
 abundance_labels: []
 
-base_labels: ["teff", "logg", "feh",]
+base_labels: ["teff", "logg", "Fe_H",]
 
 #------------------------------------------------------------------------------
 # Diagnostic Plot Settings
