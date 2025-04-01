@@ -26,7 +26,9 @@ samples = {
     "B16":"data/B16_dr3_all.tsv",       # Const sigma for: all
     "M18":"data/montes18_prim.tsv",     # Individual sigmas
     "L18":"data/luck18_all_dr3.tsv",    # Individual sigmas
+    "D19":"data/D19_gaia_all.tsv",      # Individual sigmas
     "RB20":"data/RB20_dr3_all.tsv",     # Const sigma for: all
+    "M20":"data/M20_gaia_all.tsv",      # Const sigma for: all
 }
 
 # Mapping of chemical species within each sample
@@ -49,8 +51,11 @@ species_all = {
     "L18":["Na", "Mg", "Al", "Si", "S", "Ca", "Sc", "Ti", "V", "Cr", "Mn",
            "Fe", "Co", "Ni", "Cu", "Zn", "Sr", "Y", "Zr", "Ba", "La", "Ce",
            "Nd", "Sm",], # "Eu",]
+    "D19":["Fe", "M",],
     "RB20":["C", "N", "O", "Na", "Mg", "Al", "Si", "Ca", "Ti", "V", "Cr", "Mn",
             "Fe", "Ni", "Y"],
+    "M20":["Fe", "C", "Na", "Mg", "Al", "Si", "Ca", "Sc", "Ti", "V", "Cr",
+           "Mn", "Co", "Ni", "Zn",],
 }
 
 # Mapping of abundance uncertainties for those samples with constant adopted
@@ -93,7 +98,23 @@ sigmas = {
             "Mn":0.05,    # −1.40–0.66
             "Fe":0.02,    # −0.99–0.57
             "Ni":0.03,    # −0.97–0.63
-            "Y":0.07,}    # −0.87–1.35
+            "Y":0.07,},    # −0.87–1.35
+    # From Table 3, standard dev of difference between PCA abund vs FGK primary
+    "M20":{"Fe":0.04,
+           "C":0.03,
+           "Na":0.05,
+           "Mg":0.12,
+           "Al":0.05,
+           "Si":0.07,
+           "Ca":0.12,
+           "Sc":0.05,   # ScII
+           "Ti":0.06,   # TiI
+           "V":0.12,
+           "Cr":0.04,   # CrI
+           "Mn":0.07,
+           "Co":0.02,
+           "Ni":0.05,
+           "Zn":0.09,}
 }
 
 # If this is true, then we don't accept stars from the non-M dwarf specific
@@ -104,7 +125,7 @@ sigmas = {
 # spectral synthesis-based analyses.
 ENFORCE_K_DWARF_BP_RP_COLOUR_CUT = False
 K_DWARF_BP_RP_MAX = 1.7
-cool_dwarf_catalogues = ["RA12", "G14a", "G14b", "M15"]
+cool_dwarf_catalogues = ["RA12", "G14a", "G14b", "M15", "D19", "M20",]
 
 #------------------------------------------------------------------------------
 # Initial Import + Unique IDs
@@ -553,6 +574,26 @@ cols.append("bp_rp")
 dataframes_cut["L18"] = L18[cols].copy()
 
 #=========================================
+# Dressing+2019 - 2019AJ....158...87D
+#=========================================
+D19 = dataframes["D19"]
+has_sid = np.array([sid not in default_ids for sid in D19.index.values])
+D19 = D19[has_sid].copy()
+
+abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["D19"]]
+abund_cols_new = ["{}_H_D19".format(ss) for ss in species_all["D19"]]
+D19.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_old = ["e_[{}/H]".format(ss) for ss in species_all["D19"]]
+sigma_cols_new = ["e_{}_H_D19".format(ss) for ss in species_all["D19"]]
+D19.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["D19"] = D19[cols].copy()
+
+#=========================================
 # Rice & Brewer 2020 - 2020ApJ...898..119R
 #=========================================
 RB20 = dataframes["RB20"]
@@ -578,6 +619,33 @@ for species in species_all["RB20"]:
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
 cols.append("bp_rp")
 dataframes_cut["RB20"] = RB20[cols].copy()
+
+#=========================================
+# Maldonado+2020 - 2020A&A...644A..68M
+#=========================================
+M20 = dataframes["M20"]
+has_sid = np.array([sid not in default_ids for sid in M20.index.values])
+M20 = M20[has_sid].copy()
+n_M20 = len(M20)
+
+abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["M20"]]
+abund_cols_new = ["{}_H_M20".format(ss) for ss in species_all["M20"]]
+
+M20.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_new = []
+
+# Add sigma columns one at a time
+for species in species_all["M20"]:
+    e_species = np.full(n_M20, sigmas["M20"][species])
+    sigma_col_new = "e_{}_H_M20".format(species)
+    M20[sigma_col_new] = e_species
+    sigma_cols_new.append(sigma_col_new)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["M20"] = M20[cols].copy()
 
 #=========================================
 # Monty GALAH+Gaia [X/Fe] predictions
@@ -660,13 +728,13 @@ for ref_i, ref in enumerate(references_to_compare):
         #=========================================
         # The polynomial correction is only valid within the BP-RP bounds of
         # the overlapping sample. However, for our correction we'll evaluate it
-        # from one point in from each end to prevent outliers from having too
+        # from two points in from each end to prevent outliers from having too
         # much of an influence.
         bp_rp_sorted = bp_rp[resid_mask].copy()
         bp_rp_sorted.sort()
 
-        min_BP_RP = bp_rp_sorted[1]
-        max_BP_RP = bp_rp_sorted[-2]
+        min_BP_RP = bp_rp_sorted[2]
+        max_BP_RP = bp_rp_sorted[-3]
         
         # Store bounds in polynomial object for plotting later
         poly.BP_RP_bounds = (min_BP_RP, max_BP_RP)

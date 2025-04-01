@@ -97,7 +97,7 @@ def plot_cannon_overlap_diagnostics(
             obs_join["BP_RP_dr3"].values[adopted_mask],
             obs_join["K_mag_abs"].values[adopted_mask],
             zorder=1,
-            c=obs_join["label_adopt_feh"].values[adopted_mask],
+            c=obs_join["label_adopt_Fe_H"].values[adopted_mask],
             label="{} ({})".format(model_names[df_i], N_STAR),
             alpha=0.9,
             cmap="viridis",)
@@ -117,7 +117,7 @@ def plot_cannon_overlap_diagnostics(
             obs_join["BP_RP_dr3"].values[adopted_overlap],
             obs_join["K_mag_abs"].values[adopted_overlap],
             marker="o",
-            c=obs_join["label_adopt_feh"].values[adopted_overlap],
+            c=obs_join["label_adopt_Fe_H"].values[adopted_overlap],
             edgecolor="k",
             linewidths=1.2,
             zorder=1,
@@ -183,9 +183,10 @@ def plot_cannon_overlap_diagnostics(
             
             # Select the colour bar/map, which will be [Fe/H] for all labels
             # except for [Fe/H] itself where we'll use Teff
-            colour = (info_overlap["label_adopt_feh"].values if label != "feh"
-                      else info_overlap["label_adopt_teff"].values)
-            cmap = "viridis" if label != "feh" else "magma"
+            colour = (
+                info_overlap["label_adopt_Fe_H"].values if label != "Fe_H"
+                else info_overlap["label_adopt_teff"].values)
+            cmap = "viridis" if label != "Fe_H" else "magma"
 
             # Compute and plot residuals as resid = lit - pred
             resid = info_overlap[label_adopt] - df[label_cv]
@@ -266,15 +267,15 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 n_px = 5024
 n_label = 3
 
-n_star_MK = 195
-n_star_K = 99
-n_star_M = 137
+n_star_MK = 201
+n_star_K = 102
+n_star_M = 141
 
 # Names of each of the three models
 model_names = ("M", "K", "M+K")
 
 # Labels + axis info for plotting later. These should have length >= n_label.
-labels = ("teff", "logg", "feh")
+labels = ("teff", "logg", "Fe_H")
 labels_str = (r"$T_{\rm eff}$", r"$\log g$", "[Fe/H]")
 labels_cb = ("[Fe/H]", "[Fe/H]", r"$T_{\rm eff}$")
 
@@ -283,7 +284,7 @@ units = ("K", "dex", "dex")
 axis_ticks = {
     "teff":(200,100,50,25),
     "logg":(0.1,0.05,0.02,0.01),
-    "feh":(0.5,0.25,0.1,0.05),}
+    "Fe_H":(0.5,0.25,0.1,0.05),}
 
 #------------------------------------------------------------------------------
 # Imports and setup

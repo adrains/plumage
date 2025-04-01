@@ -7,10 +7,11 @@ present in the more restricted pyStan version 3+. As such, this code only works
 for pyStan version 2.
 
 This script is part of a series of Cannon scripts. The main sequence is:
- 1) prepare_stannon_training_sample.py     --> label preparation
- 2) train_stannon.py                       --> training and cross validation
- 3) make_stannon_diagnostics.py            --> diagnostic plots + result tables
- 4) run_stannon.py                         --> running on science spectra
+ 1) assess_literature_systematics.py       --> benchmark chemistry compilation
+ 2) prepare_stannon_training_sample.py     --> label preparation
+ 3) train_stannon.py                       --> training and cross validation
+ 4) make_stannon_diagnostics.py            --> diagnostic plots + result tables
+ 5) run_stannon.py                         --> running on science spectra
 
 The parameters for steps 2) and 3) can be found in cannon_settings.py, which
 should be modified/duplicated and imported.
