@@ -30,15 +30,15 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 # Parameters and Setup
 #------------------------------------------------------------------------------
 # Import model
-model_name = "stannon_model_{}_{}label_{}px_{}.pkl".format(
-    cs.model_type, cs.n_labels, cs.npx, "_".join(cs.label_names))
+model_name = "stannon_model_{}_{}_{}L_{}P_{}S_{}.pkl".format(
+    cs.sm_type, cs.sm_name, cs.L, cs.P, cs.S, "_".join(cs.label_names))
 
 cannon_model_path = os.path.join("spectra", model_name)
 
 sm = stannon.load_model(cannon_model_path)
 
 # Import DataFrame for this particular model
-fits_ext_label = "{}_{}L_{}P_{}S".format(cs.model_label, sm.L, sm.P, sm.S)
+fits_ext_label = "{}_{}L_{}P_{}S".format(cs.sm_name, sm.L, sm.P, sm.S)
 cannon_df = pu.load_fits_table(
     extension="CANNON_MODEL",
     label=cs.std_label,
@@ -330,6 +330,7 @@ cannon_df["logg_aberrant"] = has_aberrant_logg
 #------------------------------------------------------------------------------
 # Tables
 #------------------------------------------------------------------------------
+"""
 # Table summarising benchmark sample
 st.make_table_sample_summary(obs_join, table_folder=save_folder,)
 
@@ -341,7 +342,7 @@ st.make_table_benchmark_overview(
     abundance_labels=cs.abundance_labels,
     break_row=90,
     table_folder=save_folder,)
-
+"""
 #------------------------------------------------------------------------------
 # Benchmark CMD
 #------------------------------------------------------------------------------

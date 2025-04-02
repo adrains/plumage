@@ -677,9 +677,9 @@ df_comb.drop(columns=bp_rp_cols, inplace=True)
 # Fitting + Correcting Residuals
 #------------------------------------------------------------------------------
 # Species to correct of form 'X_H'. Currently all species must be in 'comp_ref'
-species_to_correct = ["Fe_H"] #["Na_H", "Si_H", "Ti_H", "Fe_H", "Ni_H",]
+species_to_correct = ["Fe_H", "Ti_H"] #["Na_H", "Si_H", "Ti_H", "Fe_H", "Ni_H",]
 comp_ref = "VF05"
-references_to_compare = ["R07", "A12", "B16", "M18", "L18", "RB20"]
+references_to_compare = np.array(["R07", "A12", "B16", "M18", "L18", "RB20"])
 
 POLY_ORDER = 4
 OUTLIER_DEX = 0.3
@@ -702,6 +702,10 @@ for ref_i, ref in enumerate(references_to_compare):
 
         abund_comp = "{}_{}".format(species, ref)
         e_abund_comp = "e_{}_{}".format(species, ref)
+
+        # Continue if we don't have this species to correct
+        if abund_comp not in df_comb.columns.values:
+            continue
 
         #=========================================
         # Fit residuals with polynomial
@@ -798,9 +802,14 @@ DO_LIMIT_Y_EXTENT = True
 
 # Loop over all species
 for species in species_to_correct:
+    # First we need to count the number of references that actually have this
+    # species so that we can initialise the plot.
+    comp_mask = np.array(["{}_{}".format(species, cr) in df_comb.columns 
+        for cr in references_to_compare])
+
     plt.close("all")
     fig, axes = plt.subplots(
-        nrows=len(references_to_compare),
+        nrows=np.sum(comp_mask),
         ncols=2,
         sharex=True,
         sharey="row",
@@ -814,8 +823,8 @@ for species in species_to_correct:
         hspace=0.01,
         wspace=0.01)
 
-    # Loop over all comparisons
-    for ref_i, ref in enumerate(references_to_compare):
+    # Loop over all valid comparisons
+    for ref_i, ref in enumerate(references_to_compare[comp_mask]):
         # Grab value + sigma column names
         abund_ref = "{}_{}".format(species, comp_ref)
         e_abund_ref = "e_{}_{}".format(species, comp_ref)

@@ -151,10 +151,13 @@ base_labels: ["teff", "logg", "Fe_H",]
 #------------------------------------------------------------------------------
 # Diagnostic Plot Settings
 #------------------------------------------------------------------------------
-# Models are currently saved  with N_px in the filename.
-# TODO: come up with a more informative/robust labelling scheme.
-npx: 5024   # 4000-7000 A
-#npx: 5573    # 3500-7000 A
+# Models are defined by the following settings:
+sm_type: "basic"
+sm_name: "K"
+L: 3
+S: 102      # MK: 201, M: 141, K: 102
+P: 5024     # 4000-7000 A
+#P: 5573    # 3500-7000 A
 
 # The grating at which the WiFeS B3000 spectra transition to R7000 spectra to
 # use when plotting separate 'b' and 'r' plots.

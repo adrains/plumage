@@ -1043,7 +1043,7 @@ class Stannon(object):
         return spec_gen
 
 
-    def save_model(self, path, fmt="pkl"):
+    def save_model(self, path, name=None, fmt="pkl"):
         """Saves the stannon model as either a Python pickle file (default) or
         a fits file.
 
@@ -1051,6 +1051,9 @@ class Stannon(object):
         ----------
         path: str
             Filepath to save the Cannon model to.
+
+        name: str, default: ""
+            Optional, unique label for Cannon model in addition to L,P,S.
 
         fmt: str, default: 'pkl'
             Format to save the Cannon model as, must be one of ['pkl', 'fits']'
@@ -1082,8 +1085,14 @@ class Stannon(object):
             class_dict["true_labels"] = self.true_labels
 
         # Construct filename
-        fn = "stannon_model_{}_{}label_{}px_{}.{}".format(
-            self.model_type, self.L, self.P, "_".join(self.label_names), fmt)
+        fn = "stannon_model_{}_{}{}L_{}P_{}S_{}.{}".format(
+            self.model_type,
+            "{}_".format(name) if name is not None else "",
+            self.L,
+            self.P,
+            self.S,
+            "_".join(self.label_names),
+            fmt)
         filename = os.path.join(path, fn)
 
         # Save to file

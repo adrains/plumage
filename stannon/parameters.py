@@ -149,7 +149,7 @@ def prepare_labels(
     # Combine this mask with our quality cut mask to get the adopted benchmarks
     obs_join["is_cannon_benchmark"] = np.logical_and(
         obs_join["passed_quality_cuts"],
-        obs_join["has_base_label_set"],)
+        obs_join["has_complete_label_set"],)
     
     # All done!
 

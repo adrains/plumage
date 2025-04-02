@@ -280,7 +280,7 @@ print("Model training complete!")
 # Saving
 #------------------------------------------------------------------------------
 # Save model
-sm.save_model(cs.model_save_path)
+sm.save_model(cs.model_save_path, name=cs.model_label,)
 
 # Store results DF
 fits_ext_label = "{}_{}L_{}P_{}S".format(
