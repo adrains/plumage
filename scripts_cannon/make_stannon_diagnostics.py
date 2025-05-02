@@ -26,6 +26,9 @@ import stannon.utils as su
 cannon_settings_yaml = "scripts_cannon/cannon_settings.yml"
 cs = su.load_cannon_settings(cannon_settings_yaml)
 
+label_settings = "scripts_cannon/label_settings.yml"
+ls = su.load_yaml_settings(label_settings)
+
 #------------------------------------------------------------------------------
 # Parameters and Setup
 #------------------------------------------------------------------------------
@@ -117,6 +120,7 @@ splt.plot_label_recovery(
     e_label_values=sm.training_variances**0.5,
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
+    #chi2=sm.cross_val_chi2,
     fn_suffix=fn_label,
     teff_lims=(2500,5000),
     teff_ticks=(500,250,200,100),
@@ -330,19 +334,35 @@ cannon_df["logg_aberrant"] = has_aberrant_logg
 #------------------------------------------------------------------------------
 # Tables
 #------------------------------------------------------------------------------
-"""
+# Our complete list of references to summarise is obtained when joining the
+# respective K and M star reference lists (and removing duplicates)
+references = (ls.ABUND_ORDER_K
+    + [ref for ref in ls.ABUND_ORDER_M if ref not in ls.ABUND_ORDER_K])
+
+# These references are to be considered 'This Work'.
+# TODO: update each to be more descriptive.
+ref_this_work = ["SM25", "M15er", "M19"]
+
 # Table summarising benchmark sample
-st.make_table_sample_summary(obs_join, table_folder=save_folder,)
+st.make_table_sample_summary(
+    obs_tab=obs_join,
+    labels=sm.label_names,
+    references=references,
+    reference_dict=ls.BENCHMARK_CITATIONS,
+    ref_this_work=ref_this_work,
+    table_folder=save_folder,)
 
 # Tabulate our adopted and benchmark parameters
 st.make_table_benchmark_overview(
     benchmark_df=obs_join,
     cannon_df=cannon_df,
     label_names=cs.label_names,
+    references_dict=ls.BENCHMARK_CITATIONS,
+    ref_this_work=ref_this_work,
     abundance_labels=cs.abundance_labels,
     break_row=90,
     table_folder=save_folder,)
-"""
+
 #------------------------------------------------------------------------------
 # Benchmark CMD
 #------------------------------------------------------------------------------
@@ -355,16 +375,6 @@ splt.plot_cannon_cmd(
     highlight_mask_2=obs_join["is_mid_k_dwarf"].values,
     highlight_mask_label_2="Early-Mid K Dwarf",
     plot_folder=save_folder,)
-
-#------------------------------------------------------------------------------
-# GALAH-Gaia -- Valenti & Fischer 2005 diagnostic
-#------------------------------------------------------------------------------
-if sm.L > 3:
-    splt.plot_abundance_trend_recovery(
-        obs_join=obs_join,
-        vf05_full_file=cs.vf05_full_file,
-        vf05_sampled_file=cs.vf05_sampled_file,
-        plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Save updated fits

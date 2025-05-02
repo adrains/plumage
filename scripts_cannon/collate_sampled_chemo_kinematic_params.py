@@ -10,13 +10,12 @@ import stannon.plotting as splt
 # -----------------------------------------------------------------------------
 # Setup + Settings
 # -----------------------------------------------------------------------------
-path_wc = "/Users/arains/Dropbox/AdamTiDists/Results/UpdatedFeH/*PullsSymmetricErrors"
+path_wc = "/Users/adamrains/Dropbox/AdamTiDists/2025/Results/*PullsSymmetricErrors"
 sample_files = glob.glob(path_wc)
 
 # Setup mean and sigma columns for dataframe and interleave
-cols_mean = ["ra_monty", "dec_monty", "dist_monty", "pm_ra_monty", 
-            "pm_dec_monty",  "rv_monty", "feh_monty", "vphi_monty", 
-            "Ti_Fe_monty"]
+cols_mean = ["ra", "dec", "dist", "pm_ra", "pm_dec",  "rv", "[Fe/H]", "vphi", 
+             "[Ti/Fe]"]
 
 cols_sigma = ["e_{}".format(col) for col in cols_mean]
 
@@ -53,47 +52,8 @@ df = pd.DataFrame(
 df = df.reindex(columns=cols_all)
 df.index.name = "source_id_dr3"
 
+# Add dummy BP-RP column
+df["bp_rp"] = np.nan
+
 # Save
-df.to_csv("data/monty_sampled_params_n{:0.0f}.csv".format(n_stars))
-
-# -----------------------------------------------------------------------------
-# Diagnostics
-# -----------------------------------------------------------------------------
-# Import existing dataframe
-obs_join = pu.load_fits_table("CANNON_INFO", "cannon")
-
-# Drop existing columns if we have them
-if cols_all[0] in obs_join.columns:
-    obs_join.drop(columns=cols_all, inplace=True)
-
-# Do table join
-obs_join = obs_join.join(df, "source_id_dr3",)
-
-# Mask
-is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
-obs_join = obs_join[is_cannon_benchmark]
-
-# Grab masks
-is_cpm = obs_join["is_cpm"]
-
-labels = ["teff", "logg", "feh", "Ti_Fe"]
-cols = ["label_adopt_{}".format(lbl) for lbl in labels]
-e_cols = ["label_adopt_sigma_{}".format(lbl) for lbl in labels]
-
-labels_pred = np.hstack(
-    (np.full((103, 3), np.nan),
-     np.atleast_2d(obs_join["Ti_Fe_monty"].values).T))
-e_labels_pred = np.hstack(
-    (np.full((103, 3), np.nan),
-     np.atleast_2d(obs_join["e_Ti_Fe_monty"].values).T))
-
-splt.plot_label_recovery_abundances(
-    label_values=obs_join[cols].values[is_cpm],
-    e_label_values=obs_join[e_cols].values[is_cpm],
-    label_pred=labels_pred[is_cpm],
-    e_label_pred=e_labels_pred[is_cpm],
-    obs_join=obs_join[is_cpm],
-    fn_suffix="_Ti_Fe_monty_comp",
-    abundance_labels=["Ti_Fe"],
-    feh_lims=(-0.15,0.4),
-    feh_ticks=(0.4,0.2,0.2,0.1),)
+df.to_csv("data/monty_sampled_params_n{:0.0f}.csv".format(n_stars), sep="\t")

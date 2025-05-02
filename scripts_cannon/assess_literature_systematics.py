@@ -22,6 +22,7 @@ samples = {
     "M13":"data/M13_prim_dr3.tsv",      # Individual sigmas
     "G14a":"data/G14a_gaia_all.tsv",    # Individual sigmas
     "G14b":"data/G14b_gaia_all.tsv",    # Individual sigmas
+    "M14":"data/M14_all.tsv",           # Individual sigmas
     "M15":"data/mann15_all_dr3.tsv",    # Individual sigmas
     "B16":"data/B16_dr3_all.tsv",       # Const sigma for: all
     "M18":"data/montes18_prim.tsv",     # Individual sigmas
@@ -29,6 +30,7 @@ samples = {
     "D19":"data/D19_gaia_all.tsv",      # Individual sigmas
     "RB20":"data/RB20_dr3_all.tsv",     # Const sigma for: all
     "M20":"data/M20_gaia_all.tsv",      # Const sigma for: all
+    "SM25":"data/SM25_sampled_params_n224.csv", # Invidivual sigmas
 }
 
 # Mapping of chemical species within each sample
@@ -40,6 +42,7 @@ species_all = {
            "Sc", "Mn", "V"],
     "RA12":["M", "Fe"],
     "M13":["M", "Na", "Si", "Ti", "Fe", "Ni"],
+    "M14":["Fe"],
     "G14a":["Fe"],
     "G14b":["Fe"],
     "M15":["Fe"],
@@ -54,8 +57,9 @@ species_all = {
     "D19":["Fe", "M",],
     "RB20":["C", "N", "O", "Na", "Mg", "Al", "Si", "Ca", "Ti", "V", "Cr", "Mn",
             "Fe", "Ni", "Y"],
-    "M20":["Fe", "C", "Na", "Mg", "Al", "Si", "Ca", "Sc", "Ti", "V", "Cr",
-           "Mn", "Co", "Ni", "Zn",],
+    "M20":["Fe",],# "C", "Na", "Mg", "Al", "Si", "Ca", "Sc", "Ti", "V", "Cr",
+           #"Mn", "Co", "Ni", "Zn",],
+    "SM25":["Ti"],
 }
 
 # Mapping of abundance uncertainties for those samples with constant adopted
@@ -125,7 +129,8 @@ sigmas = {
 # spectral synthesis-based analyses.
 ENFORCE_K_DWARF_BP_RP_COLOUR_CUT = False
 K_DWARF_BP_RP_MAX = 1.7
-cool_dwarf_catalogues = ["RA12", "G14a", "G14b", "M15", "D19", "M20",]
+cool_dwarf_catalogues = \
+    ["RA12", "M14", "G14a", "G14b", "M15", "D19", "M20", "SM25"]
 
 #------------------------------------------------------------------------------
 # Initial Import + Unique IDs
@@ -365,6 +370,27 @@ G14a.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
 cols.append("bp_rp")
 dataframes_cut["G14a"] = G14a[cols].copy()
+
+#=========================================
+# Mann+2014 - 2014AJ....147..160M
+#=========================================
+M14 = dataframes["M14"]
+has_sid = np.array([sid not in default_ids for sid in M14.index.values])
+M14 = M14[has_sid].copy()
+M14.rename(columns={"BP-RP_dr3":"bp_rp"}, inplace=True)
+
+abund_cols_old = ["[{}/H]".format(ss) for ss in species_all["M14"]]
+abund_cols_new = ["{}_H_M14".format(ss) for ss in species_all["M14"]]
+M14.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_old = ["e_[{}/H]".format(ss) for ss in species_all["M14"]]
+sigma_cols_new = ["e_{}_H_M14".format(ss) for ss in species_all["M14"]]
+M14.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["M14"] = M14[cols].copy()
 
 #=========================================
 # Gaidos+2014b - 2014MNRAS.443.2561G
@@ -650,7 +676,24 @@ dataframes_cut["M20"] = M20[cols].copy()
 #=========================================
 # Monty GALAH+Gaia [X/Fe] predictions
 #=========================================
-pass
+SM25 = dataframes["SM25"]
+has_sid = np.array([sid not in default_ids for sid in SM25.index.values])
+SM25 = SM25[has_sid].copy()
+n_SM25 = len(SM25)
+
+abund_cols_old = ["[{}/Fe]".format(ss) for ss in species_all["SM25"]]
+abund_cols_new = ["{}_Fe_SM25".format(ss) for ss in species_all["SM25"]]
+
+SM25.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_old = ["e_[{}/Fe]".format(ss) for ss in species_all["SM25"]]
+sigma_cols_new = ["e_{}_Fe_SM25".format(ss) for ss in species_all["SM25"]]
+SM25.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["SM25"] = SM25[cols].copy()
 
 #------------------------------------------------------------------------------
 # Join all separate tables

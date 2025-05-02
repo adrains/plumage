@@ -21,7 +21,7 @@ spectra_label: "cannon_mk"
 std_info_fn: "data/std_info.tsv"
 
 # TSV of uniform literature chemistry corrected for systematics
-lit_chem: "data/lit_chemistry_corrected_Fe_H.tsv"
+lit_chem: "data/lit_chemistry_corrected_Fe_H_Ti_H.tsv"
 
 # Binary component TSVs
 tsv_primaries_fn: "data/cpm_primaries_dr3.tsv"
@@ -42,12 +42,12 @@ gdr: "dr3"
 # Abundance Priorities + abundances to determine labels for
 #------------------------------------------------------------------------------
 # Abund order of preference (highest priority to lowest).
-ABUND_ORDER_K: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20",]
-ABUND_ORDER_M: ["M15", "G14b", "G14a", "D19", "RA12", "M20",]
+ABUND_ORDER_K: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20", "SM25"]
+ABUND_ORDER_M: ["M15", "G14b", "G14a", "D19", "RA12", "M20", "SM25"]
 ABUND_ORDER_BINARY: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20",]
 
 # Abundance labels to compute, e.g. ['Fe_H', 'Ti_Fe'].
-abundance_labels: ["Fe_H"]
+abundance_labels: ["Fe_H", "Ti_Fe"]
 
 #------------------------------------------------------------------------------
 # Benchmark citations
@@ -73,8 +73,10 @@ BENCHMARK_CITATIONS:
   L18: "luck_abundances_2018"
   M18: "montes_calibrating_2018"
   R19: "rabus_discontinuity_2019"
+  D19: "dressing_characterizing_2019"
   R20: "rains_precision_2020"
   RB20: "rice_stellar_2020"
+  M20: "maldonado_hades_2020"
   R21: "rains_characterization_2021"
   C21: "casagrande_galah_2021"
 
