@@ -3,12 +3,439 @@ chemistry benchmarks. While we need a bespoke approach (to a limited extent) to
 import each literature catalogue, we put measured abundances into a standard
 format and single table which greatly simplifies working with chemical
 benchmarks subsequently.
+
+TODO: perform fit and correction on *unlogged* abundances and uncertainties.
 """
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
 import stannon.parameters as sp
+
+#------------------------------------------------------------------------------
+# Functions
+#------------------------------------------------------------------------------
+def correct_abundance_trends(
+    chem_df,
+    species_to_correct,
+    comp_ref,
+    references_to_compare,
+    poly_order=4,
+    outlier_dex=0.3,
+    outer_points_to_drop=2,):
+    """Function to put separate and *overlapping* chemical samples on the same
+    scale by performing polynomial fits to the residuals between a literature
+    and reference abundance samples. These trends are then corrected, and the
+    abundances updated in-place in the DataFrame. The original uncorrected
+    abundances are then stored as <abund>_<ref>_uc in the DataFrame, where 'uc'
+    stands for 'uncorrected abundance'.
+
+    TODO: perform the polynomial fit and correction taking into account the
+    fact that abundances are logarithmic values. 
+
+    Parameters
+    ----------
+    chem_df: pandas DataFrame
+        Pandas DataFrame of literature abundances information. Has columns 
+        BP-RP, and then <abund>_<ref>, and e_<abund>_<ref> for all literature
+        sources and abundances.
+
+    species_to_correct: str list
+        List of species to correct for systematics, e.g. ['Fe_H', 'Ti_H'].
+
+    comp_ref: str
+        The reference abundance scale to correct to, e.g. 'VF05'.
+
+    references_to_compare: str list
+        List of literature sources to correct to our reference abundance scale.
+
+    poly_order: int, default: 4
+        Polynomial order for the correction.
+
+    outlier_dex: default: 0.3
+        Residuals beyond +/- outlier_dex are excluded when fitting the 
+        polynomial in order to prevent outliers affecting the fit.
+
+    outer_points_to_drop: int, default 2
+        In order to prevent potentially sparsely sampled edge points from 
+        influencing the fit, we drop the first and last outer_points_to_drop
+        points when fitting.
+
+    Returns
+    -------
+    fit_dict: dict
+        Dictionary containing <ref>:(<abund>, Polynomial Obj) pairs for each
+        corrected reference/abundance combination.
+    """
+    # Create dict for storing polynomials for use when plotting later
+    fit_dict = {}
+
+    # Loop over all comparisons
+    for ref_i, ref in enumerate(references_to_compare):
+        for species in species_to_correct:
+            # Grab value + sigma column names
+            abund_ref = "{}_{}".format(species, comp_ref)
+            e_abund_ref = "e_{}_{}".format(species, comp_ref)
+
+            abund_comp = "{}_{}".format(species, ref)
+            e_abund_comp = "e_{}_{}".format(species, ref)
+
+            # Continue if we don't have this species to correct
+            if abund_comp not in chem_df.columns.values:
+                continue
+
+            #=========================================
+            # Fit residuals with polynomial
+            #=========================================
+            n_abund_before = np.sum(~np.isnan(chem_df[abund_comp].values))
+
+            # Compute the residuals and the combined uncertainties
+            resid = chem_df[abund_ref].values - chem_df[abund_comp].values
+            e_resid = np.sqrt(chem_df[e_abund_ref].values**2
+                              + chem_df[e_abund_comp].values**2)
+            
+            # Perform polynomial fitting
+            n_overlap = np.sum(~np.isnan(resid))
+            resid_mask = ~np.isnan(resid)
+            fit_mask = np.logical_and(resid_mask, np.abs(resid) < outlier_dex)
+
+            bp_rp = chem_df["BP_RP"].values
+            
+            poly = np.polynomial.Polynomial.fit(
+                bp_rp[fit_mask], resid[fit_mask], poly_order)
+            
+            #=========================================
+            # Correct systematics below/within/above bounds
+            #=========================================
+            # The polynomial correction is only valid within the BP-RP bounds
+            # of the overlapping sample. However, for our correction we'll
+            # evaluate it several points in from each end to prevent outliers
+            # from having too much of an influence.
+            bp_rp_sorted = bp_rp[resid_mask].copy()
+            bp_rp_sorted.sort()
+
+            i_min = outer_points_to_drop
+            i_max = len(bp_rp_sorted) - outer_points_to_drop
+
+            min_BP_RP = bp_rp_sorted[i_min]
+            max_BP_RP = bp_rp_sorted[i_max]
+            
+            # Store bounds in polynomial object for plotting later
+            poly.BP_RP_bounds = (min_BP_RP, max_BP_RP)
+
+            # Work out beyond bounds
+            abund = chem_df[abund_comp].values
+
+            is_below = bp_rp < min_BP_RP
+            within_bounds = np.logical_and(
+                bp_rp >= min_BP_RP, bp_rp <= max_BP_RP)
+            is_above = bp_rp > max_BP_RP
+
+            has_data = ~np.isnan(abund)
+            n_below = np.sum(np.logical_and(has_data, is_below))
+            n_above = np.sum(np.logical_and(has_data, is_above))
+            poly.n_beyond_bounds = (n_below, n_above)
+
+            # Correct for the fit (below, overlapping, & above BP-RP bounds)
+            abund_corr = np.full_like(abund, np.nan)
+            abund_corr[is_below] = abund[is_below] + poly(min_BP_RP)
+            abund_corr[within_bounds] = \
+                abund[within_bounds] + poly(bp_rp[within_bounds])
+            abund_corr[is_above] = abund[is_above] + poly(max_BP_RP)
+
+            n_abund_after = np.sum(~np.isnan(abund_corr))
+
+            # Store uncorrected abundances, and save corrected abundances
+            chem_df["{}_uc".format(abund_comp)] = abund.copy()
+            chem_df[abund_comp] = abund_corr
+
+            # TODO: recalculate residuals properly considering logarithms 
+            pass
+
+            # Store polynomial
+            fit_dict[(ref, species)] = poly
+        
+        print(ref, n_abund_before, n_abund_after)
+
+    return fit_dict
+
+
+def plot_abundance_trends(
+    chem_df,
+    fit_dict,
+    species_to_correct,
+    comp_ref,
+    references_to_compare,
+    bp_rp_lims,
+    abund_Y_lims,
+    do_limit_y_extent=True,
+    fn_label="",
+    bp_rp_ticks=(0.1,0.05)):
+    """Function to plot before and after correcting for abundance trends and
+    putting all samples on the same reference abundance scale. For every 
+    species, we plot two panels per reference showing the residuals fit with a
+    polynomial trend, and then the corrected residuals.
+
+    Parameters
+    ----------
+    chem_df: pandas DataFrame
+        Pandas DataFrame of literature abundances information. Has columns 
+        BP-RP, and then <abund>_<ref>, and e_<abund>_<ref> for all literature
+        sources and abundances.
+
+    fit_dict: dict
+        Dictionary containing <ref>:(<abund>, Polynomial Obj) pairs for each
+        corrected reference/abundance combination.
+
+    species_to_correct: str list
+        List of species to correct for systematics, e.g. ['Fe_H', 'Ti_H'].
+
+    comp_ref: str
+        The reference abundance scale to correct to, e.g. 'VF05'.
+
+    references_to_compare: str list
+        List of literature sources to correct to our reference abundance scale.
+
+    bp_rp_lims: float list
+        Two element list of the minimum and maximum BP-RP limits to plot, of
+        form [min, max] 
+
+    abund_Y_lims: float
+        Symmetric limits for the Y abundance axis.
+
+    do_limit_y_extent: boolean, default: True
+        Whether or not to limit the Y extent plotted.
+
+    fn_label: str, default: ''
+        Plots by default are saved as paper/chemical_trends_<abund>.<pdf/png>
+        but this changes it to paper/chemical_trends_<label>_<abund>.<pdf/png>.
+
+    bp_rp_ticks: float array, default: (0.1, 0.05)
+        Major and minor x tick values for BP-RP.
+    """
+    # Loop over all species
+    for species in species_to_correct:
+        # First we need to count the number of references that actually have
+        # this species so that we can initialise the plot.
+        comp_mask = np.array(["{}_{}".format(species, cr) in chem_df.columns 
+            for cr in references_to_compare])
+
+        plt.close("all")
+        fig, axes = plt.subplots(
+            nrows=np.sum(comp_mask),
+            ncols=2,
+            sharex=True,
+            sharey="row",
+            figsize=(16, 10))
+
+        fig.subplots_adjust(
+            left=0.05,
+            bottom=0.05,
+            right=0.98,
+            top=0.97,
+            hspace=0.01,
+            wspace=0.01)
+
+        # Loop over all valid comparisons
+        for ref_i, ref in enumerate(references_to_compare[comp_mask]):
+            # Grab value + sigma column names
+            abund_ref = "{}_{}".format(species, comp_ref)
+            e_abund_ref = "e_{}_{}".format(species, comp_ref)
+
+            abund_comp = "{}_{}".format(species, ref)
+            e_abund_comp = "e_{}_{}".format(species, ref)
+
+            #=========================================
+            # Compute residuals
+            #=========================================
+            # Compute the residuals and the combined uncertainties
+            # TODO: use abundances uncertainties corrected in log-space
+            abund_comp_uc = "{}_uc".format(abund_comp)
+            #e_abund_comp_uc = "e_{}_uc".format(abund_comp)
+
+            resid = chem_df[abund_ref].values - chem_df[abund_comp_uc].values
+            e_resid = np.sqrt(chem_df[e_abund_ref].values**2
+                              + chem_df[e_abund_comp].values**2)
+            
+            # Compute the corrected residuals
+            resid_corr = \
+                chem_df[abund_ref].values - chem_df[abund_comp].values
+
+            # Compute statistics before and after
+            med = np.nanmedian(resid)
+            std = np.nanstd(resid)
+
+            med_corr = np.nanmedian(resid_corr)
+            std_corr = np.nanstd(resid_corr)
+
+            n_overlap = np.sum(~np.isnan(resid_corr))
+
+            #=========================================
+            # Left Hand Panels: raw residuals + fit
+            #=========================================
+            # Plot polynomial correction within bounds
+            poly = fit_dict[(ref, species)]
+            xx = np.linspace(poly.BP_RP_bounds[0], poly.BP_RP_bounds[1], 100)
+            axes[ref_i, 0].plot(
+                xx, poly(xx), color="r", linewidth=1.0, zorder=10)
+
+            # Plot and annotate correction *below* polynomial bounds
+            axes[ref_i, 0].hlines(
+                y=poly(poly.BP_RP_bounds[0]),
+                xmin=bp_rp_lims[0],
+                xmax=poly.BP_RP_bounds[0],
+                color="r",
+                linewidth=1.0,
+                linestyle="--",)
+
+            axes[ref_i, 0].text(
+                x=0.025,
+                y=0.925,
+                s=r"$\leftarrow {:0.0f}$".format(poly.n_beyond_bounds[0]),
+                horizontalalignment="center",
+                verticalalignment="center",
+                color="r",
+                transform=axes[ref_i, 0].transAxes,)
+            
+            # Plot and annotate correction *above* polynomial bounds
+            axes[ref_i, 0].hlines(
+                y=poly(poly.BP_RP_bounds[1]),
+                xmin=poly.BP_RP_bounds[1],
+                xmax=bp_rp_lims[1],
+                color="r",
+                linewidth=1.0,
+                linestyle="--",)
+            
+            axes[ref_i, 0].text(
+                x=0.975,
+                y=0.925,
+                s=r"${:0.0f} \rightarrow$".format(poly.n_beyond_bounds[1]),
+                horizontalalignment="center",
+                verticalalignment="center",
+                color="r",
+                transform=axes[ref_i, 0].transAxes,)
+            
+            # Plot the residuals
+            axes[ref_i, 0].errorbar(
+                x=chem_df["BP_RP"].values,
+                y=resid,
+                yerr=e_resid,
+                fmt="o",
+                alpha=0.8,
+                ecolor="k",
+                label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
+            
+            axes[ref_i, 0].legend(loc="lower right")
+            
+            axes[ref_i, 0].set_ylabel(
+                r"$\Delta$[{}]".format(species.replace("_", "/")))
+
+            # Plot resid=0 line
+            axes[ref_i, 0].hlines(
+                y=0,
+                xmin=bp_rp_lims[0],
+                xmax=bp_rp_lims[1],
+                linestyles="--",
+                colors="k",
+                linewidth=0.5,)
+            
+            # Annotate statistics
+            txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
+            txt = txt.replace("-0.00", "0.00")
+
+            axes[ref_i, 0].text(
+                x=0.5,
+                y=0.25,
+                s=txt,
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=axes[ref_i, 0].transAxes,
+                bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+            
+            # Display polynomial coefficients
+            coefs = poly.coef[::-1]
+            exponents = np.arange(3, 0, -1)
+            ft = r"{:0.3}\cdot(BP-RP)^{:0.0f}"
+
+            fit_list = \
+                [ft.format(cc, ee) for (cc, ee) in zip(coefs, exponents)]
+            fit_list.append("{:0.3f}".format(coefs[-1]))
+            fit_txt = r"${}$".format("+".join(fit_list).replace("+-", "-"))
+
+            # Also display BP-RP limits
+            lims = "\t$[{:0.2f}, {:0.2f}]$".format(*poly.BP_RP_bounds)
+
+            axes[ref_i, 0].text(
+                x=0.01,
+                y=0.04,
+                s=fit_txt + lims,
+                horizontalalignment="left",
+                verticalalignment="center",
+                color="r",
+                fontsize="x-small",
+                transform=axes[ref_i, 0].transAxes,)
+
+            #=========================================
+            # Right Hand Panels: corrected residuals
+            #=========================================
+            axes[ref_i, 1].errorbar(
+                x=chem_df["BP_RP"].values,
+                y=resid_corr,
+                yerr=e_resid,
+                fmt="o",
+                alpha=0.8,
+                ecolor="k",
+                label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
+            
+            axes[ref_i, 1].legend(loc="lower right")
+
+            axes[ref_i, 1].hlines(
+                y=0,
+                xmin=bp_rp_lims[0],
+                xmax=bp_rp_lims[1],
+                linestyles="--",
+                colors="k",
+                linewidth=0.5,)
+            
+            txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med_corr, std_corr)
+            txt = txt.replace("-0.00", "0.00")
+
+            axes[ref_i, 1].text(
+                x=0.5,
+                y=0.2,
+                s=txt,
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=axes[ref_i, 1].transAxes,
+                bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+            
+            if do_limit_y_extent:
+                axes[ref_i, 1].set_ylim(abund_Y_lims[0], abund_Y_lims[1])
+
+            axes[ref_i,0].yaxis.set_major_locator(
+                plticker.MultipleLocator(base=0.2))
+            axes[ref_i,0].yaxis.set_minor_locator(
+                plticker.MultipleLocator(base=0.1))
+
+        axes[0,0].set_title("Best-fit Residuals")
+        axes[0,1].set_title("Corrected Residuals")
+
+        axes[ref_i, 0].set_xlim(bp_rp_lims[0], bp_rp_lims[1])
+        axes[ref_i, 0].set_xlabel(r"$BP-RP$")
+        axes[ref_i, 1].set_xlabel(r"$BP-RP$")
+
+        axes[ref_i,0].xaxis.set_major_locator(
+            plticker.MultipleLocator(base=bp_rp_ticks[0]))
+        axes[ref_i,0].xaxis.set_minor_locator(
+            plticker.MultipleLocator(base=bp_rp_ticks[1]))
+
+        lbl = "" if fn_label == "" else "{}_".format(fn_label)
+
+        plt.savefig("paper/chemical_trends_{}{}.pdf".format(lbl, species))
+        plt.savefig(
+            "paper/chemical_trends_{}{}.png".format(lbl, species),
+            dpi=200)
+
 
 #------------------------------------------------------------------------------
 # Literature samples + info
@@ -719,340 +1146,95 @@ df_comb.drop(columns=bp_rp_cols, inplace=True)
 #------------------------------------------------------------------------------
 # Fitting + Correcting Residuals
 #------------------------------------------------------------------------------
-# Species to correct of form 'X_H'. Currently all species must be in 'comp_ref'
-species_to_correct = ["Fe_H", "Ti_H"] #["Na_H", "Si_H", "Ti_H", "Fe_H", "Ni_H",]
-comp_ref = "VF05"
-references_to_compare = np.array(["R07", "A12", "B16", "M18", "L18", "RB20"])
-
+# Default polynomial order and outlier rejection options
 POLY_ORDER = 4
 OUTLIER_DEX = 0.3
 
-save_filename = "data/lit_chemistry_corrected_{}.tsv".format(
-    "_".join(species_to_correct))
+# K dwarfs
+species_to_correct_K = ["Fe_H", "Ti_H"]
+comp_ref_K = "VF05"
+references_to_compare_K = np.array(["R07", "A12", "B16", "M18", "L18", "RB20"])
 
-# Duplicate dataframe--this is so we still have the uncorrected DF for plotting
-df_comb_corr = df_comb.copy()
+print("K Dwarfs\n--------")
+fit_dict_K = correct_abundance_trends(
+    chem_df=df_comb,
+    species_to_correct=species_to_correct_K,
+    comp_ref=comp_ref_K,
+    references_to_compare=references_to_compare_K,
+    poly_order=POLY_ORDER,
+    outlier_dex=OUTLIER_DEX,)
 
-# Create dict for storing polynomials for use when plotting later
-fit_dict = {}
+# M dwarfs
+species_to_correct_M = ["Fe_H",]
+comp_ref_M = "M15"
+references_to_compare_M = np.array(["RA12", "G14a", "G14b", "M20"])
 
-# Loop over all comparisons
-for ref_i, ref in enumerate(references_to_compare):
-    for species in species_to_correct:
-        # Grab value + sigma column names
-        abund_ref = "{}_{}".format(species, comp_ref)
-        e_abund_ref = "e_{}_{}".format(species, comp_ref)
-
-        abund_comp = "{}_{}".format(species, ref)
-        e_abund_comp = "e_{}_{}".format(species, ref)
-
-        # Continue if we don't have this species to correct
-        if abund_comp not in df_comb.columns.values:
-            continue
-
-        #=========================================
-        # Fit residuals with polynomial
-        #=========================================
-        n_abund_before = np.sum(~np.isnan(df_comb[abund_comp].values))
-
-        # Compute the residuals and the combined uncertainties
-        resid = df_comb[abund_ref].values - df_comb[abund_comp].values
-        e_resid = np.sqrt(
-            df_comb[e_abund_ref].values**2 + df_comb[e_abund_comp].values**2)
-        
-        # Perform polynomial fitting
-        n_overlap = np.sum(~np.isnan(resid))
-        resid_mask = ~np.isnan(resid)
-        fit_mask = np.logical_and(resid_mask, np.abs(resid) < OUTLIER_DEX)
-
-        bp_rp = df_comb["BP_RP"].values
-        
-        poly = np.polynomial.Polynomial.fit(
-            bp_rp[fit_mask], resid[fit_mask], POLY_ORDER)
-        
-        #=========================================
-        # Correct systematics below/within/above bounds
-        #=========================================
-        # The polynomial correction is only valid within the BP-RP bounds of
-        # the overlapping sample. However, for our correction we'll evaluate it
-        # from two points in from each end to prevent outliers from having too
-        # much of an influence.
-        bp_rp_sorted = bp_rp[resid_mask].copy()
-        bp_rp_sorted.sort()
-
-        min_BP_RP = bp_rp_sorted[2]
-        max_BP_RP = bp_rp_sorted[-3]
-        
-        # Store bounds in polynomial object for plotting later
-        poly.BP_RP_bounds = (min_BP_RP, max_BP_RP)
-
-        # Work out beyond bounds
-        abund = df_comb_corr[abund_comp].values
-
-        is_below = bp_rp < min_BP_RP
-        within_bounds = np.logical_and(bp_rp >= min_BP_RP, bp_rp <= max_BP_RP)
-        is_above = bp_rp > max_BP_RP
-
-        test = is_below + within_bounds + is_above
-
-        has_data = ~np.isnan(abund)
-        n_below = np.sum(np.logical_and(has_data, is_below))
-        n_above = np.sum(np.logical_and(has_data, is_above))
-        #print("{} {} {} {}".format(ref, species, n_below, n_above))
-        poly.n_beyond_bounds = (n_below, n_above)
-
-        # Correct for the fit (below, overlapping, & above BP-RP bounds)
-        abund_corr = np.full_like(abund, np.nan)
-        abund_corr[is_below] = abund[is_below] + poly(min_BP_RP)
-        abund_corr[within_bounds] = \
-            abund[within_bounds] + poly(bp_rp[within_bounds])
-        abund_corr[is_above] = abund[is_above] + poly(max_BP_RP)
-
-        n_abund_after = np.sum(~np.isnan(abund_corr))
-
-        df_comb_corr[abund_comp] = abund_corr
-
-        # Store polynomial
-        fit_dict[(ref, species)] = poly
-    
-    print(ref, n_abund_before, n_abund_after)
+print("\nM Dwarfs\n--------")
+fit_dict_M = correct_abundance_trends(
+    chem_df=df_comb,
+    species_to_correct=species_to_correct_M,
+    comp_ref=comp_ref_M,
+    references_to_compare=references_to_compare_M,
+    poly_order=POLY_ORDER,
+    outlier_dex=OUTLIER_DEX,)
 
 #------------------------------------------------------------------------------
 # Computing [X/Fe]
 #------------------------------------------------------------------------------
 # Compute [X/Fe] for the species we've corrected for systematics
-X_Fe_to_compute =  [ss.replace("_H", "") for ss in species_to_correct]
+X_Fe_to_compute =  [ss.replace("_H", "") for ss in species_to_correct_K]
 
 sp.compute_X_Fe(
-    chem_df=df_comb_corr,
+    chem_df=df_comb,
     species=X_Fe_to_compute,
     samples=samples.keys(),)
 
 #------------------------------------------------------------------------------
 # Save to file
 #------------------------------------------------------------------------------
+save_filename = "data/lit_chemistry_corrected_{}.tsv".format(
+    "_".join(species_to_correct_K))
+
 # Dump corrected DataFrame
-df_comb_corr.to_csv(save_filename, sep="\t")
+df_comb.to_csv(save_filename, sep="\t")
 
 #------------------------------------------------------------------------------
 # Plotting
 #------------------------------------------------------------------------------
-# For every species, we want to plot two panels per reference showing the
-# residuals fit with a polynomial trend, and then the corrected residuals.
-BP_RP_LIMS = (0.52, 1.4)
-X_F_LIMS = (-0.35, 0.35)
+# We produce one set of plots for M and K dwarfs, with each set having one plot
+# per species corrected.
 DO_LIMIT_Y_EXTENT = True
 
-# Loop over all species
-for species in species_to_correct:
-    # First we need to count the number of references that actually have this
-    # species so that we can initialise the plot.
-    comp_mask = np.array(["{}_{}".format(species, cr) in df_comb.columns 
-        for cr in references_to_compare])
+# Plot abundance trends for K dwarfs
+BP_RP_LIMS_K = (0.52, 1.4)
+ABUND_Y_LIMS_K = (-0.35, 0.35)
+BP_RP_TICKS_K = (0.1, 0.05)
 
-    plt.close("all")
-    fig, axes = plt.subplots(
-        nrows=np.sum(comp_mask),
-        ncols=2,
-        sharex=True,
-        sharey="row",
-        figsize=(16, 10))
+plot_abundance_trends(
+    chem_df=df_comb,
+    fit_dict=fit_dict_K,
+    species_to_correct=species_to_correct_K,
+    comp_ref=comp_ref_K,
+    references_to_compare=references_to_compare_K,
+    bp_rp_lims=BP_RP_LIMS_K,
+    abund_Y_lims=ABUND_Y_LIMS_K,
+    do_limit_y_extent=DO_LIMIT_Y_EXTENT,
+    fn_label="K",
+    bp_rp_ticks=BP_RP_TICKS_K,)
 
-    fig.subplots_adjust(
-        left=0.05,
-        bottom=0.05,
-        right=0.98,
-        top=0.97,
-        hspace=0.01,
-        wspace=0.01)
+# Plot abundance trends for M dwarfs
+BP_RP_LIMS_M = (1.6, 4.8)
+ABUND_Y_LIMS_M = (-0.5, 0.5)
+BP_RP_TICKS_M = (0.2, 0.1)
 
-    # Loop over all valid comparisons
-    for ref_i, ref in enumerate(references_to_compare[comp_mask]):
-        # Grab value + sigma column names
-        abund_ref = "{}_{}".format(species, comp_ref)
-        e_abund_ref = "e_{}_{}".format(species, comp_ref)
-
-        abund_comp = "{}_{}".format(species, ref)
-        e_abund_comp = "e_{}_{}".format(species, ref)
-
-        #=========================================
-        # Compute residuals
-        #=========================================
-        # Compute the residuals and the combined uncertainties
-        resid = df_comb[abund_ref].values - df_comb[abund_comp].values
-        e_resid = np.sqrt(
-            df_comb[e_abund_ref].values**2 + df_comb[e_abund_comp].values**2)
-        
-        # Compute the corrected residuals
-        resid_corr = \
-            df_comb_corr[abund_ref].values - df_comb_corr[abund_comp].values
-
-        # Compute statistics before and after
-        med = np.nanmedian(resid)
-        std = np.nanstd(resid)
-
-        med_corr = np.nanmedian(resid_corr)
-        std_corr = np.nanstd(resid_corr)
-
-        n_overlap = np.sum(~np.isnan(resid_corr))
-
-        #=========================================
-        # Left Hand Panels: raw residuals + fit
-        #=========================================
-        # Plot polynomial correction within bounds
-        poly = fit_dict[(ref, species)]
-        xx = np.linspace(poly.BP_RP_bounds[0], poly.BP_RP_bounds[1], 100)
-        axes[ref_i, 0].plot(xx, poly(xx), color="r", linewidth=1.0, zorder=10)
-
-        # Plot and annotate correction *below* polynomial bounds
-        axes[ref_i, 0].hlines(
-            y=poly(poly.BP_RP_bounds[0]),
-            xmin=BP_RP_LIMS[0],
-            xmax=poly.BP_RP_bounds[0],
-            color="r",
-            linewidth=1.0,
-            linestyle="--",)
-
-        axes[ref_i, 0].text(
-            x=0.025,
-            y=0.925,
-            s=r"$\leftarrow {:0.0f}$".format(poly.n_beyond_bounds[0]),
-            horizontalalignment="center",
-            verticalalignment="center",
-            color="r",
-            transform=axes[ref_i, 0].transAxes,)
-        
-        # Plot and annotate correction *above* polynomial bounds
-        axes[ref_i, 0].hlines(
-            y=poly(poly.BP_RP_bounds[1]),
-            xmin=poly.BP_RP_bounds[1],
-            xmax=BP_RP_LIMS[1],
-            color="r",
-            linewidth=1.0,
-            linestyle="--",)
-        
-        axes[ref_i, 0].text(
-            x=0.975,
-            y=0.925,
-            s=r"${:0.0f} \rightarrow$".format(poly.n_beyond_bounds[1]),
-            horizontalalignment="center",
-            verticalalignment="center",
-            color="r",
-            transform=axes[ref_i, 0].transAxes,)
-        
-        # Plot the residuals
-        axes[ref_i, 0].errorbar(
-            x=df_comb["BP_RP"].values,
-            y=resid,
-            yerr=e_resid,
-            fmt="o",
-            alpha=0.8,
-            ecolor="k",
-            label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
-        
-        axes[ref_i, 0].legend(loc="lower right")
-        
-        axes[ref_i, 0].set_ylabel(
-            r"$\Delta$[{}]".format(species.replace("_", "/")))
-
-        # Plot resid=0 line
-        axes[ref_i, 0].hlines(
-            y=0,
-            xmin=BP_RP_LIMS[0],
-            xmax=BP_RP_LIMS[1],
-            linestyles="--",
-            colors="k",
-            linewidth=0.5,)
-        
-        # Annotate statistics
-        txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
-        txt = txt.replace("-0.00", "0.00")
-
-        axes[ref_i, 0].text(
-            x=0.5,
-            y=0.25,
-            s=txt,
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=axes[ref_i, 0].transAxes,
-            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
-        
-        # Display polynomial coefficients
-        coefs = poly.coef[::-1]
-        exponents = np.arange(3, 0, -1)
-        ft = r"{:0.3}\cdot(BP-RP)^{:0.0f}"
-
-        fit_list = [ft.format(cc, ee) for (cc, ee) in zip(coefs, exponents)]
-        fit_list.append("{:0.3f}".format(coefs[-1]))
-        fit_txt = r"${}$".format("+".join(fit_list).replace("+-", "-"))
-
-        # Also display BP-RP limits
-        lims = "\t$[{:0.2f}, {:0.2f}]$".format(*poly.BP_RP_bounds)
-
-        axes[ref_i, 0].text(
-            x=0.01,
-            y=0.04,
-            s=fit_txt + lims,
-            horizontalalignment="left",
-            verticalalignment="center",
-            color="r",
-            fontsize="x-small",
-            transform=axes[ref_i, 0].transAxes,)
-            #bbox=dict(facecolor="r", edgecolor="None", alpha=0.5),)
-
-        #=========================================
-        # Right Hand Panels: corrected residuals
-        #=========================================
-        axes[ref_i, 1].errorbar(
-            x=df_comb["BP_RP"].values,
-            y=resid_corr,
-            yerr=e_resid,
-            fmt="o",
-            alpha=0.8,
-            ecolor="k",
-            label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
-        
-        axes[ref_i, 1].legend(loc="lower right")
-
-        axes[ref_i, 1].hlines(
-            y=0,
-            xmin=BP_RP_LIMS[0],
-            xmax=BP_RP_LIMS[1],
-            linestyles="--",
-            colors="k",
-            linewidth=0.5,)
-        
-        txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med_corr, std_corr)
-        txt = txt.replace("-0.00", "0.00")
-
-        axes[ref_i, 1].text(
-            x=0.5,
-            y=0.2,
-            s=txt,
-            horizontalalignment="center",
-            verticalalignment="center",
-            transform=axes[ref_i, 1].transAxes,
-            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
-        
-        if DO_LIMIT_Y_EXTENT:
-            axes[ref_i, 1].set_ylim(X_F_LIMS[0], X_F_LIMS[1])
-
-        axes[ref_i,0].yaxis.set_major_locator(
-            plticker.MultipleLocator(base=0.2))
-        axes[ref_i,0].yaxis.set_minor_locator(
-            plticker.MultipleLocator(base=0.1))
-
-    axes[0,0].set_title("Best-fit Residuals")
-    axes[0,1].set_title("Corrected Residuals")
-
-    axes[ref_i, 0].set_xlim(BP_RP_LIMS[0], BP_RP_LIMS[1])
-    axes[ref_i, 0].set_xlabel(r"$BP-RP$")
-    axes[ref_i, 1].set_xlabel(r"$BP-RP$")
-
-    axes[ref_i,0].xaxis.set_major_locator(
-        plticker.MultipleLocator(base=0.1))
-    axes[ref_i,0].xaxis.set_minor_locator(
-        plticker.MultipleLocator(base=0.05))
-
-    plt.savefig("paper/chemical_trends_{}.pdf".format(species))
-    plt.savefig("paper/chemical_trends_{}.png".format(species), dpi=200)
+plot_abundance_trends(
+    chem_df=df_comb,
+    fit_dict=fit_dict_M,
+    species_to_correct=species_to_correct_M,
+    comp_ref=comp_ref_M,
+    references_to_compare=references_to_compare_M,
+    bp_rp_lims=BP_RP_LIMS_M,
+    abund_Y_lims=ABUND_Y_LIMS_M,
+    do_limit_y_extent=DO_LIMIT_Y_EXTENT,
+    fn_label="M",
+    bp_rp_ticks=BP_RP_TICKS_M,)
