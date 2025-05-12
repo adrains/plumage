@@ -66,8 +66,9 @@ else:
         sm.masked_data, sm.masked_data_ivar)
 
 # Create name of subfolder to save everything to
-save_folder = "paper/{}_{}_{}L_{}S_{}P_{}".format(
+save_folder = "paper/{}_{}_{}_{}L_{}S_{}P_{}".format(
     cs.std_label,
+    cs.sm_name,
     cs.model_type,
     sm.L,
     sm.S,

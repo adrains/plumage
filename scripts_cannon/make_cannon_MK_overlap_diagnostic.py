@@ -65,7 +65,7 @@ def plot_cannon_overlap_diagnostics(
     # Initialise plot, 3 rows (M, K, MK), and n_labels + 1 (for CMD) columns
     plt.close("all")
     fig, axes = plt.subplots(
-        nrows=3, ncols=N_LABELS+1, figsize=(14,6), sharex='col')
+        nrows=3, ncols=N_LABELS+1, figsize=(16,6), sharex='col')
     
     fig.subplots_adjust(
         left=0.075,
@@ -184,9 +184,9 @@ def plot_cannon_overlap_diagnostics(
             # Select the colour bar/map, which will be [Fe/H] for all labels
             # except for [Fe/H] itself where we'll use Teff
             colour = (
-                info_overlap["label_adopt_Fe_H"].values if label != "Fe_H"
+                info_overlap["label_adopt_Fe_H"].values if label_i < 2
                 else info_overlap["label_adopt_teff"].values)
-            cmap = "viridis" if label != "Fe_H" else "magma"
+            cmap = "viridis" if label_i < 2 else "magma"
 
             # Compute and plot residuals as resid = lit - pred
             resid = info_overlap[label_adopt] - df[label_cv]
@@ -199,8 +199,10 @@ def plot_cannon_overlap_diagnostics(
             cb.update_ticks()
             
             # Annotate systematic + std of the residuals
-            resid_med = np.median(resid)
-            resid_std = np.std(resid)
+            # TODO: it shouldn't be necessary to have to account for nans, but
+            # the MK model can have nans in the residuals.
+            resid_med = np.nanmedian(resid)
+            resid_std = np.nanstd(resid)
             txt = r"${:0.2f} \pm {:0.2f}\,${}".format(
                 resid_med, resid_std, units[label_i])
             
@@ -265,26 +267,27 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 # Model settings for each of our 3 different Cannon models. Note that they 
 # share n_px and n_label.
 n_px = 5024
-n_label = 3
+n_label = 4
 
-n_star_MK = 201
-n_star_K = 102
-n_star_M = 141
+n_star_MK = 199
+n_star_K = 101
+n_star_M = 139
 
 # Names of each of the three models
 model_names = ("M", "K", "M+K")
 
 # Labels + axis info for plotting later. These should have length >= n_label.
-labels = ("teff", "logg", "Fe_H")
-labels_str = (r"$T_{\rm eff}$", r"$\log g$", "[Fe/H]")
-labels_cb = ("[Fe/H]", "[Fe/H]", r"$T_{\rm eff}$")
+labels = ("teff", "logg", "Fe_H", "Ti_Fe")
+labels_str = (r"$T_{\rm eff}$", r"$\log g$", "[Fe/H]", "[Ti/Fe]")
+labels_cb = ("[Fe/H]", "[Fe/H]", r"$T_{\rm eff}$", r"$T_{\rm eff}$")
 
-units = ("K", "dex", "dex")
+units = ("K", "dex", "dex", "dex")
 
 axis_ticks = {
     "teff":(200,100,50,25),
     "logg":(0.1,0.05,0.02,0.01),
-    "Fe_H":(0.5,0.25,0.1,0.05),}
+    "Fe_H":(0.5,0.25,0.1,0.05),
+    "Ti_Fe":(0.1,0.05,0.1,0.05),}
 
 #------------------------------------------------------------------------------
 # Imports and setup
