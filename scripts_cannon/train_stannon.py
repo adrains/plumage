@@ -254,6 +254,7 @@ if cs.do_cross_validation:
 
     labels_pred = sm.cross_val_labels
     labels_pred_sigma = sm.cross_val_sigmas
+    labels_pred_chi2 = sm.cross_val_chi2
 
     # Save cross validation label predictions
     for label_i, label in enumerate(sm.label_names):
@@ -268,6 +269,11 @@ if cs.do_cross_validation:
         cv_label_sigmas = np.full(len(obs_join), np.nan)
         cv_label_sigmas[adopted_benchmark] = sm.cross_val_sigmas[:,label_i]
         result_df[col] = cv_label_sigmas
+
+    # chi2
+    cv_chi2 = np.full(len(obs_join), np.nan)
+    cv_chi2[adopted_benchmark] = sm.cross_val_chi2
+    result_df["chi2_cv"] = cv_chi2
 
 # ...or just test on training set (to give a quick idea of performance)
 else:
@@ -299,15 +305,27 @@ pass
 #------------------------------------------------------------------------------
 # Diagnostics
 #------------------------------------------------------------------------------
+# Print Summary from leave-one-out cross-validation
+resid_CV = np.nanstd(sm.training_labels - labels_pred, axis=0)
+
+summary = ""
+
+for label_i, label in enumerate(sm.label_names):
+    if label == "teff":
+        summary += "\nΔTeff = {:0.0f} K"
+    elif label == "logg":
+        summary += "Δlogg = {:0.2f} dex"
+    else:
+        summary += "Δ[{}]".format(label.replace("_", "/")) + " = {:0.2f} dex"
+
+    if label_i < sm.L-1:
+        summary += ", "
+
+print("Leave-one-out Recovery:", summary.format(*tuple(resid_CV)), sep="\n")
+
+# Compute the difference between true and input labels
 fn_label = "_{}_{}_label_{}".format(
     cs.model_type, len(cs.label_names), "_".join(cs.label_names))
 
-uncertainties = np.nanstd(sm.training_labels - labels_pred, axis=0)
-
-summary = \
-    "\nΔ Teff = {:0.0f} K, Δlogg = {:0.2f} dex, Δ[Fe/H] = {:0.2f} dex"
-print("Training set uncertainties:\n", summary.format(*tuple(uncertainties)))
-
-# Compute the difference between true and input labels
 if cs.model_type == "label_uncertainties":
     splt.plot_label_uncertainty_adopted_vs_true_labels(sm, fn_label=fn_label)

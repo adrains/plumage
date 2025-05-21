@@ -16,14 +16,16 @@ def plot_label_recovery(
     e_label_values,
     label_pred,
     e_label_pred,
-    teff_lims=(2800,4500),
+    teff_lims=(2500,5000),
     logg_lims=(4.4,5.4),
-    feh_lims=(-1.0,0.75),
+    feh_lims=(-1.1,0.65),
+    X_Fe_lims=(-0.5,0.5),
     show_offset=True,
     fn_suffix="",
     teff_ticks=(500,250,100,50),
     logg_ticks=(0.5,0.25,0.2,0.1),
     feh_ticks=(0.5,0.25,0.5,0.25),
+    X_Fe_ticks=(0.2,0.1,0.4,0.2),
     plot_folder="plots/",):
     """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
 
@@ -31,24 +33,47 @@ def plot_label_recovery(
 
     Parameters
     ----------
-    label_values: 2D numpy array
-            Label array with columns [teff, logg, feh]
+    label_values, e_label_values: 2D numpy array
+        Label values and uncertainty arrays of shape [n_star, n_label].
         
-    label_pred: 2D numpy array
-        Predicted label array with columns [teff, logg, feh]
+    label_pred, e_label_pred: 2D numpy array
+        Predicted label values and uncertainty arrays of shape 
+        [n_star, n_label].
 
-    teff_lims, feh_lims: float array, default:[3000,4600],[-1.4,0.75]
-        Axis limits for Teff and [Fe/H] respectively.
+    teff_lims: float array, default: (2800, 4500)
+        Teff limits to use for X/Y axes and 1:1 recovery line.
+    
+    logg_lims: float array, defaul: (4.4, 5.4)
+        logg limits to use for X/Y axes and 1:1 recovery line.
+    
+    feh_lims: float array, default: (-1.1, 0.65)
+       [Fe/H] limits to use for X/Y axes and 1:1 recovery line.
+
+    X_Fe_lims: float array, default: (-0.5, 0.5)
+       [Ti/Fe] limits to use for X/Y axes and 1:1 recovery line.
 
     show_offset: bool, default: False
         Whether to plot the median offset as text.
 
     fn_suffix: string, default: ''
         Suffix to append to saved figures
-        
-    title_text: string, default: ''
-        Text for fig.suptitle.
 
+    teff_ticks: float array, default: (500,250,100,50)
+        Ticks for Teff subplot of form 
+        (xy_major, xy_minor, resid_major, resid_minor).
+
+    logg_ticks: float array, default: (0.5,0.25,0.2,0.1)
+        Ticks for logg subplot of form 
+        (xy_major, xy_minor, resid_major, resid_minor).
+        
+    feh_ticks: float array, default: (0.5,0.25,0.5,0.25)
+        Ticks for [Fe/H] subplot of form 
+        (xy_major, xy_minor, resid_major, resid_minor).
+        
+    X_Fe_ticks: float array, default: (0.2,0.1,0.4,0.2)
+        Ticks for [X/Fe] subplot of form 
+        (xy_major, xy_minor, resid_major, resid_minor).
+        
     plot_folder: str, default: "plots/"
         Folder to save plots to. By default just a subdirectory called plots.
     """
@@ -58,7 +83,8 @@ def plot_label_recovery(
     panel_label = "{:0.0f} Label".format(label_pred.shape[1])
 
     # Make plot
-    fig, axes = plt.subplots(1, 3)
+    n_labels = label_values.shape[1]
+    fig, axes = plt.subplots(1, n_labels)
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
 
     # Temperatures
@@ -79,19 +105,16 @@ def plot_label_recovery(
         show_offset=show_offset,
         ticks=teff_ticks,
         panel_label=panel_label,)
-    
-    # Ensure we only plot logg for stars we haven't given a default value to.
-    logg_mask = e_label_values[:,2] < 0.2
 
     # Gravity
     pplt.plot_std_comp_generic(
         fig=fig,
         axis=axes[1],
-        lit=label_values[:,1][logg_mask],
-        e_lit=e_label_values[:,1][logg_mask],
-        fit=label_pred[:,1][logg_mask],
-        e_fit=e_label_pred[:,1][logg_mask],
-        colour=label_values[:,2][logg_mask],
+        lit=label_values[:,1],
+        e_lit=e_label_values[:,1],
+        fit=label_pred[:,1],
+        e_fit=e_label_pred[:,1],
+        colour=label_values[:,2],
         fit_label=r"$\log g$ ($\it{Cannon}$)",
         lit_label=r"$\log g$ (Adopted)",
         cb_label="[Fe/H] (Adopted)",
@@ -102,19 +125,16 @@ def plot_label_recovery(
         ticks=logg_ticks,
         panel_label=panel_label,
         plot_resid_y_label=False,)
-    
-    # Ensure we only plot [Fe/H] for stars we haven't given a default value to.
-    feh_mask = e_label_values[:,2] < 0.2
 
     # [Fe/H]]
     pplt.plot_std_comp_generic(
         fig=fig,
         axis=axes[2],
-        lit=label_values[:,2][feh_mask],
-        e_lit=e_label_values[:,2][feh_mask],
-        fit=label_pred[:,2][feh_mask],
-        e_fit=e_label_pred[:,2][feh_mask],
-        colour=label_values[:,0][feh_mask],
+        lit=label_values[:,2],
+        e_lit=e_label_values[:,2],
+        fit=label_pred[:,2],
+        e_fit=e_label_pred[:,2],
+        colour=label_values[:,0],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Adopted)",
         cb_label=r"$T_{\rm eff}$ (K, Adopted)",
@@ -125,8 +145,29 @@ def plot_label_recovery(
         ticks=feh_ticks,
         panel_label=panel_label,
         plot_resid_y_label=False,)
+    
+    if n_labels == 4:
+        # [Ti/Fe]
+        pplt.plot_std_comp_generic(
+            fig=fig,
+            axis=axes[3],
+            lit=label_values[:,3],
+            e_lit=e_label_values[:,3],
+            fit=label_pred[:,3],
+            e_fit=e_label_pred[:,3],
+            colour=label_values[:,0],
+            fit_label=r"[Ti/Fe] ($\it{Cannon}$)",
+            lit_label=r"[Ti/Fe] (Adopted)",
+            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            x_lims=X_Fe_lims,
+            y_lims=X_Fe_lims,
+            cmap="magma",
+            show_offset=show_offset,
+            ticks=X_Fe_ticks,
+            panel_label=panel_label,
+            plot_resid_y_label=False,)
 
-    fig.set_size_inches(12, 3)
+    fig.set_size_inches(12/3 * n_labels, n_labels)
     fig.tight_layout()
 
     # Save plot

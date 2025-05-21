@@ -92,8 +92,9 @@ class Stannon(object):
             self.true_labels = np.full((self.S, self.L), np.nan)
 
         # Initialise cross validation results
-        self.cross_val_labels = np.nan * np.ones_like(self.training_labels)
-        self.cross_val_sigmas = np.nan * np.ones_like(self.training_labels)
+        self.cross_val_labels = np.full_like(self.training_labels, np.nan)
+        self.cross_val_sigmas = np.full_like(self.training_labels, np.nan)
+        self.cross_val_chi2 = np.full(self.S, np.nan)
 
         # Load in the model itself
         self.model = self.get_stannon_model()
@@ -125,6 +126,7 @@ class Stannon(object):
         new_sm.s2 = copy.deepcopy(self.s2)
         new_sm.cross_val_labels = copy.deepcopy(self.cross_val_labels)
         new_sm.cross_val_sigmas = copy.deepcopy(self.cross_val_sigmas)
+        new_sm.cross_val_chi2 = copy.deepcopy(self.cross_val_chi2)
 
         # And true labels vector if applicable
         if self.model_type == "label_uncertainties":
@@ -327,6 +329,18 @@ class Stannon(object):
                              "must be equal to training_labels.")
         else:
             self._cross_val_sigmas = np.array(value)
+
+    @property
+    def cross_val_chi2(self):
+        return self._cross_val_chi2
+
+    @cross_val_chi2.setter
+    def cross_val_chi2(self, value):
+        if value.shape != self.data_mask.shape:
+            raise ValueError("Dimensions of cross_val_chi2 is incorrect,"
+                             "must be 1D array of length S.")
+        else:
+            self._cross_val_chi2 = np.array(value)
 
     #--------------------------------------------------------------------------
     # Class functions
@@ -839,6 +853,10 @@ class Stannon(object):
         label_means, label_sigmas: float array
             Arrays of means and sigmas computed from the sampled distributions
             of inferred labels, of shape [n_spectra, n_label].
+
+        label_chi2s: float array
+            Array of means chi^2 from the sampled distributions of fits, of 
+            shape [n_spectra].
         """
         # Grab dimensions for convenience
         N_STARS = test_data.shape[0]
@@ -846,6 +864,9 @@ class Stannon(object):
         # Report back mean and std of the resulting distribution
         label_means = np.zeros((N_STARS, self.L))
         label_sigmas = np.zeros((N_STARS, self.L))
+
+        # Also report back the mean chi^2 (HACK: probably not rigorous)
+        label_chi2s = np.zeros(N_STARS)
 
         for star_i, (flux, ivar) in enumerate(zip(test_data, test_data_ivars)):
             # Convert to sigma
@@ -866,16 +887,17 @@ class Stannon(object):
                 np.clip(fluxes_2D_sampled, a_min=0, a_max=None,)
 
             # Infer labels (making sure to use ivars, not sigmas!)
-            labels_pred, _, _ = self.infer_labels(
+            labels_pred, _, fit_chi2s = self.infer_labels(
                 test_data=fluxes_2D_sampled,
                 test_data_ivars=ivar_2D,)
             
             # Compute statistics
             label_means[star_i] = np.mean(labels_pred, axis=0)
             label_sigmas[star_i] = np.std(labels_pred, axis=0)
+            label_chi2s[star_i] = np.mean(fit_chi2s)
 
         # All done
-        return label_means, label_sigmas
+        return label_means, label_sigmas, label_chi2s
 
 
     def make_sigma_clipped_bad_px_mask(self, flux_sigma_to_clip=5):
@@ -960,8 +982,9 @@ class Stannon(object):
         start_time = datetime.now()
 
         # Initialise output arrays
-        self.cross_val_labels = np.ones_like(self.training_labels) * np.nan
-        self.cross_val_sigmas = np.ones_like(self.training_labels) * np.nan
+        self.cross_val_labels = np.full_like(self.training_labels, np.nan)
+        self.cross_val_sigmas = np.full_like(self.training_labels, np.nan)
+        self.cross_val_chi2 = np.full(self.S, np.nan)
 
         # Do leave-one-out training and testing for all. To do this, we create
         # a duplicate object containing data on N-1 benchmarks, train, and test
@@ -1006,24 +1029,29 @@ class Stannon(object):
             # Predict labels for the missing standard
             # Option 1) predict the labels once using real spectra + sigmas
             if n_statistical_samples == 1:
-                labels_pred, _, _ = cv_sm.infer_labels(
+                labels_pred, labels_err, fit_chi2 = cv_sm.infer_labels(
                     test_data=self.masked_data[~dm],
                     test_data_ivars=self.masked_data_ivar[~dm])
             
-                # Store predicted label value
+                # Store predicted label value, statistical uncertainty, & chi2
                 self.cross_val_labels[std_i] = labels_pred
+                self.cross_val_sigmas[std_i] = labels_err
+                self.cross_val_chi2[std_i] = fit_chi2
 
             # Option 2) predict label means *and* their standard deviations
-            # by running label prediction N times via a MC approach.
+            # by running label prediction N times via a MC approach. This also
+            # returns the mean chi2.
             else:
-                labels_pred, labels_sigma = cv_sm.infer_labels_with_MC_flux(
-                    self.masked_data[~dm],
-                    self.masked_data_ivar[~dm],
-                    n_samples=n_statistical_samples,)
+                labels_pred, labels_sigma, fit_chi2 = \
+                    cv_sm.infer_labels_with_MC_flux(
+                        self.masked_data[~dm],
+                        self.masked_data_ivar[~dm],
+                        n_samples=n_statistical_samples,)
 
                 # Store predicted label mean and standard deviations
                 self.cross_val_labels[std_i] = labels_pred
                 self.cross_val_sigmas[std_i] = labels_sigma
+                self.cross_val_chi2[std_i] = fit_chi2
 
         if show_timing:
             t_elapsed = datetime.now() - start_time
@@ -1074,6 +1102,7 @@ class Stannon(object):
             "s2":self.s2,
             "cross_val_labels":self.cross_val_labels,
             "cross_val_sigmas":self.cross_val_sigmas,
+            "cross_val_chi2":self.cross_val_chi2,
             "bad_px_mask":self.bad_px_mask,
             "L":self.L,
             "P":self.P,
@@ -1156,6 +1185,12 @@ def load_model(filename):
     sm.s2 = class_dict["s2"]
     sm.cross_val_labels = class_dict["cross_val_labels"]
     sm.cross_val_sigmas = class_dict["cross_val_sigmas"]
+
+    # HACK: compatability with previous models where chi^2 was not saved
+    try:
+        sm.cross_val_chi2 = class_dict["cross_val_chi2"]
+    except:
+        pass
 
     if class_dict["model_type"] == "label_uncertainties":
         if "true_labels" in class_dict:
@@ -1244,6 +1279,7 @@ def _load_fits_model(filename):
         class_dict["s2"] = fits_file["S2"].data
         class_dict["cross_val_labels"] = fits_file["CROSS_VAL_LABELS"].data
         class_dict["cross_val_sigmas"] = fits_file["CROSS_VAL_SIGMAS"].data
+        class_dict["cross_val_chi2"] = fits_file["cross_val_chi2"].data
 
         if model_type == "label_uncertainties":
             class_dict["true_labels"] = fits_file["TRUE_LABELS"].data
@@ -1339,50 +1375,56 @@ def _save_fits_model(filename, class_dict,):
     hdu.append(wave_adopt_mask_img)
 
     # HDU 9: Data mask
-    data_mask_img =  fits.PrimaryHDU(class_dict["data_mask"].astype(int))
+    data_mask_img = fits.PrimaryHDU(class_dict["data_mask"].astype(int))
     data_mask_img.header["EXTNAME"] = (
         "DATA_MASK",
         "Mask of stars included in the Cannon model, [n_star].")
     hdu.append(data_mask_img)
 
     # HDU 10: Bad pixel mask
-    bad_px_mask_img =  fits.PrimaryHDU(class_dict["bad_px_mask"].astype(int))
+    bad_px_mask_img = fits.PrimaryHDU(class_dict["bad_px_mask"].astype(int))
     bad_px_mask_img.header["EXTNAME"] = (
         "BAD_PX_MASK",
         "Per-star bad px mask, [n_star, n_px_all].")
     hdu.append(bad_px_mask_img)
 
     # HDU 11: Theta
-    theta_img =  fits.PrimaryHDU(class_dict["theta"])
+    theta_img = fits.PrimaryHDU(class_dict["theta"])
     theta_img.header["EXTNAME"] = (
         "THETA",
         "Coefficient matrix for trained Cannon, [n_px_model, n_coeff].")
     hdu.append(theta_img)
 
     # HDU 12: s2
-    s2_img =  fits.PrimaryHDU(class_dict["s2"])
+    s2_img = fits.PrimaryHDU(class_dict["s2"])
     s2_img.header["EXTNAME"] = (
         "S2",
         "Scatter array for trained Cannon, [n_px_model].")
     hdu.append(s2_img)
 
     # HDU 13: Cross validation labels
-    cross_val_img =  fits.PrimaryHDU(class_dict["cross_val_labels"])
-    cross_val_img.header["EXTNAME"] = (
+    cross_val_label_img = fits.PrimaryHDU(class_dict["cross_val_labels"])
+    cross_val_label_img.header["EXTNAME"] = (
         "CROSS_VAL_LABELS",
         "Labels recovered in leave-one-out cross val, [n_star, n_label].")
-    hdu.append(cross_val_img)
+    hdu.append(cross_val_label_img)
 
     # HDU 14: Cross validation label sigmas
-    cross_val_img =  fits.PrimaryHDU(class_dict["cross_val_sigmas"])
-    cross_val_img.header["EXTNAME"] = (
+    cross_val_sigma_img =  fits.PrimaryHDU(class_dict["cross_val_sigmas"])
+    cross_val_sigma_img.header["EXTNAME"] = (
         "CROSS_VAL_SIGMAS",
         "Label sigmas recovered in leave-one-out cross val, [n_star, n_label]")
-    hdu.append(cross_val_img)
+    hdu.append(cross_val_sigma_img)
+
+    # HDU 15: Cross validation label sigmas
+    cross_val_chi2_img = fits.PrimaryHDU(class_dict["cross_val_chi2"])
+    cross_val_chi2_img.header["EXTNAME"] = (
+        "CROSS_VAL_SIGMAS", "Fit chi^2 for leave-one-out cross val, [n_star]")
+    hdu.append(cross_val_chi2_img)
 
     if (class_dict["model_type"] == "label_uncertainties" 
         and "true_labels" in class_dict):
-            # HDU 15: True labels
+            # HDU 16: True labels
             true_label_img =  fits.PrimaryHDU(class_dict["true_labels"])
             true_label_img.header["EXTNAME"] = (
                 "TRUE_LABELS",

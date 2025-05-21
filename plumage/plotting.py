@@ -4,25 +4,17 @@ from __future__ import print_function, division
 import os
 import numpy as np
 import glob
-try:
-    import batman as bm
-except:
-    pass
 import pandas as pd
 import matplotlib.pylab as plt
-import matplotlib.colors as mplc
 import plumage.spectra as spec
 import plumage.synthetic as synth
 import plumage.transits as transit
 import plumage.utils as utils
 from tqdm import tqdm
-import matplotlib.transforms as transforms
 import matplotlib.ticker as plticker
 from scipy.interpolate import interp1d
 from scipy.stats import norm
-from scipy.integrate import simps
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 # Ensure the plotting folder exists to save to
 here_path = os.path.dirname(__file__)
@@ -1426,7 +1418,7 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
         cb.ax.tick_params(labelsize="medium", rotation=0)
 
         if cb_label != "" and plot_cbar_label:
-            cb.set_label(cb_label, fontsize="large")
+            cb.ax.set_title(cb_label, fontsize="medium")
     
     # Split lims if we've been given different x and y limits
     lim_min = np.min([x_lims[0], y_lims[0]])
