@@ -167,7 +167,7 @@ def plot_label_recovery(
             panel_label=panel_label,
             plot_resid_y_label=False,)
 
-    fig.set_size_inches(12/3 * n_labels, n_labels)
+    fig.set_size_inches(12/3 * n_labels, 3)
     fig.tight_layout()
 
     # Save plot
@@ -187,134 +187,199 @@ def plot_label_recovery_per_source(
     e_label_values,
     label_pred,
     e_label_pred,
+    label_names,
     obs_join,
-    teff_lims=(2800,4500),
-    feh_lims=(-1.0,0.75),
+    teff_sources,
+    teff_lims,
+    feh_lims,
+    X_Fe_lims,
+    teff_ticks,
+    feh_ticks,
+    X_Fe_ticks,
+    n_cols=4,
     show_offset=True,
     fn_suffix="",
-    teff_ticks=(500,250,100,50),
-    feh_ticks=(0.5,0.25,0.5,0.25),
-    do_plot_mid_K_panel=False,
     plot_folder="plots/",):
-    """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
+    """Plot a grid pf Teff [Fe/H], and [X/Fe] recovery for each separate
+    literature parameter source.
 
     Saves as paper/std_comp<fn_suffix>.<pdf/png>.
 
     Parameters
     ----------
-    label_values: 2D numpy array
-            Label array with columns [teff, logg, feh]
+    label_values, e_label_values: 2D float array
+        Adopted label value and uncertainty arrays with shape 
+        [n_star, n_label].
         
-    label_pred: 2D numpy array
-        Predicted label array with columns [teff, logg, feh]
+    label_pred, e_label_pred: 2D float array
+        Predicted label value and uncertainty arrays with shape 
+        [n_star, n_label].
 
-    teff_lims, feh_lims: float array, default:[3000,4600],[-1.4,0.75]
-        Axis limits for Teff and [Fe/H] respectively.
+    label_names: str list
+        List of label names of shape [n_label].
 
-    show_offset: bool, default: False
+    obs_join: pandas DataFrame
+        Dataframe of stellar properties.
+
+    teff_sources: str list, 
+        Suffixes to use for selecting values from obs_join when plotting
+        temperature recovery, e.g. 'int' to select 'teff_int' for those Teffs
+        from interferometry.
+
+    teff_lims, feh_lims: X_Fe_lims: float array
+        X and Y axis limits for Teff, [Fe/H], and [X/Fe] respectively, of form
+        (min, max).
+
+    teff_ticks, feh_ticks, X_Fe_ticks: float array
+        X and Y ticks for the main and residual axes, of form 
+        (ax_main_major, ax_main_minor, ax_resid_major, ax_resid_minor).
+
+    n_cols: int, default: 4
+        Number of columns for our grid.
+
+    show_offset: bool, default: True
         Whether to plot the median offset as text.
 
     fn_suffix: string, default: ''
         Suffix to append to saved figures
-        
-    title_text: string, default: ''
-        Text for fig.suptitle.
-
-    do_plot_mid_K_panel: boolean, default: False
-        Whether to plot an extra panel for mid-K dwarf benchmarks.
 
     plot_folder: str, default: "plots/"
         Folder to save plots to. By default just a subdirectory called plots.
     """
     plt.close("all")
+    #--------------------------------------------------------------------------
+    # Preparation
+    #--------------------------------------------------------------------------
+    # Count Teff subplots needed
+    n_teff = [np.sum(~np.isnan(obs_join["teff_{}".format(src)].values)) > 0 
+              for src in teff_sources]
+    n_teff_subplots = np.sum(n_teff)
+
+    #-----------------------------
+    # Count [Fe/H] subplots needed
+    Fe_H_sources = []
+    
+    # Add only [Fe/H] sources not solely associated with CPM targets
+    for source in set(obs_join["label_source_Fe_H"].values):
+        if np.sum(~np.isnan(obs_join["Fe_H_{}".format(source)].values)) > 0:
+            Fe_H_sources.append(source)
+
+    # Sort these chronologically by year of publication
+    years = \
+        [int("".join([c for c in src if c.isdigit()])) for src in Fe_H_sources]
+    years_ii = np.argsort(years)
+    Fe_H_sources = np.array(Fe_H_sources)[years_ii]
+
+    # Add a panel for mid-K stars
+    do_plot_mid_K = \
+        True if np.sum(obs_join["is_mid_k_dwarf"].values) > 0 else False
+
+    # Add panel for CPM stars
+    is_cpm = obs_join["is_cpm"].values
+    have_cpm = np.sum(is_cpm) > 0
+
+    n_Fe_H_subplots = len(Fe_H_sources) + int(do_plot_mid_K) + int(have_cpm)
+
+    #-----------------------------
+    # Count [X/Fe] subplots needed
+    n_X_Fe_labels = 0
+
+    # Count if we have non-zero stars with directly measured [X/Fe]
+    for label in label_names[3:]:
+        # Add a panel for chemodynamic [X/Fe]
+        n_X_Fe_labels += 1
+
+        # Add a panel for CPM [X/Fe]
+        if np.sum(is_cpm) > 0:
+            n_X_Fe_labels += 1
+
+        # Add a panel for directly measured [X/Fe]
+        if len(set(obs_join[~is_cpm]["label_source_{}".format(label)])) > 0:
+            n_X_Fe_labels += 1
+
+    #-----------------------------
+    # Finalise setup
+    n_subplots = n_teff_subplots + n_Fe_H_subplots + n_X_Fe_labels
+
+    n_cols = 4
+    n_rows = int(np.ceil(n_subplots / n_cols))
 
     # Panel label with n_labels
     panel_label = "{:0.0f} Label".format(label_pred.shape[1])
 
-    # Make plot
-    if do_plot_mid_K_panel:
-        fig, axes  = plt.subplots(1,5)
-        (ax_teff_int, ax_feh_m15, ax_feh_ra12, ax_feh_cpm, ax_feh_mid_k) = axes
-    else:
-        fig, axes = plt.subplots(1,4)
-        (ax_teff_int, ax_feh_m15, ax_feh_ra12, ax_feh_cpm) = axes
+    fig, axes  = plt.subplots(nrows=n_rows, ncols=n_cols,)
+    axes = axes.flatten()
 
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.0)
 
-    # Interferometric temperatures
-    int_mask = ~np.isnan(obs_join["teff_int"])
+    # Intialise axis counter
+    ax_i = 0
 
-    pplt.plot_std_comp_generic(
-        fig=fig,
-        axis=ax_teff_int,
-        lit=label_values[:,0][int_mask],
-        e_lit=e_label_values[:,0][int_mask],
-        fit=label_pred[:,0][int_mask],
-        e_fit=e_label_pred[:,0][int_mask],
-        colour=label_values[:,2][int_mask],
-        fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
-        lit_label=r"$T_{\rm eff}$ (K, Interferometry)",
-        cb_label="[Fe/H] (Adopted)",
-        x_lims=teff_lims,
-        y_lims=teff_lims,
-        cmap="viridis",
-        show_offset=show_offset,
-        ticks=teff_ticks,
-        panel_label=panel_label,)
+    #--------------------------------------------------------------------------
+    # Teff
+    #--------------------------------------------------------------------------
+    for source in teff_sources:
+        teff_mask = ~np.isnan(obs_join["teff_{}".format(source)].values)
 
-    # Mann+15 [Fe/H]
-    feh_mask = ~np.isnan(obs_join["Fe_H_M15"])
+        if np.sum(teff_mask) == 0:
+            continue
 
-    pplt.plot_std_comp_generic(
-        fig=fig,
-        axis=ax_feh_m15,
-        lit=label_values[:,2][feh_mask],
-        e_lit=e_label_values[:,2][feh_mask],
-        fit=label_pred[:,2][feh_mask],
-        e_fit=e_label_pred[:,2][feh_mask],
-        colour=label_values[:,0][feh_mask],
-        fit_label=r"[Fe/H] ($\it{Cannon}$)",
-        lit_label=r"[Fe/H] (Mann+15)",
-        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
-        x_lims=feh_lims,
-        y_lims=feh_lims,
-        cmap="magma",
-        show_offset=show_offset,
-        ticks=feh_ticks,
-        panel_label=panel_label,
-        plot_cbar_label=False,
-        plot_resid_y_label=False,)
+        pplt.plot_std_comp_generic(
+            fig=fig,
+            axis=axes[ax_i],
+            lit=label_values[:,0][teff_mask],
+            e_lit=e_label_values[:,0][teff_mask],
+            fit=label_pred[:,0][teff_mask],
+            e_fit=e_label_pred[:,0][teff_mask],
+            colour=label_values[:,2][teff_mask],
+            fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
+            lit_label=r"$T_{{\rm eff}}$ (K, {})".format(source),
+            cb_label="[Fe/H] (Adopted)",
+            x_lims=teff_lims,
+            y_lims=teff_lims,
+            cmap="viridis",
+            show_offset=show_offset,
+            ticks=teff_ticks,
+            panel_label=panel_label,)
+        
+        ax_i += 1
 
-    # Rojas-Ayala+12 [Fe/H]
-    feh_mask = ~np.isnan(obs_join["Fe_H_RA12"])
+    #--------------------------------------------------------------------------
+    # [Fe/H]
+    #--------------------------------------------------------------------------
+    for source in Fe_H_sources:
+        feh_mask = ~np.isnan(obs_join["Fe_H_{}".format(source)].values)
 
-    pplt.plot_std_comp_generic(
-        fig=fig,
-        axis=ax_feh_ra12,
-        lit=label_values[:,2][feh_mask],
-        e_lit=e_label_values[:,2][feh_mask],
-        fit=label_pred[:,2][feh_mask],
-        e_fit=e_label_pred[:,2][feh_mask],
-        colour=label_values[:,0][feh_mask],
-        fit_label=r"[Fe/H] ($\it{Cannon}$)",
-        lit_label=r"[Fe/H] (Rojas-Ayala+12)",
-        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
-        x_lims=feh_lims,
-        y_lims=feh_lims,
-        cmap="magma",
-        show_offset=show_offset,
-        ticks=feh_ticks,
-        panel_label=panel_label,
-        plot_cbar_label=False,
-        plot_y_label=True,
-        plot_resid_y_label=False,)
+        pplt.plot_std_comp_generic(
+            fig=fig,
+            axis=axes[ax_i],
+            lit=label_values[:,2][feh_mask],
+            e_lit=e_label_values[:,2][feh_mask],
+            fit=label_pred[:,2][feh_mask],
+            e_fit=e_label_pred[:,2][feh_mask],
+            colour=label_values[:,0][feh_mask],
+            fit_label=r"[Fe/H] ($\it{Cannon}$)",
+            lit_label=r"[Fe/H] ({})".format(source),
+            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            x_lims=feh_lims,
+            y_lims=feh_lims,
+            cmap="magma",
+            show_offset=show_offset,
+            ticks=feh_ticks,
+            panel_label=panel_label,
+            plot_resid_y_label=False,)
+        
+        ax_i += 1
 
+    #--------------------------------------------------------------------------
+    # CPM and mid-K [Fe/H]
+    #--------------------------------------------------------------------------
     # CPM [Fe/H]
     feh_mask = obs_join["is_cpm"].values
 
     pplt.plot_std_comp_generic(
         fig=fig,
-        axis=ax_feh_cpm,
+        axis=axes[ax_i],
         lit=label_values[:,2][feh_mask],
         e_lit=e_label_values[:,2][feh_mask],
         fit=label_pred[:,2][feh_mask],
@@ -332,13 +397,15 @@ def plot_label_recovery_per_source(
         plot_y_label=True,
         plot_resid_y_label=False,)
     
+    ax_i += 1
+
     # Mid-K dwarfs [Fe/H]
-    if do_plot_mid_K_panel:
+    if do_plot_mid_K:
         feh_mask = obs_join["is_mid_k_dwarf"].values
 
         pplt.plot_std_comp_generic(
             fig=fig,
-            axis=ax_feh_mid_k,
+            axis=axes[ax_i],
             lit=label_values[:,2][feh_mask],
             e_lit=e_label_values[:,2][feh_mask],
             fit=label_pred[:,2][feh_mask],
@@ -355,8 +422,102 @@ def plot_label_recovery_per_source(
             panel_label=panel_label,
             plot_y_label=True,
             plot_resid_y_label=False,)
+        
+        ax_i += 1
+    
+    #--------------------------------------------------------------------------
+    # [X/Fe]
+    #--------------------------------------------------------------------------
+    for ii, label in enumerate(label_names[3:]):
+        label_i = ii + 3
+        
+        label_txt = label.replace("_", "/")
 
-    fig.set_size_inches(16, 3)
+        # Grab binary mask
+        is_cpm = obs_join["is_cpm"].values
+
+        # Directly measured [X/Fe]
+        X_Fe_direct = np.logical_and(
+            ~is_cpm,
+            obs_join["label_source_{}".format(label)].values != "SM25",)
+
+        if np.sum(X_Fe_direct) > 0:
+            #X_Fe_mask = obs_join["is_mid_k_dwarf"].values
+
+            pplt.plot_std_comp_generic(
+                fig=fig,
+                axis=axes[ax_i],
+                lit=label_values[:,label_i][X_Fe_direct],
+                e_lit=e_label_values[:,label_i][X_Fe_direct],
+                fit=label_pred[:,label_i][X_Fe_direct],
+                e_fit=e_label_pred[:,label_i][X_Fe_direct],
+                colour=label_values[:,0][X_Fe_direct],
+                fit_label=r"[{}] ($\it{{Cannon}}$)".format(label_txt),
+                lit_label=r"[{}] (Literature)".format(label_txt),
+                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                x_lims=X_Fe_lims,
+                y_lims=X_Fe_lims,
+                cmap="magma",
+                show_offset=show_offset,
+                ticks=X_Fe_ticks,
+                panel_label=panel_label,
+                plot_y_label=True,
+                plot_resid_y_label=False,)
+            
+            ax_i += 1
+
+        # Binary [X/Fe]
+        if np.sum(is_cpm) > 0:
+            pplt.plot_std_comp_generic(
+                fig=fig,
+                axis=axes[ax_i],
+                lit=label_values[:,label_i][is_cpm],
+                e_lit=e_label_values[:,label_i][is_cpm],
+                fit=label_pred[:,label_i][is_cpm],
+                e_fit=e_label_pred[:,label_i][is_cpm],
+                colour=label_values[:,0][is_cpm],
+                fit_label=r"[{}] ($\it{{Cannon}}$)".format(label_txt),
+                lit_label=r"[{}] (Binary Primary)".format(label_txt),
+                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                x_lims=X_Fe_lims,
+                y_lims=X_Fe_lims,
+                cmap="magma",
+                show_offset=show_offset,
+                ticks=X_Fe_ticks,
+                panel_label=panel_label,
+                plot_y_label=True,
+                plot_resid_y_label=False,)
+            
+            ax_i += 1
+
+        # Chemodynamic [X/Fe]
+        X_Fe_mask = ~np.isnan(obs_join["{}_SM25".format(label)].values)
+
+        pplt.plot_std_comp_generic(
+            fig=fig,
+            axis=axes[ax_i],
+            lit=label_values[:,label_i][X_Fe_mask],
+            e_lit=e_label_values[:,label_i][X_Fe_mask],
+            fit=label_pred[:,label_i][X_Fe_mask],
+            e_fit=e_label_pred[:,label_i][X_Fe_mask],
+            colour=label_values[:,0][X_Fe_mask],
+            fit_label=r"[{}] ($\it{{Cannon}}$)".format(label_txt),
+            lit_label=r"[{}] (Chemodynamic)".format(label_txt),
+            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            x_lims=X_Fe_lims,
+            y_lims=X_Fe_lims,
+            cmap="magma",
+            show_offset=show_offset,
+            ticks=X_Fe_ticks,
+            panel_label=panel_label,
+            plot_resid_y_label=False,)
+        
+        ax_i += 1
+
+    for ii in range(ax_i, len(axes)):
+        axes[ii].set_visible(False) 
+
+    fig.set_size_inches(15, 3*n_rows)
     fig.tight_layout()
 
     # Save plot

@@ -123,11 +123,13 @@ splt.plot_label_recovery(
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
     #chi2=sm.cross_val_chi2,
     fn_suffix=fn_label,
-    teff_lims=(2500,5000),
+    teff_lims=(2500,4250),
     teff_ticks=(500,250,200,100),
     logg_ticks=(0.25,0.125,0.1,0.05),
     feh_lims=(-1.1,0.65),
     feh_ticks=(0.5,0.25,0.4,0.2),
+    X_Fe_lims=(-0.3,0.4),
+    X_Fe_ticks=(0.2,0.1,0.2,0.1),
     plot_folder=save_folder,)
 
 # Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
@@ -135,14 +137,17 @@ splt.plot_label_recovery_per_source(
     label_values=sm.training_labels, 
     e_label_values=sm.training_variances**0.5, 
     label_pred=labels_pred, 
-    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L), 
+    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
+    label_names=sm.label_names,
     obs_join=obs_join,
+    teff_sources=["int", "M15_BP_RP_feh", "C21_BP_RP_logg_feh"],
     fn_suffix=fn_label,
     teff_lims=(2800,5000),
     feh_lims=(-1.1,0.65),
+    X_Fe_lims=(-0.3,0.4),
     teff_ticks=(500,250,200,100),
     feh_ticks=(0.5,0.25,0.25,0.125),
-    do_plot_mid_K_panel=True,
+    X_Fe_ticks=(0.2,0.1,0.2,0.1),
     plot_folder=save_folder,)
 
 # And finally plot the label recovery for any abundances we might be using
