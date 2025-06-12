@@ -11,7 +11,6 @@ import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 from astropy.io import fits
 import warnings
-from tqdm import tqdm
 import astropy.constants as const
 from astropy import units as u
 from astropy.time import Time
@@ -19,10 +18,10 @@ from scipy.interpolate import interp1d
 from astropy.coordinates import SkyCoord, EarthLocation
 import matplotlib.ticker as plticker
 
-HEADERS_TO_EXTRACT = ["SITENAME", "SITEALT", "SITELAT", "SITELONG",
-        "TELESCOP", "OBSERVER", "DATE-OBS", "UT-DATE", "UT-START", "LC-START",
-        "INSTRUME", "RA-D", "DEC-D", "AIRMASS", "OBJECT", "EXPTIME", "NLOOPS",
-        "BINNING", "SPEED", "SLITSIZE",]
+HEADERS_TO_EXTRACT = ["SITENAME", "SITEALT", "SITELAT", "SITELONG", "TELESCOP",
+    "OBSERVER", "DATE-OBS", "UT-DATE", "UT-START", "LC-START", "INSTRUME",
+    "RA-D", "DEC-D", "AIRMASS", "OBJECT", "EXPTIME", "NLOOPS", "BINNING",
+    "SPEED", "SLITSIZE",]
 
 # -----------------------------------------------------------------------------
 # Utilities functions
@@ -141,7 +140,7 @@ def compute_barycentric_correction(
     return bcors
 
 
-def unify_wavelength_scales(exp_dict,):
+def unify_wavelength_scale_per_exp(exp_dict,):
     """Unifies the dimensions of the wavelength scales for exposures of the
     same targets taken in sequence in the event one or more orders did not
     extract properly. Missing stellar orders are populated with NaNs, whereas
@@ -149,6 +148,10 @@ def unify_wavelength_scales(exp_dict,):
     reference exposure which has all orders extracted.
 
     exp_dict is updated in place.
+
+    HACK: currently we use the mean order wavelength (rather than the order
+    number itself) to check for missing orders. This seems to work for adjacent
+    exposures, but it would be more rigorous to use the order number.
 
     Parameters
     ----------
@@ -183,6 +186,7 @@ def unify_wavelength_scales(exp_dict,):
     wave_ref = exp_dict["wave"][ref_exp_i].copy()
 
     # Compute (rounded) order wavelengths for this selected exposure
+    orders_ref = exp_dict["orders"][ref_exp_i]
     order_means_ref = (np.round(np.mean(wave_ref/5, axis=1))*5).astype(int)
 
     # Loop over all exposures and determine which order/s are missing
@@ -231,7 +235,93 @@ def unify_wavelength_scales(exp_dict,):
             # Save the new array back to the list
             exp_dict[spec_key][exp_i] = spec_array_new
 
+        # Update the orders
+        exp_dict["orders"][exp_i] = orders_ref
+
     # All done, everything has been updated in place
+
+
+def unify_wavelength_scales_global(info_dict, return_new_shape=False,):
+    """Unifies the dimensions of the wavelength scales given a set of MIKE
+    observations taken on multiple nights and multiple targets, since it is
+    possible for a) different numbers of orders to extract based on the blaze
+    angle, and b) sometimes orders fail to extract.  Missing stellar orders are
+    populated with NaNs, whereas the wavelength scale and any calibration
+    fluxes are copied from the reference exposure which has all orders
+    extracted. info_dict is updated in place, and orders are sorted in
+    ascending order.
+
+    Very similar in function to unify_wavelength_scale_per_exp, but there's a
+    greater variety of differences when considering all MIKE data, vs just
+    adjacent sets of exposures.
+
+    Parameters
+    ----------
+    info_dict: dict
+        Dictionary representation of MIKE fits files (either for the blue or
+        red arm), with (source_id, date) keys linked to a dictionary containing
+        relevant header keywords, order numbers, the wavelength scale, fluxes,
+        and uncertanties.
+
+    return_new_shape: bool, default: False
+        Whether or not to return the adopted shape, [n_order, n_px].
+
+    Returns
+    -------
+    adopted_wl_shape: float array
+        Optional return value, the shape of the unified wavelength scale as
+        [n_order, n_px].
+    """
+    # Count unique orders to initialise
+    unique_order_nums = []
+
+    n_px_list = []
+
+    for obj in info_dict.keys():
+        if info_dict[obj] is not None:
+            unique_order_nums += list(info_dict[obj]["orders"])
+
+            n_px_list.append(info_dict[obj]["wave"].shape[1])
+
+    # Sanity checking
+    assert len(set(n_px_list)) == 1
+    
+    # Select or sort the orders our data encompasses
+    unique_order_nums = np.array(list(set(unique_order_nums)))
+    unique_order_nums.sort()
+
+    # Grab adopted dimensions
+    n_px = n_px_list[0]
+    n_order = len(unique_order_nums)
+
+    # Loop over all objects and expand where necessary
+    for obj in info_dict.keys():
+        array_keys = ["wave", "spec_star_norm", "sigma_star_norm"]
+        
+        # Only proceed if we actually have data for this arm (None if not)
+        if (info_dict[obj] is not None 
+            and info_dict[obj]["wave"].shape != (n_order, n_px)):
+            orders = info_dict[obj]["orders"]
+            matched_orders = np.isin(unique_order_nums, orders)
+
+            for ak in array_keys:
+                vec_old = info_dict[obj][ak]
+                vec_new = np.full((n_order, n_px), np.nan)
+
+                vec_new[matched_orders,:] = vec_old
+
+                # Save the new array back to the list
+                info_dict[obj][ak] = vec_new
+
+            # Update order list
+            info_dict[obj]["orders"] = unique_order_nums
+
+        else:
+            continue
+
+    # Everything updated in place, but optionally return shape
+    if return_new_shape:
+        return (n_order, n_px)
 
 
 # -----------------------------------------------------------------------------
@@ -374,6 +464,7 @@ def load_single_mike_fits(fn):
             waves[order_i] = wave
 
         # Store arrays
+        data_dict["orders"] = orders
         data_dict["wave"] = waves
         data_dict["spec_sky"] = data[0]
         data_dict["spec_star"] = data[1]
@@ -401,10 +492,11 @@ def load_and_combine_single_star(filenames, plot_folder,):
     Returns
     -------
     all_exp_dict: dict
-        Dictionary representation of MIKE fits files, with keys for relevant
-        header keywords, the wavelength scale, and each of the seven (sky, obj,
-        sigma, snr, lamp, flat, obj / flat) data-cubes. Each key corresponds to
-        a list of length the number of exposures.
+        Dictionary representation of MIKE fits files (either for the blue or
+        red arm), with keys for relevant header keywords, the wavelength scale,
+        and each of the seven (sky, obj, sigma, snr, lamp, flat, obj / flat)
+        data-cubes. Each key corresponds to a list of length the number of
+        exposures.
 
     obj_dict: dict
         As above, but for the co-added spectra. Spectra and exposure times are
@@ -464,7 +556,7 @@ def load_and_combine_single_star(filenames, plot_folder,):
                 "{} is not consistent for all exposures.".format(header))
 
     # Ensure we have a consistent number of orders
-    unify_wavelength_scales(all_exp_dict)
+    unify_wavelength_scale_per_exp(all_exp_dict)
 
     # -------------------------------------------------------------------------
     # Flat field normalisation
@@ -564,6 +656,9 @@ def load_and_combine_single_star(filenames, plot_folder,):
         else:
             obj_dict[header] = np.sum(all_exp_dict[header])
 
+    # Finally add the order numbers
+    obj_dict["orders"] = all_exp_dict["orders"][ref_exp]
+
     return all_exp_dict, obj_dict
 
 
@@ -572,7 +667,7 @@ def load_all_mike_fits(
     id_crossmatch_fn="data/mike_id_cross_match.tsv",
     plot_folder="",):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
-    and key details of the observations.
+    and key details of the observations for many targets or nights of data.
 
     Parameters
     ----------
@@ -586,7 +681,11 @@ def load_all_mike_fits(
 
     Returns
     -------
-    TODO
+    blue_dict, red_dict: dict
+        Dictionary representation of MIKE fits files (one for each spectrograph
+        arm), with (source_id, date) keys linked to a dictionary containing
+        relevant header keywords, order numbers, the wavelength scale, fluxes,
+        and uncertanties.
     """
     # Import ID crossmatch file
     id_cm_df = pd.read_csv(
@@ -628,6 +727,10 @@ def load_all_mike_fits(
 
     # Loop over all objects
     for obj in unique_objs:
+        # Crossmatch ID and replace with Gaia DR3 source id
+        sid = id_cm_df.loc[obj]["source_id"]
+        kind = id_cm_df.loc[obj]["kind"]
+
         # Also loop over dates observed
         ut_dates_obj = set(ut_dates[obj_names == obj])
         for ut_date in ut_dates_obj:
@@ -641,6 +744,9 @@ def load_all_mike_fits(
                 print("\n\tBlue:\n\t", "\n\t".join(obj_blue_fns), sep="",)
                 exp_dict_b, obj_dict_b = load_and_combine_single_star(
                     obj_blue_fns, plot_folder)
+                
+                # Store target classification that we get from the crossmatch
+                obj_dict_b["kind"] = kind
             else:
                 exp_dict_b = None
                 obj_dict_b = None
@@ -651,18 +757,172 @@ def load_all_mike_fits(
 
             if np.sum(is_obj_red_arm_date) > 0:
                 obj_red_fns = fits_files[is_obj_red_arm_date]
-                print("\n\t:\n\t", "\n\t".join(obj_red_fns), sep="",)
+                print("\n\tRed:\n\t", "\n\t".join(obj_red_fns), sep="",)
                 exp_dict_r, obj_dict_r = load_and_combine_single_star(
                     obj_red_fns, plot_folder)
+                
+                # Store target classification that we get from the crossmatch
+                obj_dict_r["kind"] = kind
+
             else:
                 exp_dict_r = None
                 obj_dict_r = None
 
-            # Combine
-            blue_dict[obj] = obj_dict_b
-            red_dict[obj] = obj_dict_r
+            # Star extracted combined dicts for each exposure (distinguishing
+            # per night) to allow for duplicate targets.
+            blue_dict[(sid, ut_date)] = obj_dict_b
+            red_dict[(sid, ut_date)] = obj_dict_r
 
     return blue_dict, red_dict
+
+
+def collate_mike_obs(blue_dict, red_dict,):
+    """Takes extraced dictionaries of each observation, and compiles these into
+    one unified pandas DataFrame and sets of arrays.
+
+    Parameters
+    ----------
+    blue_dict, red_dict: dict
+        Dictionary representation of MIKE fits files (one for each spectrograph
+        arm), with (source_id, date) keys linked to a dictionary containing
+        relevant header keywords, order numbers, the wavelength scale, fluxes,
+        and uncertanties.
+
+    Returns
+    -------
+    obs_dict: dict
+        Dictionary containing the compiled MIKE data, with the following keys:
+            'obs_info' - pandas DataFrame with info from fits headers
+            'orders_b' - blue echelle orders, shape [n_order]
+            'wave_b'   - blue wavelength scales, shape [n_star, n_order, n_px]
+            'spec_b'   - blue spectra, shape [n_star, n_order, n_px]
+            'sigma_b'  - blue uncertainties, shape [n_star, n_order, n_px]
+            'orders_r' - red echelle orders, shape [n_order]
+            'wave_r'   - red wavelength scales, shape [n_star, n_order, n_px]
+            'spec_r'   - red spectra, shape [n_star, n_order, n_px]
+            'sigma_r'  - red uncertainties, shape [n_star, n_order, n_px]
+    """
+    # Get a list of the unique (obj, date) pairs
+    obj_all = set(list(blue_dict.keys()) + list(red_dict.keys()))
+
+    n_obj = len(obj_all)
+
+    # -------------------------------------------------------------------------
+    # Create wave, spec, and sigma arrays
+    # -------------------------------------------------------------------------
+    # Unify wavelength scales by adding dummy orders
+    (n_order_b, n_px_b) = unify_wavelength_scales_global(blue_dict, True)
+    (n_order_r, n_px_r) = unify_wavelength_scales_global(red_dict, True)
+
+    #(n_order_b, n_px_b) = blue_dict[blue_dict.keys()]
+
+    # Store all spectra into 2x 3D arrays of shape [n_obs, n_rder, n_px]
+    wave_b = np.full((n_obj, n_order_b, n_px_b), np.nan)
+    wave_r = np.full((n_obj, n_order_r, n_px_r), np.nan)
+
+    spec_b = np.full((n_obj, n_order_b, n_px_b), np.nan)
+    spec_r = np.full((n_obj, n_order_r, n_px_r), np.nan)
+
+    sigma_b = np.full((n_obj, n_order_b, n_px_b), np.nan)
+    sigma_r = np.full((n_obj, n_order_r, n_px_r), np.nan)
+
+    for obj_i, obj in enumerate(obj_all):
+        if blue_dict[obj] is not None:
+            wave_b[obj_i] = blue_dict[obj]["wave"]
+            spec_b[obj_i] = blue_dict[obj]["spec_star_norm"]
+            sigma_b[obj_i] = blue_dict[obj]["sigma_star_norm"]
+            orders_b = blue_dict[obj]["orders"]
+
+        if red_dict[obj] is not None:
+            wave_r[obj_i] = red_dict[obj]["wave"]
+            spec_r[obj_i] = red_dict[obj]["spec_star_norm"]
+            sigma_r[obj_i] = red_dict[obj]["sigma_star_norm"]
+            orders_r = red_dict[obj]["orders"]
+
+    # -------------------------------------------------------------------------
+    # Create DataFrame by combining B/R info
+    # -------------------------------------------------------------------------
+    # Column definitions, one set is common between arms, the othar are per-arm
+    cols_common = ["source_id", "kind", "object", "observer", "ut_date", 
+        "ut_start",  "lc_start", "airmass", "slit_size"] 
+    
+    cols_base_br = ["has", "exp_time", "n_loops", "binning", "speed", "snr",]
+
+    cols_br = []
+    for col_base in cols_base_br:
+        cols_br.append(col_base + "_b")
+        cols_br.append(col_base + "_r")
+
+    # Initialise our dataframe with relevant columns and NaN values
+    cols_all = cols_common + cols_br
+
+    n_cols = len(cols_all)
+    data = np.full((n_obj, n_cols), np.nan)
+
+    obs_info = pd.DataFrame(data=data, columns=cols_all)
+
+    # Store all header information in a pandas dataframe
+    for obj_i, obj in enumerate(obj_all):
+        # Store obj key values
+        obs_info.loc[obj_i, "source_id"] = obj[0]
+
+        # Loop over both arms and populate dataframe
+        for arm, arm_dict in zip(("b", "r"), (blue_dict, red_dict)):
+            if arm_dict[obj] is None:
+                # Arm specific params
+                obs_info.loc[obj_i, "has_" + arm] = False
+                obs_info.loc[obj_i, "exp_time_" + arm] = np.nan
+                obs_info.loc[obj_i, "n_loops_" + arm] = np.nan
+                obs_info.loc[obj_i, "binning_" + arm] = ""
+                obs_info.loc[obj_i, "speed_" + arm] = ""
+                continue
+            
+            # Constant params
+            obs_info.loc[obj_i, "kind"] = arm_dict[obj]["kind"]
+            obs_info.loc[obj_i, "object"] = arm_dict[obj]["OBJECT"]
+            obs_info.loc[obj_i, "observer"] = arm_dict[obj]["OBSERVER"]
+            obs_info.loc[obj_i, "ut_date"] = arm_dict[obj]["UT-DATE"]
+            obs_info.loc[obj_i, "ut_start"] = arm_dict[obj]["UT-START"]
+            obs_info.loc[obj_i, "lc_start"] = arm_dict[obj]["LC-START"]
+            obs_info.loc[obj_i, "airmass"] = arm_dict[obj]["AIRMASS"]
+            obs_info.loc[obj_i, "slit_size"] = arm_dict[obj]["SLITSIZE"]
+
+            # Arm specfic params
+            obs_info.loc[obj_i, "has_" + arm] = True
+            obs_info.loc[obj_i, "exp_time_" + arm] = arm_dict[obj]["EXPTIME"]
+            obs_info.loc[obj_i, "n_loops_" + arm] = arm_dict[obj]["NLOOPS"]
+            obs_info.loc[obj_i, "binning_" + arm] = arm_dict[obj]["SLITSIZE"]
+            obs_info.loc[obj_i, "speed_" + arm] = arm_dict[obj]["SPEED"]
+
+            # Ignore divide by zero/NaN errors when calculating SNR
+            with warnings.catch_warnings():
+                msg1 = "divide by zero encountered in true_divide"
+                msg2 = "invalid value encountered in true_divide"
+                warnings.filterwarnings(action='ignore', message=msg1)
+                warnings.filterwarnings(action='ignore', message=msg2)
+
+                snr = np.round(np.nanmedian(
+                    arm_dict[obj]["spec_star_norm"]
+                    / arm_dict[obj]["sigma_star_norm"]))
+            
+                obs_info.loc[obj_i, "snr_" + arm] = snr
+
+    # Column unit definition to avoid astropy complaining later
+    obs_info["has_b"] = obs_info["has_b"].values.astype(bool)
+    obs_info["has_r"] = obs_info["has_r"].values.astype(bool)
+
+    obs_dict = {
+        "obs_info":obs_info,
+        "orders_b":orders_b,
+        "wave_b":wave_b,
+        "spec_b":spec_b,
+        "sigma_b":sigma_r,
+        "orders_r":orders_r,
+        "wave_r":wave_r,
+        "spec_r":spec_r,
+        "sigma_r":sigma_r,}
+
+    return obs_dict
 
 
 def visualise_mike_spectra(
