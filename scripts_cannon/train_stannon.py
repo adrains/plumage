@@ -13,8 +13,8 @@ This script is part of a series of Cannon scripts. The main sequence is:
  4) make_stannon_diagnostics.py            --> diagnostic plots + result tables
  5) run_stannon.py                         --> running on science spectra
 
-The parameters for steps 2) and 3) can be found in cannon_settings.py, which
-should be modified/duplicated and imported.
+The parameters for step 2) can be found in cannon_settings.py, which should be
+modified/duplicated and imported.
 """
 import numpy as np
 import pandas as pd

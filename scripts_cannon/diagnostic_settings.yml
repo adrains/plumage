@@ -1,0 +1,115 @@
+# This file contains the common set of parameters used to train and plot 
+# diagnostic plots for a Cannon model.
+#
+# This is part of a series of Cannon scripts. The main sequence is:
+# 1) prepare_stannon_training_sample.py    --> label preparation
+# 2) train_stannon.py                      --> training and cross validation
+# 3) make_stannon_diagnostics.py           --> diagnostic plots + result tables
+# 4) run_stannon.py                        --> running on science spectra
+#
+# Where the values in this file currently apply to items 2) and 3).
+#
+# YAML specifications: https://yaml.org/spec/1.2.2/
+
+#------------------------------------------------------------------------------
+# Cannon Model Settings
+#------------------------------------------------------------------------------
+# Save path and label of fits file
+model_save_path: "spectra"
+std_label: "cannon_mk"
+
+# Abundance labels of the Cannon model, e.g.["X_Fe",..]. Left empty otherwise.
+abundance_labels: ["Ti_Fe"]
+
+# Base non-abundance labels
+base_labels: ["teff", "logg", "Fe_H",]
+
+# Models type and wavelength limits
+sm_type: "basic"
+wl_min_model: 4000
+wl_max_model: 7000
+
+# Specifics of the given Cannon model to load
+sm_name: "M"
+L: 4
+S: 147      # MK: 199, M: 147, K: 52
+P: 5024     # 4000-7000 A
+#P: 5573    # 3500-7000 A
+
+#------------------------------------------------------------------------------
+# Diagnostic Plot Settings
+#------------------------------------------------------------------------------
+# If this is true, we only plot the first order/linear theta coefficients. If
+# False, we include extra panels for the cross and quadtratic terms
+only_plot_first_order_coeff: False
+
+# The grating at which the WiFeS B3000 spectra transition to R7000 spectra to
+# use when plotting separate 'b' and 'r' plots.
+wl_grating_changeover: 5400
+
+# Line lists to overplot against theta coefficients. Due to the density of
+# atomic features in the blue, we have a more strict threshold for labelling.
+line_list_file: "data/t3500_g+5.0_z+0.00_a+0.00_v1.00_latoms.eqw"
+ew_min_ma_b: 400
+ew_min_ma_r: 150
+
+# Which species to overplot on our theta plot. It gets very busy the more
+# species we plot, so it's currently limited to the most prominent species.
+species_to_plot: ["Ca 1", "Ti 1", "Fe 1"]
+
+# Adopted label uncertainties and systematics based on cross validation
+# performance on the benchmark set. Quoted systematics are fit - lit, meaning
+# that a positive systematic means the Cannon has *overestimated* the value 
+# (and thus the systematic should be substracted). The temperature systematic 
+# and uncertainty will be adopted from just the interferometric set, whereas
+# logg and [Fe/H] will be taken from the complete sample. 
+# TODO: adopted_label_uncertainties = sm.adopted_label_uncertainties
+#adopted_label_systematics: [-1, 0.0, 0.00,]
+#adopted_label_uncertainties: [51, 0.04, 0.10,]
+
+# Here we've picked a set of spectral types ranging over our BP-RP range.
+representative_stars_source_ids: 
+- "3757613049856225792"      # M7V, LHS 292
+- "5853498713190525696"      # M5.5, GJ 551
+- "2595284016771502080"      # M5, LHS 3799
+- "2868199402451064064"      # M4.7, GJ 1288
+- "6322070093095493504"      # M2, GJ 581
+- "2603090003484152064"      # M3, GJ 876
+- "4472832130942575872"      # M4, Gl 699
+- "2910909931633597312"      # M3, LP 837-53
+- "3184351876391975808"      # M2, Gl 173
+- "2739689239311660672"      # M0, Gl 908
+- "145421309108301184"       # K8, Gl 169
+- "4282578724832056576"      # M0.7, Gl 740
+- "3266980243936341248"      # M1V, NLTT 10349, most metal poor
+- "3057712188691831936"      # K7V, Gl 282B
+- "3630092241022731136"      # K5V, HD 118100
+- "4109034455276324608"      # K5V, V* V2215 Oph
+- "4706630501049679744"      # K4.5V, HD 55
+- "6412595290592307840"      # K5V, eps Ind
+- "19316224572460416"        # K3V, GJ 105
+- "2552925644460225152"      # K2.5V, GJ 33
+
+# Threshold at which to flag logg values in our results tabls
+aberrant_logg_threshold: 0.06
+
+# Valenti & Fischer 2005 files to compare Gaia+GALAH [Ti/Fe] chemodynamic rels
+vf05_full_file: "data/valenti_fischer_05.tsv"
+vf05_sampled_file: "/Users/arains/Dropbox/AdamTiDists/Results/VFCalibration/vfs_pred_tife.dat"
+
+# Size of spectra diagnostic plots
+spec_comp_fig_size: [14, 10]
+
+#------------------------------------------------------------------------------
+# Model Comparison Settings
+#------------------------------------------------------------------------------
+# For comparison purposes, we select one trained 3 label model, and one
+# trained 4 label model to compare performance via compare_stannon_models.py
+sm_1_path: "spectra/stannon_model_basic_K_3L_5024P_101S_teff_logg_Fe_H.pkl"
+sm_2_path: "spectra/stannon_model_basic_K_4L_5024P_101S_teff_logg_Fe_H_Ti_Fe.pkl"
+
+sm_1_label: "3 Label"
+sm_2_label: "4 Label"
+
+# Fractional thresholds to use when comparing Cannon vs MARCS spectra
+delta_thresholds: [0.1, 0.05, 0.02]

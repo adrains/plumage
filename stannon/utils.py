@@ -271,6 +271,36 @@ def infer_labels(theta, scatter, fluxes, ivars, lbl_mean, lbl_std, n_labels=3):
     return labels_all, errs_all, chi2_all
 
 
+def load_diagnostic_settings(yaml_path):
+    """Import our Cannon diagnostic settings YAML file as a dictionary and
+    return the object equivalent.
+
+    Parameters
+    ----------
+    yaml_path: string
+        Path to the saved YAML file.
+
+    Returns
+    -------
+    cs: YAMLSettings object
+        YAMLSettings object with attributes equivalent to YAML keys.
+    """
+    # Load in YAML file as dictionary
+    with open(yaml_path) as yaml_file:
+        yaml_dict = yaml.safe_load(yaml_file)
+
+    # Add in missing keywods
+    yaml_dict["label_names"] = \
+        yaml_dict["base_labels"] + yaml_dict["abundance_labels"]
+    
+    yaml_dict["n_labels"] = len(yaml_dict["label_names"])
+
+    # Finally convert to our wrapper object form and return
+    cs = YAMLSettings(yaml_dict)
+
+    return cs
+
+
 def load_cannon_settings(yaml_path):
     """Import our Cannon settings YAML file as a dictionary and return the
     object equivalent.

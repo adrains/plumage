@@ -9,8 +9,8 @@ This script is part of a series of Cannon scripts. The main sequence is:
  4) make_stannon_diagnostics.py            --> diagnostic plots + result tables
  5) run_stannon.py                         --> running on science spectra
 
-The parameters for steps 2) and 3) can be found in cannon_settings.py, which
-should be modified/duplicated and imported.
+The parameters for step 3) can be found in diagnostic_settings.py, which should
+be modified/duplicated and imported.
 """
 import os
 import numpy as np
@@ -23,8 +23,8 @@ import stannon.utils as su
 #------------------------------------------------------------------------------
 # Import Settings
 #------------------------------------------------------------------------------
-cannon_settings_yaml = "scripts_cannon/cannon_settings.yml"
-cs = su.load_cannon_settings(cannon_settings_yaml)
+cannon_settings_yaml = "scripts_cannon/diagnostic_settings.yml"
+cds = su.load_diagnostic_settings(cannon_settings_yaml)
 
 label_settings = "scripts_cannon/label_settings.yml"
 ls = su.load_yaml_settings(label_settings)
@@ -34,42 +34,39 @@ ls = su.load_yaml_settings(label_settings)
 #------------------------------------------------------------------------------
 # Import model
 model_name = "stannon_model_{}_{}_{}L_{}P_{}S_{}.pkl".format(
-    cs.sm_type, cs.sm_name, cs.L, cs.P, cs.S, "_".join(cs.label_names))
+    cds.sm_type, cds.sm_name, cds.L, cds.P, cds.S, "_".join(cds.label_names))
 
 cannon_model_path = os.path.join("spectra", model_name)
 
 sm = stannon.load_model(cannon_model_path)
 
 # Import DataFrame for this particular model
-fits_ext_label = "{}_{}L_{}P_{}S".format(cs.sm_name, sm.L, sm.P, sm.S)
+fits_ext_label = "{}_{}L_{}P_{}S".format(cds.sm_name, sm.L, sm.P, sm.S)
 cannon_df = pu.load_fits_table(
     extension="CANNON_MODEL",
-    label=cs.std_label,
-    path=cs.model_save_path,
+    label=cds.std_label,
+    path=cds.model_save_path,
     ext_label=fits_ext_label)
 
 adopted_benchmark = cannon_df["adopted_benchmark"].values
 
 # Import saved reference data amd grab only the saved benchmark subset
-obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
+obs_join = pu.load_fits_table("CANNON_INFO", cds.std_label)
 N_BENCHMARK_TOTAL = len(obs_join)
 
 obs_join = obs_join[adopted_benchmark]
 
 is_binary = obs_join["is_cpm"].values
 
-# Grab our adopted labels--either from cross validation or just a quick check
-if cs.is_cross_validated:
-    labels_pred = sm.cross_val_labels
-else:
-    labels_pred, errs_all, chi2_all = sm.infer_labels(
+# Grab our adopted labels from cross validation
+labels_pred, errs_all, chi2_all = sm.infer_labels(
         sm.masked_data, sm.masked_data_ivar)
 
 # Create name of subfolder to save everything to
 save_folder = "paper/{}_{}_{}_{}L_{}S_{}P_{}".format(
-    cs.std_label,
-    cs.sm_name,
-    cs.model_type,
+    cds.std_label,
+    cds.sm_name,
+    cds.sm_type,
     sm.L,
     sm.S,
     sm.P,
@@ -113,7 +110,7 @@ print(delta_text.format(*adopted_label_systematics))
 print(std_text.format(*adopted_label_uncertainties))
 
 fn_label = "_{}_{}_label_{}".format(
-    cs.model_type, len(cs.label_names), "_".join(cs.label_names))
+    cds.sm_type, len(cds.label_names), "_".join(cds.label_names))
 
 # Label recovery for Teff, logg, and [Fe/H]
 splt.plot_label_recovery(
@@ -151,7 +148,7 @@ splt.plot_label_recovery_per_source(
     plot_folder=save_folder,)
 
 # And finally plot the label recovery for any abundances we might be using
-if len(cs.abundance_labels) >= 1:
+if len(cds.abundance_labels) >= 1:
     n_binary = np.sum(is_binary)
     splt.plot_label_recovery_abundances(
         label_values=sm.training_labels[is_binary],
@@ -160,7 +157,7 @@ if len(cs.abundance_labels) >= 1:
         e_label_pred=np.tile(label_pred_std, n_binary).reshape(n_binary, sm.L),
         obs_join=obs_join[is_binary],
         fn_suffix=fn_label,
-        abundance_labels=cs.abundance_labels,
+        abundance_labels=cds.abundance_labels,
         feh_lims=(-0.15,0.4),
         feh_ticks=(0.2,0.1,0.1,0.05),
         plot_folder=save_folder,)
@@ -170,22 +167,28 @@ if len(cs.abundance_labels) >= 1:
 #------------------------------------------------------------------------------
 # Import line lists
 line_list_b = pu.load_linelist(
-    filename=cs.line_list_file,
-    wl_lower=cs.wl_min_model,
-    wl_upper=cs.wl_grating_changeover,
-    ew_min_ma=cs.ew_min_ma_b,)
+    filename=cds.line_list_file,
+    wl_lower=cds.wl_min_model,
+    wl_upper=cds.wl_grating_changeover,
+    ew_min_ma=cds.ew_min_ma_b,)
 
 line_list_r = pu.load_linelist(
-    filename=cs.line_list_file,
-    wl_lower=cs.wl_grating_changeover,
-    wl_upper=cs.wl_max_model,
-    ew_min_ma=cs.ew_min_ma_r,)
+    filename=cds.line_list_file,
+    wl_lower=cds.wl_grating_changeover,
+    wl_upper=cds.wl_max_model,
+    ew_min_ma=cds.ew_min_ma_r,)
 
-# Plot theta coefficients for each WiFeS arm
+line_list_a = pu.load_linelist(
+    filename=cds.line_list_file,
+    wl_lower=cds.wl_min_model,
+    wl_upper=cds.wl_max_model,
+    ew_min_ma=cds.ew_min_ma_r,)
+
+# Blue arm
 splt.plot_theta_coefficients(
     sm,
     teff_scale=1.0,
-    x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
+    x_lims=(cds.wl_min_model,cds.wl_grating_changeover),
     y_spec_lims=(0,2.25),
     y_theta_linear_lims=(-0.12,0.12),
     y_theta_quadratic_lims=(-0.2,0.2),
@@ -197,14 +200,15 @@ splt.plot_theta_coefficients(
     alpha=0.8,
     fn_suffix=fn_label,
     line_list=line_list_b,
-    species_to_plot=cs.species_to_plot,
-    only_plot_first_order_coeff=cs.only_plot_first_order_coeff,
+    species_to_plot=cds.species_to_plot,
+    only_plot_first_order_coeff=cds.only_plot_first_order_coeff,
     plot_folder=save_folder,)
 
+# Red arm
 splt.plot_theta_coefficients(
     sm,
     teff_scale=1.0,
-    x_lims=(cs.wl_grating_changeover,cs.wl_max_model),
+    x_lims=(cds.wl_grating_changeover,cds.wl_max_model),
     y_spec_lims=(0,2.25),
     y_theta_linear_lims=(-0.12,0.12),
     y_theta_quadratic_lims=(-0.1,0.1),
@@ -216,8 +220,28 @@ splt.plot_theta_coefficients(
     alpha=0.8,
     fn_suffix=fn_label,
     line_list=line_list_r,
-    species_to_plot=cs.species_to_plot,
-    only_plot_first_order_coeff=cs.only_plot_first_order_coeff,
+    species_to_plot=cds.species_to_plot,
+    only_plot_first_order_coeff=cds.only_plot_first_order_coeff,
+    plot_folder=save_folder,)
+
+# Both arms
+splt.plot_theta_coefficients(
+    sm,
+    teff_scale=1.0,
+    x_lims=(cds.wl_min_model,cds.wl_max_model),
+    y_spec_lims=(0,2.25),
+    y_theta_linear_lims=(-0.12,0.12),
+    y_theta_quadratic_lims=(-0.1,0.1),
+    y_theta_cross_lims=(-0.2,0.2),
+    y_s2_lims=(-0.0001, 0.005),
+    x_ticks=(200,100),
+    fn_label="a",
+    linewidth=0.5,
+    alpha=0.8,
+    fn_suffix=fn_label,
+    line_list=line_list_a,
+    species_to_plot=cds.species_to_plot,
+    only_plot_first_order_coeff=cds.only_plot_first_order_coeff,
     plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
@@ -232,12 +256,12 @@ splt.plot_spectra_comparison(
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
-    source_ids=cs.representative_stars_source_ids,
+    source_ids=cds.representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
-    x_lims=(cs.wl_min_model,cs.wl_grating_changeover),
+    x_lims=(cds.wl_min_model,cds.wl_grating_changeover),
     data_label="b",
     fn_label=fn_label,
-    fig_size=cs.spec_comp_fig_size,
+    fig_size=cds.spec_comp_fig_size,
     plot_folder=save_folder,)
 
 # Plot model spectrum performance for WiFeS red band
@@ -247,12 +271,12 @@ splt.plot_spectra_comparison(
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
-    source_ids=cs.representative_stars_source_ids,
+    source_ids=cds.representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
-    x_lims=(cs.wl_grating_changeover,cs.wl_max_model),
+    x_lims=(cds.wl_grating_changeover,cds.wl_max_model),
     data_label="r",
     fn_label=fn_label,
-    fig_size=cs.spec_comp_fig_size,
+    fig_size=cds.spec_comp_fig_size,
     plot_folder=save_folder,)
 
 # Do the same, but across all wavelengths
@@ -262,11 +286,11 @@ splt.plot_spectra_comparison(
     fluxes=sm.training_data,
     bad_px_masks=sm.bad_px_mask,
     labels_all=sm.training_labels,
-    source_ids=cs.representative_stars_source_ids,
+    source_ids=cds.representative_stars_source_ids,
     sort_col_name="BP_RP_dr3",
-    x_lims=(cs.wl_min_model,cs.wl_max_model),
+    x_lims=(cds.wl_min_model,cds.wl_max_model),
     data_label="br",
-    fig_size=cs.spec_comp_fig_size,
+    fig_size=cds.spec_comp_fig_size,
     fn_label=fn_label,
     plot_folder=save_folder,)
 
@@ -279,7 +303,7 @@ splt.plot_spectra_comparison(
     labels_all=sm.training_labels,
     source_ids=obs_join.index,
     sort_col_name="BP_RP_dr3",
-    x_lims=(cs.wl_min_model,cs.wl_max_model),
+    x_lims=(cds.wl_min_model,cds.wl_max_model),
     data_label="a",
     fig_size=(12, 80),
     fn_label=fn_label,
@@ -300,17 +324,17 @@ pred_label_values, pred_label_sigmas_stat, chi2_all = sm.infer_labels(
 # Correct labels for systematics
 systematic_vector = np.tile(adopted_label_systematics, np.sum(sm.data_mask))
 systematic_vector = \
-    systematic_vector.reshape([np.sum(sm.data_mask), cs.n_labels])
+    systematic_vector.reshape([np.sum(sm.data_mask), cds.n_labels])
 pred_label_values_corr = pred_label_values - systematic_vector
 
 # Create uncertainties vector
 cross_val_sigma = np.tile(adopted_label_uncertainties, np.sum(sm.data_mask))
-cross_val_sigma = cross_val_sigma.reshape([np.sum(sm.data_mask), cs.n_labels])
+cross_val_sigma = cross_val_sigma.reshape([np.sum(sm.data_mask), cds.n_labels])
 pred_label_sigmas_total = \
     np.sqrt(pred_label_sigmas_stat**2 + cross_val_sigma**2)
 
 # Save uncertainties
-for lbl_i, label in enumerate(cs.label_names):
+for lbl_i, label in enumerate(cds.label_names):
     # Labels
     col_label_pred = "{}_cannon_value".format(label)
     label_pred_values = np.full(N_BENCHMARK_TOTAL, np.nan)
@@ -333,7 +357,7 @@ for lbl_i, label in enumerate(cs.label_names):
 delta_logg = np.full(N_BENCHMARK_TOTAL, np.nan)
 delta_logg[adopted_benchmark] = \
     np.abs(obs_join["label_adopt_logg"].values - pred_label_values[:,1])
-has_aberrant_logg = delta_logg > cs.aberrant_logg_threshold
+has_aberrant_logg = delta_logg > cds.aberrant_logg_threshold
 cannon_df["delta_logg"] = delta_logg
 cannon_df["logg_aberrant"] = has_aberrant_logg
 
@@ -362,10 +386,10 @@ st.make_table_sample_summary(
 st.make_table_benchmark_overview(
     benchmark_df=obs_join,
     cannon_df=cannon_df,
-    label_names=cs.label_names,
+    label_names=cds.label_names,
     references_dict=ls.BENCHMARK_CITATIONS,
     ref_this_work=ref_this_work,
-    abundance_labels=cs.abundance_labels,
+    abundance_labels=cds.abundance_labels,
     break_row=90,
     table_folder=save_folder,)
 
@@ -390,6 +414,6 @@ splt.plot_cannon_cmd(
 pu.save_fits_table(
     extension="CANNON_MODEL",
     dataframe=cannon_df,
-    label=cs.std_label,
-    path=cs.model_save_path,
+    label=cds.std_label,
+    path=cds.model_save_path,
     ext_label=fits_ext_label)
