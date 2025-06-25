@@ -7,7 +7,6 @@ import os
 import glob
 import numpy as np
 import pandas as pd
-import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 from astropy.io import fits
 import warnings
@@ -17,6 +16,9 @@ from astropy.time import Time
 from scipy.interpolate import interp1d
 from astropy.coordinates import SkyCoord, EarthLocation
 import matplotlib.ticker as plticker
+from scipy.optimize import least_squares
+from astropy.stats import sigma_clip
+from numpy.polynomial.polynomial import Polynomial
 
 HEADERS_TO_EXTRACT = ["SITENAME", "SITEALT", "SITELAT", "SITELONG", "TELESCOP",
     "OBSERVER", "DATE-OBS", "UT-DATE", "UT-START", "LC-START", "INSTRUME",
@@ -656,6 +658,9 @@ def load_and_combine_single_star(filenames, plot_folder,):
         else:
             obj_dict[header] = np.sum(all_exp_dict[header])
 
+    # Add the reference barycentric velocity
+    obj_dict["BCOR"] = all_exp_dict["BCOR"][ref_exp]
+
     # Finally add the order numbers
     obj_dict["orders"] = all_exp_dict["orders"][ref_exp]
 
@@ -844,7 +849,7 @@ def collate_mike_obs(blue_dict, red_dict,):
     # -------------------------------------------------------------------------
     # Column definitions, one set is common between arms, the othar are per-arm
     cols_common = ["source_id", "kind", "object", "observer", "ut_date", 
-        "ut_start",  "lc_start", "airmass", "slit_size"] 
+        "ut_start",  "lc_start", "airmass", "slit_size", "bcor",] 
     
     cols_base_br = ["has", "exp_time", "n_loops", "binning", "speed", "snr",]
 
@@ -886,6 +891,7 @@ def collate_mike_obs(blue_dict, red_dict,):
             obs_info.loc[obj_i, "lc_start"] = arm_dict[obj]["LC-START"]
             obs_info.loc[obj_i, "airmass"] = arm_dict[obj]["AIRMASS"]
             obs_info.loc[obj_i, "slit_size"] = arm_dict[obj]["SLITSIZE"]
+            obs_info.loc[obj_i, "bcor"] = arm_dict[obj]["BCOR"]
 
             # Arm specfic params
             obs_info.loc[obj_i, "has_" + arm] = True
@@ -997,3 +1003,335 @@ def visualise_mike_spectra(
         os.mkdir(plot_folder)
 
     plt.savefig(os.path.join(plot_folder, plot_fn))
+
+
+def calc_flux_correction_resid(
+    params,
+    wave_obs_2D,
+    spec_obs_2D,
+    sigma_obs_2D,
+    tau_H2O_2D,
+    tau_O2_2D,
+    spec_fluxed_2D,
+    spec_synth_2D,
+    max_line_depth,
+    poly_order,
+    edge_px_to_mask,):
+    """Calculates the residuals between a low-resolution flux calibrated
+    spectrum and a high-resolution spectrum corrected for the atmospheric and
+    instrumental transfer function.
+
+    Parameters
+    ----------
+    params: float array
+        Contains (scale_H2O, scale_O2, poly_coeff) where scale_H2O and scale_O2
+        are scaling terms in the exponent for the strength of the telluric
+        absorption, and poly_coeff is a 2D array of shape [n_order, poly_order]
+        containing the polynomial coefficients for each spectral order for use
+        with numpy.polynomial.polynomial.Polynomial.
+
+    wave_obs_2D, spec_obs_2D, sigma_obs_2D: 2D float array
+        Observed spectra of shape [n_order, n_px].
+
+    tau_H2O_2D, tau_O2_2D: 2D float array
+        Telluric optical depths for H2O and O2 interpolated to be on the same
+        wavelength scale as wave_obs_2D, of shape [m_order, n_px].
+
+    wave_fluxed_2D, spec_fluxed_2D: 1D float array
+        Low-resolution fluxed spectra of our target star interpolated to be on
+        the same wavelength scale as wave_obs_2D, of shape [m_order, n_px].
+
+    wave_synth_2D, spec_synth_2D: 1D float array
+        Synthetic *continuum normalised* spectrum of our target star at the
+        same resolution as our observations, interpolated to be on the same
+        wavelength scale as wave_obs_2D
+
+    max_line_depth: float
+        The maximum depth we allow telluric and stellar lines to absorb to
+        before we mask them when fitting for the smoothed transfer function.
+
+    poly_order: float
+        Polynomial order to be fit as the transfer function for each order.
+
+    edge_px_to_mask: int
+        How many edge pixels to mask per order to avoid bad pixels.
+
+    Returns
+    -------
+    resid_vect: float
+        Sum of the uncertainty weighted residuals vector.
+    """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_obs_2D.shape
+
+    # Unpack params
+    (scale_H2O, scale_O2) = params
+
+    # Fill NaN/inf values or px with sigma=0 uncertainties
+    is_bad_px = np.logical_or(~np.isfinite(spec_obs_2D), sigma_obs_2D == 0)
+
+    assert np.sum(np.isnan(spec_obs_2D[~is_bad_px])) == 0
+    assert np.sum(np.isnan(sigma_obs_2D[~is_bad_px])) == 0
+
+    spec_obs_2D_cleaned = spec_obs_2D.copy()
+    sigma_obs_2D_cleaned = sigma_obs_2D.copy()
+
+    # Also mask edges
+    if edge_px_to_mask > 0:
+        is_bad_px[:, :edge_px_to_mask] = True
+        is_bad_px[:, -edge_px_to_mask:] = True
+
+    spec_obs_2D_cleaned[is_bad_px] = np.nan
+    sigma_obs_2D_cleaned[is_bad_px] = np.nan
+
+    spec_fluxed_3D_cleaned = \
+        spec_fluxed_2D.copy() / np.nanmedian(spec_fluxed_2D)
+    spec_fluxed_3D_cleaned[np.isnan(spec_fluxed_2D)] = 1
+
+    # -------------------------------------------------------------------------
+    # Calculate + "Correct" telluric transmission
+    # -------------------------------------------------------------------------
+
+    # Calculate teluric transmission
+    trans_H2O_2D = np.exp(-scale_H2O * tau_H2O_2D)
+    trans_O2_2D = np.exp(-scale_O2 * tau_O2_2D)
+
+    # Set any NaNs in the transmission to 1.0
+    missing_transmission = np.logical_or(
+        np.isnan(trans_H2O_2D), np.isnan(trans_O2_2D))
+    trans_H2O_2D[missing_transmission] = 1.0
+    trans_O2_2D[missing_transmission] = 1.0
+
+    spec_obs_3D_tell_corr = spec_obs_2D_cleaned / trans_H2O_2D / trans_O2_2D
+
+    # -------------------------------------------------------------------------
+    # Calculate transfer function
+    # -------------------------------------------------------------------------
+    # Calculate transfer function
+    tf_3D = spec_fluxed_3D_cleaned / spec_obs_3D_tell_corr
+
+    # Intialise smoothed transfer function
+    stf_3D = np.full_like(tf_3D, np.nan)
+
+    # Calculate smoothed transfer function. To do this, we want to mask out
+    # deep tellurics and interpolate over them.
+    do_interp_mask = np.any((
+        trans_H2O_2D < max_line_depth,
+        trans_O2_2D < max_line_depth,
+        spec_synth_2D < max_line_depth,
+        is_bad_px), axis=0)
+
+    for order_i in range(n_order):
+        do_mask = do_interp_mask[order_i]
+
+        is_good = np.full_like(do_mask, True).astype(bool)
+        is_good[do_mask] = False
+        
+        # Sigma clip what's left
+        clipped_resid_ma = sigma_clip(
+            data=tf_3D[order_i, ~do_mask], sigma=4, masked=True)
+        clipped_px = clipped_resid_ma.mask
+
+        is_good[~do_mask] = ~clipped_px
+        do_interp_mask[order_i] = ~is_good
+        
+        wave_ith = wave_obs_2D[order_i, ~do_mask]
+
+        # Fit polynomial to the raw clipped residuals
+        tf_poly = Polynomial.fit(
+            x=wave_ith,
+            y=tf_3D[order_i, ~do_mask],
+            deg=poly_order,)
+        
+        print("{:0.0f}, Median ~ {}, Std ~ {}".format(
+            order_i,
+            np.nanmedian(tf_3D[order_i, ~do_mask]),
+            np.nanstd(tf_3D[order_i, ~do_mask])))
+
+        stf_3D[order_i] = tf_poly(wave_obs_2D[order_i])
+
+    # Compute residuals
+    resid_vect = ((spec_fluxed_3D_cleaned - stf_3D * spec_obs_3D_tell_corr) 
+                  / sigma_obs_2D_cleaned**2)
+
+    resid_vect = resid_vect[~is_bad_px]
+
+    # -------------------------------------------------------------------------
+    # Diagnostics
+    # -------------------------------------------------------------------------
+    plt.close( "all")
+    fig, (ax_fit, ax_corr) = plt.subplots(nrows=2, sharex=True, figsize=(16,6))
+
+    for order_i in range(n_order):
+        wave_ith = wave_obs_2D[order_i]
+        spec_ith = spec_obs_2D[order_i]
+        raw_tf = tf_3D[order_i]
+        smooth_tf = stf_3D[order_i]
+        bp = do_interp_mask[order_i]
+
+        ax_fit.plot(
+            wave_ith,
+            spec_ith/np.nanmedian(spec_ith),
+            linewidth=0.5,
+            c="k",
+            alpha=0.8)
+        
+        ax_fit.plot(
+            wave_ith[~bp],
+            (raw_tf/np.nanmedian(raw_tf))[~bp],
+            linewidth=0.5,
+            c="b",
+            alpha=0.8)
+        
+        ax_fit.plot(
+            wave_ith,
+            smooth_tf/np.nanmedian(smooth_tf),
+            linewidth=0.5,
+            c="r",
+            alpha=0.8)
+
+        ax_corr.plot(wave_ith, spec_ith*smooth_tf, linewidth=0.5)
+
+    #assert False
+    #plt.plot(resid_vect.flatten())
+    
+    # -------------------------------------------------------------------------
+
+    if np.sum(~np.isfinite(resid_vect)) != 0:
+        import pdb; pdb.set_trace()
+        raise ValueError("Non-finite residuals!")
+        
+    print(np.sum(resid_vect))
+    print("-"*80)
+
+    return np.sum(resid_vect)# .flatten()# / np.nanmedian(resid_vect)
+
+
+def fit_atmospheric_transmission(
+    wave_obs_2D,
+    spec_obs_2D,
+    sigma_obs_2D,
+    wave_telluric,
+    trans_H2O_telluric,
+    trans_O2_telluric,
+    wave_fluxed,
+    spec_fluxed,
+    wave_synth,
+    spec_synth,
+    max_line_depth=0.9,
+    poly_order=4,
+    edge_px_to_mask=20,):
+    """
+    
+    Parameters
+    ----------
+    wave_obs_2D, spec_obs_2D, sigma_obs_2D: 2D float array
+        Observed spectra of shape [n_order, n_px].
+
+    wave_telluric, trans_H2O_telluric, trans_O2_telluric: 1D float array
+        Telluric wavelength scale and transmission for H2O and O2.
+
+    wave_fluxed, spec_fluxed: 1D float array
+        Low-resolution fluxed spectra of our target star.
+
+    wave_synth, spec_synth: 1D float array
+        Synthetic *continuum normalised* spectrum of our target star at the
+        same resolution as our observations.
+
+    max_line_depth: float, default: 0.9
+        The maximum depth we allow telluric and stellar lines to absorb to
+        before we mask them when fitting for the smoothed transfer function.
+
+    poly_order: float, default: 4
+        Polynomial order to be fit as the transfer function for each order.
+
+    edge_px_to_mask: int, default: 20
+        How many edge pixels to mask per order to avoid bad pixels.
+
+    TODO Parameters
+
+    airmass: float
+        Airmass of the target.
+
+    extinction_data_fn: str, default: TODO
+        Path to extinction at observatory.
+
+    Returns
+    -------
+    resid_vect:
+        TODO
+    """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_obs_2D.shape
+
+    # Construct interpolators
+    interp_trans_H20 = interp1d(
+        x=wave_telluric,
+        y=trans_H2O_telluric,
+        bounds_error=False,
+        fill_value=1.0,
+        kind="cubic",)
+    
+    interp_trans_O2 = interp1d(
+        x=wave_telluric,
+        y=trans_O2_telluric,
+        bounds_error=False,
+        fill_value=1.0,
+        kind="cubic",)
+    
+    interp_spec_fluxed = interp1d(
+        x=wave_fluxed,
+        y=spec_fluxed,
+        bounds_error=False,
+        fill_value=np.nan,
+        kind="cubic",)
+    
+    interp_spec_synth = interp1d(
+        x=wave_synth,
+        y=spec_synth,
+        bounds_error=False,
+        fill_value=np.nan,
+        kind="cubic",)
+
+    # -------------------------------------------------------------------------
+    # Regrid
+    # -------------------------------------------------------------------------
+    tau_H2O_3D = np.full_like(wave_obs_2D, np.nan)
+    tau_O2_3D = np.full_like(wave_obs_2D, np.nan)
+    spec_fluxed_3D = np.full_like(wave_obs_2D, np.nan)
+    spec_synth_3D = np.full_like(wave_obs_2D, np.nan)
+
+    for order_i in range(n_order):
+        wave_ith = wave_obs_2D[order_i]
+        tau_H2O_3D[order_i] = -np.log(interp_trans_H20(wave_ith))
+        tau_O2_3D[order_i] = -np.log(interp_trans_O2(wave_ith))
+        spec_fluxed_3D[order_i] = interp_spec_fluxed(wave_ith)
+        spec_synth_3D[order_i] = interp_spec_synth(wave_ith)
+
+    # -------------------------------------------------------------------------
+    # Optimise for atmosphere terms
+    # -------------------------------------------------------------------------
+    # Setup the list of parameters to pass to our fitting function
+    params_init = (0.5, 0.5)
+
+    args = (
+        wave_obs_2D,
+        spec_obs_2D,
+        sigma_obs_2D,
+        tau_H2O_3D,
+        tau_O2_3D,
+        spec_fluxed_3D,
+        spec_synth_3D,
+        max_line_depth,
+        poly_order,
+        edge_px_to_mask,)
+
+    # Do fit
+    ls_fit_dict = least_squares(
+        calc_flux_correction_resid, 
+        params_init, 
+        jac="3-point",
+        args=args,)
+    
+    # Unpack params
+    (scale_H2O, scale_O2) = ls_fit_dict["x"]
