@@ -86,13 +86,10 @@ sp_i = 1
 rv = spphot_rvs[source_id]
 bcor = obs_info_sp.iloc[sp_i]["bcor"]
 
-# Convert MIKE wavelengths to vacuum (TODO: best to keep everything in MIKE frame)
-#wave_vac = pum.convert_air_to_vacuum_wl(wave)
-
 # Import flux standard
 fs = np.loadtxt(calspec_templates[source_id])
 wave_fs = fs[:,0]
-spec_fs = fs[:,1]
+spec_fs = fs[:,1] / np.nanmedian(fs[:,1])   # Relative flux calibration is fine
 
 # Import stellar template
 ff = fits.open(stellar_templates[source_id])
@@ -103,24 +100,35 @@ interp_synth = interp1d(
     x=wave_synth,
     y=spec_synth,
     bounds_error=False,
-    fill_value=np.nan,
+    fill_value=1.0,
     kind="cubic",)
 
 # Doppler shift
 wave_synth_ds = wave_synth * (1-(rv-bcor)/(const.c.si.value/1000))
 spec_synth_ds = interp_synth(wave_synth_ds)
 
+# Select spectrum and normalise to median, since we don't care to attempt
+# *absolute* flux calibration.
+med = np.nanmedian(spec_sp[sp_i][1:])
+
+wave_obs_2D = wave_sp[sp_i][1:]
+spec_obs_2D = spec_sp[sp_i][1:] / med
+sigma_obs_2D = sigma[sp_i][1:] / med
+
 # -----------------------------------------------------------------------------
 # Flux calibration
 # -----------------------------------------------------------------------------
-psm.fit_atmospheric_transmission(
-    wave_obs_2D=wave_sp[sp_i][1:],
-    spec_obs_2D=spec_sp[sp_i][1:],
-    sigma_obs_2D=sigma[sp_i][1:], 
+fit_dict = psm.fit_atmospheric_transmission(
+    wave_obs_2D=wave_obs_2D,
+    spec_obs_2D=spec_obs_2D,
+    sigma_obs_2D=sigma_obs_2D, 
     wave_telluric=wave_tt_vac,
     trans_H2O_telluric=trans_H2O_broad,
     trans_O2_telluric=trans_O2_broad,
     wave_fluxed=wave_fs,
     spec_fluxed=spec_fs,
     wave_synth=wave_synth,
-    spec_synth=spec_synth_ds,)
+    spec_synth=spec_synth_ds,
+    max_line_depth=0.9,
+    poly_order=5,
+    edge_px_to_mask=20,)

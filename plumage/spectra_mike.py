@@ -1026,9 +1026,10 @@ def calc_flux_correction_resid(
     params: float array
         Contains (scale_H2O, scale_O2, poly_coeff) where scale_H2O and scale_O2
         are scaling terms in the exponent for the strength of the telluric
-        absorption, and poly_coeff is a 2D array of shape [n_order, poly_order]
-        containing the polynomial coefficients for each spectral order for use
-        with numpy.polynomial.polynomial.Polynomial.
+        absorption, and poly_coeff is a *flattened* and appended 2D array of
+        (original) shape [n_order, poly_order] containing the polynomial
+        coefficients for each spectral order for use with
+        numpy.polynomial.polynomial.Polynomial.
 
     wave_obs_2D, spec_obs_2D, sigma_obs_2D: 2D float array
         Observed spectra of shape [n_order, n_px].
@@ -1037,11 +1038,11 @@ def calc_flux_correction_resid(
         Telluric optical depths for H2O and O2 interpolated to be on the same
         wavelength scale as wave_obs_2D, of shape [m_order, n_px].
 
-    wave_fluxed_2D, spec_fluxed_2D: 1D float array
+    pec_fluxed_2D: 1D float array
         Low-resolution fluxed spectra of our target star interpolated to be on
         the same wavelength scale as wave_obs_2D, of shape [m_order, n_px].
 
-    wave_synth_2D, spec_synth_2D: 1D float array
+    spec_synth_2D: 1D float array
         Synthetic *continuum normalised* spectrum of our target star at the
         same resolution as our observations, interpolated to be on the same
         wavelength scale as wave_obs_2D
@@ -1050,7 +1051,7 @@ def calc_flux_correction_resid(
         The maximum depth we allow telluric and stellar lines to absorb to
         before we mask them when fitting for the smoothed transfer function.
 
-    poly_order: float
+    poly_order: int
         Polynomial order to be fit as the transfer function for each order.
 
     edge_px_to_mask: int
@@ -1065,7 +1066,9 @@ def calc_flux_correction_resid(
     (n_order, n_px) = wave_obs_2D.shape
 
     # Unpack params
-    (scale_H2O, scale_O2) = params
+    scale_H2O = params[0]
+    scale_O2 = params[1]
+    poly_coef = params[2:].reshape((n_order, poly_order))
 
     # Fill NaN/inf values or px with sigma=0 uncertainties
     is_bad_px = np.logical_or(~np.isfinite(spec_obs_2D), sigma_obs_2D == 0)
@@ -1084,14 +1087,9 @@ def calc_flux_correction_resid(
     spec_obs_2D_cleaned[is_bad_px] = np.nan
     sigma_obs_2D_cleaned[is_bad_px] = np.nan
 
-    spec_fluxed_3D_cleaned = \
-        spec_fluxed_2D.copy() / np.nanmedian(spec_fluxed_2D)
-    spec_fluxed_3D_cleaned[np.isnan(spec_fluxed_2D)] = 1
-
     # -------------------------------------------------------------------------
     # Calculate + "Correct" telluric transmission
     # -------------------------------------------------------------------------
-
     # Calculate teluric transmission
     trans_H2O_2D = np.exp(-scale_H2O * tau_H2O_2D)
     trans_O2_2D = np.exp(-scale_O2 * tau_O2_2D)
@@ -1102,16 +1100,16 @@ def calc_flux_correction_resid(
     trans_H2O_2D[missing_transmission] = 1.0
     trans_O2_2D[missing_transmission] = 1.0
 
-    spec_obs_3D_tell_corr = spec_obs_2D_cleaned / trans_H2O_2D / trans_O2_2D
+    spec_obs_2D_tell_corr = spec_obs_2D_cleaned / trans_H2O_2D / trans_O2_2D
 
     # -------------------------------------------------------------------------
     # Calculate transfer function
     # -------------------------------------------------------------------------
     # Calculate transfer function
-    tf_3D = spec_fluxed_3D_cleaned / spec_obs_3D_tell_corr
+    tf_2D = spec_fluxed_2D / spec_obs_2D_tell_corr
 
     # Intialise smoothed transfer function
-    stf_3D = np.full_like(tf_3D, np.nan)
+    stf_2D = np.full_like(tf_2D, np.nan)
 
     # Calculate smoothed transfer function. To do this, we want to mask out
     # deep tellurics and interpolate over them.
@@ -1129,82 +1127,35 @@ def calc_flux_correction_resid(
         
         # Sigma clip what's left
         clipped_resid_ma = sigma_clip(
-            data=tf_3D[order_i, ~do_mask], sigma=4, masked=True)
+            data=tf_2D[order_i, ~do_mask], sigma=4, masked=True)
         clipped_px = clipped_resid_ma.mask
 
         is_good[~do_mask] = ~clipped_px
         do_interp_mask[order_i] = ~is_good
         
-        wave_ith = wave_obs_2D[order_i, ~do_mask]
+        # Compute the polynomial representing our low-order transfer function
+        # correction
+        tf_poly = Polynomial(poly_coef[order_i])
 
-        # Fit polynomial to the raw clipped residuals
-        tf_poly = Polynomial.fit(
-            x=wave_ith,
-            y=tf_3D[order_i, ~do_mask],
-            deg=poly_order,)
-        
-        print("{:0.0f}, Median ~ {}, Std ~ {}".format(
-            order_i,
-            np.nanmedian(tf_3D[order_i, ~do_mask]),
-            np.nanstd(tf_3D[order_i, ~do_mask])))
-
-        stf_3D[order_i] = tf_poly(wave_obs_2D[order_i])
-
-    # Compute residuals
-    resid_vect = ((spec_fluxed_3D_cleaned - stf_3D * spec_obs_3D_tell_corr) 
-                  / sigma_obs_2D_cleaned**2)
-
-    resid_vect = resid_vect[~is_bad_px]
-
-    # -------------------------------------------------------------------------
-    # Diagnostics
-    # -------------------------------------------------------------------------
-    plt.close( "all")
-    fig, (ax_fit, ax_corr) = plt.subplots(nrows=2, sharex=True, figsize=(16,6))
-
-    for order_i in range(n_order):
-        wave_ith = wave_obs_2D[order_i]
-        spec_ith = spec_obs_2D[order_i]
-        raw_tf = tf_3D[order_i]
-        smooth_tf = stf_3D[order_i]
-        bp = do_interp_mask[order_i]
-
-        ax_fit.plot(
-            wave_ith,
-            spec_ith/np.nanmedian(spec_ith),
-            linewidth=0.5,
-            c="k",
-            alpha=0.8)
-        
-        ax_fit.plot(
-            wave_ith[~bp],
-            (raw_tf/np.nanmedian(raw_tf))[~bp],
-            linewidth=0.5,
-            c="b",
-            alpha=0.8)
-        
-        ax_fit.plot(
-            wave_ith,
-            smooth_tf/np.nanmedian(smooth_tf),
-            linewidth=0.5,
-            c="r",
-            alpha=0.8)
-
-        ax_corr.plot(wave_ith, spec_ith*smooth_tf, linewidth=0.5)
-
-    #assert False
-    #plt.plot(resid_vect.flatten())
+        stf_2D[order_i] = tf_poly(wave_obs_2D[order_i])
     
-    # -------------------------------------------------------------------------
+    # Compute residuals
+    resid_vect = ((spec_fluxed_2D - stf_2D * spec_obs_2D_tell_corr)**2 
+                  / sigma_obs_2D_cleaned**2)
+    
+    resid_vect[do_interp_mask] = 0
 
     if np.sum(~np.isfinite(resid_vect)) != 0:
         import pdb; pdb.set_trace()
         raise ValueError("Non-finite residuals!")
-        
-    print(np.sum(resid_vect))
+    
+    rr = np.sum(resid_vect)
+
+    print("resid = {}\nH2O = {}\nO2 = {}\ncoeff = {}".format(
+        rr, scale_H2O, scale_O2, poly_coef))
     print("-"*80)
 
-    return np.sum(resid_vect)# .flatten()# / np.nanmedian(resid_vect)
+    return resid_vect.flatten()
 
 
 def fit_atmospheric_transmission(
@@ -1264,6 +1215,9 @@ def fit_atmospheric_transmission(
     # Grab dimensions for convenience
     (n_order, n_px) = wave_obs_2D.shape
 
+    # -------------------------------------------------------------------------
+    # Regrid all reference spectra to observed 2D wavelength scale
+    # -------------------------------------------------------------------------
     # Construct interpolators
     interp_trans_H20 = interp1d(
         x=wave_telluric,
@@ -1293,35 +1247,41 @@ def fit_atmospheric_transmission(
         fill_value=np.nan,
         kind="cubic",)
 
-    # -------------------------------------------------------------------------
-    # Regrid
-    # -------------------------------------------------------------------------
-    tau_H2O_3D = np.full_like(wave_obs_2D, np.nan)
-    tau_O2_3D = np.full_like(wave_obs_2D, np.nan)
-    spec_fluxed_3D = np.full_like(wave_obs_2D, np.nan)
-    spec_synth_3D = np.full_like(wave_obs_2D, np.nan)
+    tau_H2O_2D = np.full_like(wave_obs_2D, np.nan)
+    tau_O2_2D = np.full_like(wave_obs_2D, np.nan)
+    spec_fluxed_2D = np.full_like(wave_obs_2D, np.nan)
+    spec_synth_2D = np.full_like(wave_obs_2D, np.nan)
 
     for order_i in range(n_order):
         wave_ith = wave_obs_2D[order_i]
-        tau_H2O_3D[order_i] = -np.log(interp_trans_H20(wave_ith))
-        tau_O2_3D[order_i] = -np.log(interp_trans_O2(wave_ith))
-        spec_fluxed_3D[order_i] = interp_spec_fluxed(wave_ith)
-        spec_synth_3D[order_i] = interp_spec_synth(wave_ith)
+        tau_H2O_2D[order_i] = -np.log(interp_trans_H20(wave_ith))
+        tau_O2_2D[order_i] = -np.log(interp_trans_O2(wave_ith))
+        spec_fluxed_2D[order_i] = interp_spec_fluxed(wave_ith)
+        spec_synth_2D[order_i] = interp_spec_synth(wave_ith)
 
     # -------------------------------------------------------------------------
     # Optimise for atmosphere terms
     # -------------------------------------------------------------------------
     # Setup the list of parameters to pass to our fitting function
-    params_init = (0.5, 0.5)
+    poly_coeff_init = np.zeros((n_order, poly_order))
+    poly_coeff_init[:,0] = 1
+
+    params_init = [0.5, 0.5] + list(poly_coeff_init.flatten())
+
+    # Establish bounds, mostly so that the telluric scaling terms are > 0
+    bounds_low = [0, 0] + list(
+        np.full((n_order, poly_order), -np.inf).flatten())
+    bounds_high = [np.inf, np.inf] + list(
+        np.full((n_order, poly_order), np.inf).flatten())
 
     args = (
         wave_obs_2D,
         spec_obs_2D,
         sigma_obs_2D,
-        tau_H2O_3D,
-        tau_O2_3D,
-        spec_fluxed_3D,
-        spec_synth_3D,
+        tau_H2O_2D,
+        tau_O2_2D,
+        spec_fluxed_2D,
+        spec_synth_2D,
         max_line_depth,
         poly_order,
         edge_px_to_mask,)
@@ -1331,7 +1291,103 @@ def fit_atmospheric_transmission(
         calc_flux_correction_resid, 
         params_init, 
         jac="3-point",
-        args=args,)
+        args=args,
+        bounds=(bounds_low, bounds_high),
+        max_nfev=100,)
     
     # Unpack params
-    (scale_H2O, scale_O2) = ls_fit_dict["x"]
+    params = ls_fit_dict["x"]
+
+    scale_H2O = params[0]
+    scale_O2 = params[1]
+    poly_coef = params[2:].reshape((n_order, poly_order))
+
+    # -------------------------------------------------------------------------
+    # Diagnostic plotting
+    # -------------------------------------------------------------------------
+    plt.close( "all")
+    fig, (ax_template, ax_fit, ax_tf, ax_corr) = plt.subplots(
+        nrows=4, sharex=True, figsize=(16,6))
+
+    for order_i in range(n_order):
+        wave_ith = wave_obs_2D[order_i]
+        spec_ith = spec_obs_2D[order_i]
+        synth_ith = spec_synth_2D[order_i]
+        flux_ith = spec_fluxed_2D[order_i]
+        
+        trans_H20 = np.exp(-scale_H2O * tau_H2O_2D[order_i])
+        trans_O2 = np.exp(-scale_O2 * tau_O2_2D[order_i])
+
+
+        print(poly_coef[order_i])
+        tf_poly = Polynomial(poly_coef[order_i])
+        smooth_tf = tf_poly(wave_ith)
+        
+        # --------
+        # Panel #1
+        ax_template.plot(
+            wave_ith,
+            synth_ith,
+            linewidth=0.5,
+            c="k",
+            alpha=0.8,
+            label="Synth" if order_i == 0 else None,)
+        
+        ax_template.plot(
+            wave_ith,
+            trans_H20,
+            linewidth=0.5,
+            c="maroon",
+            alpha=0.8,
+            label="H2O" if order_i == 0 else None,)
+        
+        ax_template.plot(
+            wave_ith,
+            trans_O2,
+            linewidth=0.5,
+            c="b",
+            alpha=0.8,
+            label="O2" if order_i == 0 else None,)
+
+        # --------
+        # Panel #2
+        ax_fit.plot(
+            wave_ith,
+            spec_ith,
+            linewidth=0.5,
+            c="k",
+            alpha=0.8,
+            label="Raw Sci" if order_i == 0 else None,)
+        
+        ax_fit.plot(
+            wave_ith,
+            flux_ith,
+            linewidth=0.5,
+            c="g",
+            alpha=0.8,
+            label="Fluxed" if order_i == 0 else None,)
+        
+        # --------
+        # Panel #3
+        ax_tf.plot(
+            wave_ith,
+            smooth_tf,
+            linewidth=0.5,
+            c="r",
+            label="TF" if order_i == 0 else None,)
+        
+        # --------
+        # Panel #4
+        ax_corr.plot(
+            wave_ith,
+            spec_ith*smooth_tf,
+            linewidth=0.5,
+            label="Corrected" if order_i == 0 else None,)
+
+    ax_template.legend(loc="upper left")
+    ax_fit.legend(loc="upper left")
+    ax_tf.legend(loc="upper left")
+    ax_corr.legend(loc="upper left")
+    plt.tight_layout()
+
+    return ls_fit_dict
