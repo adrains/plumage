@@ -1016,7 +1016,8 @@ def calc_flux_correction_resid(
     spec_synth_2D,
     max_line_depth,
     poly_order,
-    edge_px_to_mask,):
+    edge_px_to_mask,
+    optimise_order_overlap,):
     """Calculates the residuals between a low-resolution flux calibrated
     spectrum and a high-resolution spectrum corrected for the atmospheric and
     instrumental transfer function.
@@ -1056,6 +1057,10 @@ def calc_flux_correction_resid(
 
     edge_px_to_mask: int
         How many edge pixels to mask per order to avoid bad pixels.
+
+    optimise_order_overlap: boolean
+        If true, we also compute residuals for the overlapping regions of
+        orders to ensure the resulting fluxed spectrum is smooth across orders.
 
     Returns
     -------
@@ -1139,23 +1144,88 @@ def calc_flux_correction_resid(
 
         stf_2D[order_i] = tf_poly(wave_obs_2D[order_i])
     
+    # Compute 'corrected' spectrum
+    spec_obs_2D_fluxed = stf_2D * spec_obs_2D_tell_corr
+    sigma_obs_2D_fluxed = stf_2D * sigma_obs_2D
+
+    # -------------------------------------------------------------------------
     # Compute residuals
-    resid_vect = ((spec_fluxed_2D - stf_2D * spec_obs_2D_tell_corr)**2 
+    # -------------------------------------------------------------------------
+    # Compute order-by-order residuals when comparing to the fluxed spectrum
+    fluxed_resid = ((spec_fluxed_2D - spec_obs_2D_fluxed)**2 
                   / sigma_obs_2D_cleaned**2)
     
-    resid_vect[do_interp_mask] = 0
+    fluxed_resid[do_interp_mask] = 0
 
-    if np.sum(~np.isfinite(resid_vect)) != 0:
+    fluxed_resid = fluxed_resid.flatten()
+
+    # [Optional ]Also compute residuals for overlapping sections of each order
+    if optimise_order_overlap:
+        for order_i in range(n_order-1):
+            # Grab wavelength scale for this order and the one above
+            wave_1 = wave_obs_2D[order_i]
+            wave_2 = wave_obs_2D[order_i+1]
+
+            spec_1 = spec_obs_2D_fluxed[order_i]
+            spec_2 = spec_obs_2D_fluxed[order_i+1]
+
+            sigma_1 = sigma_obs_2D_fluxed[order_i]
+            sigma_2 = sigma_obs_2D_fluxed[order_i+1]
+
+            is_nan_spec_2 = np.isnan(spec_2)
+
+            # Compute which wavelengths are overlapping
+            overlap_mask_1 = np.logical_and(
+                wave_1 > np.min(wave_2), wave_1 < np.max(wave_2))
+
+            overlap_mask_2 = np.logical_and(
+                wave_2 > np.min(wave_1), wave_2 < np.max(wave_1))
+
+            # Interpolate onto the same wavelength scale
+            interp_mask = np.logical_and(overlap_mask_2, ~is_nan_spec_2)
+
+            interp_spec = interp1d(
+                x=wave_2[interp_mask],
+                y=spec_2[interp_mask],
+                bounds_error=False,
+                fill_value=np.nan,
+                kind="cubic",)
+            
+            interp_sigma = interp1d(
+                x=wave_2[interp_mask],
+                y=sigma_2[interp_mask],
+                bounds_error=False,
+                fill_value=np.nan,
+                kind="cubic",)
+            
+            spec_2_interp = interp_spec(wave_1[overlap_mask_1])
+            sigma_2_interp = interp_sigma(wave_1[overlap_mask_1])
+
+            overlap_resid = ((spec_1[overlap_mask_1] - spec_2_interp)**2 
+                            / (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2))
+
+            is_nan = np.isnan(overlap_resid)
+            overlap_resid[is_nan] = 0
+
+    else:
+        overlap_resid = []
+
+    # Combine resid
+    combined_resid = np.concatenate((fluxed_resid, overlap_resid))
+
+    # -------
+    if np.sum(~np.isfinite(combined_resid)) != 0:
         import pdb; pdb.set_trace()
         raise ValueError("Non-finite residuals!")
     
-    rr = np.sum(resid_vect)
+    r1 = np.sum(fluxed_resid)
+    r2 = np.sum(overlap_resid)
 
-    print("resid = {}\nH2O = {}\nO2 = {}\ncoeff = {}".format(
-        rr, scale_H2O, scale_O2, poly_coef))
+    print("r1 = {}, r2 = {}\nH2O = {}\nO2 = {}\ncoeff = {}".format(
+        r1, r2, scale_H2O, scale_O2, poly_coef))
     print("-"*80)
 
-    return resid_vect.flatten()
+    return combined_resid
 
 
 def fit_atmospheric_transmission(
@@ -1171,7 +1241,8 @@ def fit_atmospheric_transmission(
     spec_synth,
     max_line_depth=0.9,
     poly_order=4,
-    edge_px_to_mask=20,):
+    edge_px_to_mask=20,
+    optimise_order_overlap=False,):
     """
     
     Parameters
@@ -1198,6 +1269,10 @@ def fit_atmospheric_transmission(
 
     edge_px_to_mask: int, default: 20
         How many edge pixels to mask per order to avoid bad pixels.
+
+    optimise_order_overlap: boolean, default: False
+        If true, we also compute residuals for the overlapping regions of
+        orders to ensure the resulting fluxed spectrum is smooth across orders.
 
     TODO Parameters
 
@@ -1284,7 +1359,8 @@ def fit_atmospheric_transmission(
         spec_synth_2D,
         max_line_depth,
         poly_order,
-        edge_px_to_mask,)
+        edge_px_to_mask,
+        optimise_order_overlap,)
 
     # Do fit
     ls_fit_dict = least_squares(

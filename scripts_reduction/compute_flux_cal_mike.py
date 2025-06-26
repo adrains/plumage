@@ -131,4 +131,5 @@ fit_dict = psm.fit_atmospheric_transmission(
     spec_synth=spec_synth_ds,
     max_line_depth=0.9,
     poly_order=5,
-    edge_px_to_mask=20,)
+    edge_px_to_mask=20,
+    optimise_order_overlap=False,)
