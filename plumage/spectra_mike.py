@@ -19,6 +19,7 @@ import matplotlib.ticker as plticker
 from scipy.optimize import least_squares
 from astropy.stats import sigma_clip
 from numpy.polynomial.polynomial import Polynomial
+from PyAstronomy.pyasl import instrBroadGaussFast
 
 HEADERS_TO_EXTRACT = ["SITENAME", "SITEALT", "SITELAT", "SITELONG", "TELESCOP",
     "OBSERVER", "DATE-OBS", "UT-DATE", "UT-START", "LC-START", "INSTRUME",
@@ -1017,7 +1018,8 @@ def calc_flux_correction_resid(
     max_line_depth,
     poly_order,
     edge_px_to_mask,
-    optimise_order_overlap,):
+    optimise_order_overlap,
+    smooth_via_convolution,):
     """Calculates the residuals between a low-resolution flux calibrated
     spectrum and a high-resolution spectrum corrected for the atmospheric and
     instrumental transfer function.
@@ -1107,6 +1109,18 @@ def calc_flux_correction_resid(
 
     spec_obs_2D_tell_corr = spec_obs_2D_cleaned / trans_H2O_2D / trans_O2_2D
 
+    if smooth_via_convolution:
+        for order_i in range(n_order):
+            spec_smoothed = instrBroadGaussFast(
+                wvl=wave_obs_2D[order_i][~is_bad_px[order_i]],
+                flux=spec_obs_2D_tell_corr[order_i][~is_bad_px[order_i]],
+                resolution=2000,
+                edgeHandling="firstlast",
+                maxsig=5,
+                equid=True,)
+            
+            spec_obs_2D_tell_corr[order_i][~is_bad_px[order_i]] = spec_smoothed
+
     # -------------------------------------------------------------------------
     # Calculate transfer function
     # -------------------------------------------------------------------------
@@ -1126,6 +1140,9 @@ def calc_flux_correction_resid(
 
     for order_i in range(n_order):
         do_mask = do_interp_mask[order_i]
+
+        if np.sum(do_mask) == n_px:
+            raise Exception("All pixels masked out!")
 
         is_good = np.full_like(do_mask, True).astype(bool)
         is_good[do_mask] = False
@@ -1152,8 +1169,8 @@ def calc_flux_correction_resid(
     # Compute residuals
     # -------------------------------------------------------------------------
     # Compute order-by-order residuals when comparing to the fluxed spectrum
-    fluxed_resid = ((spec_fluxed_2D - spec_obs_2D_fluxed)**2 
-                  / sigma_obs_2D_cleaned**2)
+    fluxed_resid = (spec_fluxed_2D - spec_obs_2D_fluxed)**2 
+                  #/ sigma_obs_2D_cleaned**2)
     
     fluxed_resid[do_interp_mask] = 0
 
@@ -1201,8 +1218,11 @@ def calc_flux_correction_resid(
             spec_2_interp = interp_spec(wave_1[overlap_mask_1])
             sigma_2_interp = interp_sigma(wave_1[overlap_mask_1])
 
-            overlap_resid = ((spec_1[overlap_mask_1] - spec_2_interp)**2 
-                            / (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2))
+            # We don't weight by the uncertainties, as that downweights the
+            # order edges which makes the overlap between adjacent orders
+            # worse.
+            overlap_resid = (spec_1[overlap_mask_1] - spec_2_interp)**2 
+                            #/ (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2))
 
             is_nan = np.isnan(overlap_resid)
             overlap_resid[is_nan] = 0
@@ -1239,11 +1259,17 @@ def fit_atmospheric_transmission(
     spec_fluxed,
     wave_synth,
     spec_synth,
+    airmass,
     max_line_depth=0.9,
     poly_order=4,
     edge_px_to_mask=20,
-    optimise_order_overlap=False,):
+    optimise_order_overlap=False,
+    smooth_via_convolution=False,
+    extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
     """
+
+    Following the approach of pywifes.derive_wifes_calibration() from:
+    https://github.com/PyWiFeS/pywifes/blob/main/src/pywifes/wifes_calib.py
     
     Parameters
     ----------
@@ -1260,6 +1286,9 @@ def fit_atmospheric_transmission(
         Synthetic *continuum normalised* spectrum of our target star at the
         same resolution as our observations.
 
+    airmass: float
+        Airmass of the target.
+
     max_line_depth: float, default: 0.9
         The maximum depth we allow telluric and stellar lines to absorb to
         before we mask them when fitting for the smoothed transfer function.
@@ -1274,21 +1303,21 @@ def fit_atmospheric_transmission(
         If true, we also compute residuals for the overlapping regions of
         orders to ensure the resulting fluxed spectrum is smooth across orders.
 
-    TODO Parameters
+    smooth_via_convolution: boolean, default: False
+        Whether to do convolutional smoothing during the optimisation.
 
-    airmass: float
-        Airmass of the target.
-
-    extinction_data_fn: str, default: TODO
+    extinction_curve_fn: str, default: 'data/paranal_extinction_patat2011.tsv'
         Path to extinction at observatory.
 
     Returns
     -------
-    resid_vect:
-        TODO
+    TODO
     """
     # Grab dimensions for convenience
     (n_order, n_px) = wave_obs_2D.shape
+
+    # Import the extinction curve
+    ext_pd = pd.read_csv(extinction_curve_fn, delimiter="\t")
 
     # -------------------------------------------------------------------------
     # Regrid all reference spectra to observed 2D wavelength scale
@@ -1322,10 +1351,18 @@ def fit_atmospheric_transmission(
         fill_value=np.nan,
         kind="cubic",)
 
+    interp_extinction = interp1d(
+        x=ext_pd["wave"].values,
+        y=ext_pd["extinction"].values,
+        bounds_error=False,
+        fill_value=np.nan,
+        kind="cubic",)
+
     tau_H2O_2D = np.full_like(wave_obs_2D, np.nan)
     tau_O2_2D = np.full_like(wave_obs_2D, np.nan)
     spec_fluxed_2D = np.full_like(wave_obs_2D, np.nan)
     spec_synth_2D = np.full_like(wave_obs_2D, np.nan)
+    extinction_2D = np.full_like(wave_obs_2D, np.nan)
 
     for order_i in range(n_order):
         wave_ith = wave_obs_2D[order_i]
@@ -1333,6 +1370,11 @@ def fit_atmospheric_transmission(
         tau_O2_2D[order_i] = -np.log(interp_trans_O2(wave_ith))
         spec_fluxed_2D[order_i] = interp_spec_fluxed(wave_ith)
         spec_synth_2D[order_i] = interp_spec_synth(wave_ith)
+        extinction_2D[order_i] = interp_extinction(wave_ith)
+
+    # Apply airmass-dependent extinction curve to the flux standard to match
+    # our observations
+    spec_fluxed_2D *= 10 ** (-0.4 * airmass * extinction_2D)
 
     # -------------------------------------------------------------------------
     # Optimise for atmosphere terms
@@ -1343,10 +1385,10 @@ def fit_atmospheric_transmission(
 
     params_init = [0.5, 0.5] + list(poly_coeff_init.flatten())
 
-    # Establish bounds, mostly so that the telluric scaling terms are > 0
+    # Establish bounds to l
     bounds_low = [0, 0] + list(
         np.full((n_order, poly_order), -np.inf).flatten())
-    bounds_high = [np.inf, np.inf] + list(
+    bounds_high = [2.0, 2.0] + list(
         np.full((n_order, poly_order), np.inf).flatten())
 
     args = (
@@ -1360,7 +1402,8 @@ def fit_atmospheric_transmission(
         max_line_depth,
         poly_order,
         edge_px_to_mask,
-        optimise_order_overlap,)
+        optimise_order_overlap,
+        smooth_via_convolution,)
 
     # Do fit
     ls_fit_dict = least_squares(
@@ -1382,14 +1425,15 @@ def fit_atmospheric_transmission(
     # Diagnostic plotting
     # -------------------------------------------------------------------------
     plt.close( "all")
-    fig, (ax_template, ax_fit, ax_tf, ax_corr) = plt.subplots(
-        nrows=4, sharex=True, figsize=(16,6))
+    fig, (ax_template, ax_ext, ax_fit, ax_tf, ax_corr) = plt.subplots(
+        nrows=5, sharex=True, figsize=(16,6))
 
     for order_i in range(n_order):
         wave_ith = wave_obs_2D[order_i]
         spec_ith = spec_obs_2D[order_i]
         synth_ith = spec_synth_2D[order_i]
         flux_ith = spec_fluxed_2D[order_i]
+        extinction_ith = extinction_2D[order_i]
         
         trans_H20 = np.exp(-scale_H2O * tau_H2O_2D[order_i])
         trans_O2 = np.exp(-scale_O2 * tau_O2_2D[order_i])
@@ -1400,7 +1444,7 @@ def fit_atmospheric_transmission(
         smooth_tf = tf_poly(wave_ith)
         
         # --------
-        # Panel #1
+        # Panel #1: cont norm synthetic stellar and telluric (O2, and H2) spec
         ax_template.plot(
             wave_ith,
             synth_ith,
@@ -1426,7 +1470,17 @@ def fit_atmospheric_transmission(
             label="O2" if order_i == 0 else None,)
 
         # --------
-        # Panel #2
+        # Panel #2: atmospheric extinction
+        ax_ext.plot(
+            wave_ith,
+            extinction_ith,
+            linewidth=0.5,
+            c="k",
+            alpha=1.0,
+            label="Extinction" if order_i == 0 else None,)
+
+        # --------
+        # Panel #3: fluxed spectrum vs raw spectrum
         ax_fit.plot(
             wave_ith,
             spec_ith,
@@ -1444,7 +1498,7 @@ def fit_atmospheric_transmission(
             label="Fluxed" if order_i == 0 else None,)
         
         # --------
-        # Panel #3
+        # Panel #4: fitted polynomials
         ax_tf.plot(
             wave_ith,
             smooth_tf,
@@ -1453,17 +1507,20 @@ def fit_atmospheric_transmission(
             label="TF" if order_i == 0 else None,)
         
         # --------
-        # Panel #4
+        # Panel #5: flux calibrated spectrum
         ax_corr.plot(
             wave_ith,
             spec_ith*smooth_tf,
             linewidth=0.5,
             label="Corrected" if order_i == 0 else None,)
-
+    
     ax_template.legend(loc="upper left")
     ax_fit.legend(loc="upper left")
     ax_tf.legend(loc="upper left")
     ax_corr.legend(loc="upper left")
+
+    ax_ext.set_ylabel(r"$k(\lambda)$")
+
     plt.tight_layout()
 
     return ls_fit_dict

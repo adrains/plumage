@@ -85,6 +85,7 @@ sp_i = 1
 
 rv = spphot_rvs[source_id]
 bcor = obs_info_sp.iloc[sp_i]["bcor"]
+airmass = obs_info_sp.iloc[sp_i]["airmass"]
 
 # Import flux standard
 fs = np.loadtxt(calspec_templates[source_id])
@@ -129,7 +130,9 @@ fit_dict = psm.fit_atmospheric_transmission(
     spec_fluxed=spec_fs,
     wave_synth=wave_synth,
     spec_synth=spec_synth_ds,
+    airmass=airmass,
     max_line_depth=0.9,
-    poly_order=5,
+    poly_order=4,
     edge_px_to_mask=20,
-    optimise_order_overlap=False,)
+    optimise_order_overlap=True,
+    smooth_via_convolution=False,)
