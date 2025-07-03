@@ -1266,7 +1266,11 @@ def fit_atmospheric_transmission(
     optimise_order_overlap=False,
     smooth_via_convolution=False,
     extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
-    """
+    """Function to fit polynomial transfer functions to each spectral order to
+    flux calibrate an observed MIKE spectrum, with reference to a low-
+    resolution fluxed spectrum of the target, a continuum normalised synthetic
+    stellar spectrum, telluric transmission for H2O and O2, and atmospheric
+    extinction at the observatory.
 
     Following the approach of pywifes.derive_wifes_calibration() from:
     https://github.com/PyWiFeS/pywifes/blob/main/src/pywifes/wifes_calib.py
@@ -1311,7 +1315,11 @@ def fit_atmospheric_transmission(
 
     Returns
     -------
-    TODO
+    fit_dict: dictionary
+        Dictionary as output from from scipy.optimize.least_squares, with added
+        keys: ['scale_H2O', 'scale_O2', 'poly_coef', 'wave_obs_2D',
+        'spec_obs_2D', 'spec_synth_2D', 'spec_fluxed_2D', 'extinction_2D',
+        'tau_H2O_2D', 'tau_O2_2D'].
     """
     # Grab dimensions for convenience
     (n_order, n_px) = wave_obs_2D.shape
@@ -1406,7 +1414,7 @@ def fit_atmospheric_transmission(
         smooth_via_convolution,)
 
     # Do fit
-    ls_fit_dict = least_squares(
+    fit_dict = least_squares(
         calc_flux_correction_resid, 
         params_init, 
         jac="3-point",
@@ -1414,113 +1422,22 @@ def fit_atmospheric_transmission(
         bounds=(bounds_low, bounds_high),
         max_nfev=100,)
     
-    # Unpack params
-    params = ls_fit_dict["x"]
+    # Pack variables/results into dict and return
+    params = fit_dict["x"]
 
     scale_H2O = params[0]
     scale_O2 = params[1]
     poly_coef = params[2:].reshape((n_order, poly_order))
 
-    # -------------------------------------------------------------------------
-    # Diagnostic plotting
-    # -------------------------------------------------------------------------
-    plt.close( "all")
-    fig, (ax_template, ax_ext, ax_fit, ax_tf, ax_corr) = plt.subplots(
-        nrows=5, sharex=True, figsize=(16,6))
+    fit_dict["scale_H2O"] = scale_H2O
+    fit_dict["scale_O2"] = scale_O2
+    fit_dict["poly_coef"] = poly_coef
+    fit_dict["wave_obs_2D"] = wave_obs_2D
+    fit_dict["spec_obs_2D"] = spec_obs_2D
+    fit_dict["spec_synth_2D"] = spec_synth_2D
+    fit_dict["spec_fluxed_2D"] = spec_fluxed_2D
+    fit_dict["extinction_2D"] = extinction_2D
+    fit_dict["tau_H2O_2D"] = tau_H2O_2D
+    fit_dict["tau_O2_2D"] = tau_O2_2D
 
-    for order_i in range(n_order):
-        wave_ith = wave_obs_2D[order_i]
-        spec_ith = spec_obs_2D[order_i]
-        synth_ith = spec_synth_2D[order_i]
-        flux_ith = spec_fluxed_2D[order_i]
-        extinction_ith = extinction_2D[order_i]
-        
-        trans_H20 = np.exp(-scale_H2O * tau_H2O_2D[order_i])
-        trans_O2 = np.exp(-scale_O2 * tau_O2_2D[order_i])
-
-
-        print(poly_coef[order_i])
-        tf_poly = Polynomial(poly_coef[order_i])
-        smooth_tf = tf_poly(wave_ith)
-        
-        # --------
-        # Panel #1: cont norm synthetic stellar and telluric (O2, and H2) spec
-        ax_template.plot(
-            wave_ith,
-            synth_ith,
-            linewidth=0.5,
-            c="k",
-            alpha=0.8,
-            label="Synth" if order_i == 0 else None,)
-        
-        ax_template.plot(
-            wave_ith,
-            trans_H20,
-            linewidth=0.5,
-            c="maroon",
-            alpha=0.8,
-            label="H2O" if order_i == 0 else None,)
-        
-        ax_template.plot(
-            wave_ith,
-            trans_O2,
-            linewidth=0.5,
-            c="b",
-            alpha=0.8,
-            label="O2" if order_i == 0 else None,)
-
-        # --------
-        # Panel #2: atmospheric extinction
-        ax_ext.plot(
-            wave_ith,
-            extinction_ith,
-            linewidth=0.5,
-            c="k",
-            alpha=1.0,
-            label="Extinction" if order_i == 0 else None,)
-
-        # --------
-        # Panel #3: fluxed spectrum vs raw spectrum
-        ax_fit.plot(
-            wave_ith,
-            spec_ith,
-            linewidth=0.5,
-            c="k",
-            alpha=0.8,
-            label="Raw Sci" if order_i == 0 else None,)
-        
-        ax_fit.plot(
-            wave_ith,
-            flux_ith,
-            linewidth=0.5,
-            c="g",
-            alpha=0.8,
-            label="Fluxed" if order_i == 0 else None,)
-        
-        # --------
-        # Panel #4: fitted polynomials
-        ax_tf.plot(
-            wave_ith,
-            smooth_tf,
-            linewidth=0.5,
-            c="r",
-            label="TF" if order_i == 0 else None,)
-        
-        # --------
-        # Panel #5: flux calibrated spectrum
-        ax_corr.plot(
-            wave_ith,
-            spec_ith*smooth_tf,
-            linewidth=0.5,
-            label="Corrected" if order_i == 0 else None,)
-    
-    ax_template.legend(loc="upper left")
-    ax_fit.legend(loc="upper left")
-    ax_tf.legend(loc="upper left")
-    ax_corr.legend(loc="upper left")
-
-    ax_ext.set_ylabel(r"$k(\lambda)$")
-
-    plt.tight_layout()
-
-    return ls_fit_dict
+    return fit_dict

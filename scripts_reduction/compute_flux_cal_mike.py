@@ -3,6 +3,7 @@
 import numpy as np
 import plumage.spectra_mike as psm
 import plumage.utils_mike as pum
+import plumage.plotting_mike as ppltm
 from PyAstronomy.pyasl import instrBroadGaussFast
 from astropy.io import fits
 import astropy.constants as const
@@ -33,6 +34,8 @@ calspec_templates = {
 telluric_template = "data/viper_stdAtmos_vis.fits"
 
 resolving_power = 46000
+
+plot_folder = "spectra/mike_MK_unnormalised/flux_calibration/"
 
 # -----------------------------------------------------------------------------
 # Prepare telluric template
@@ -69,7 +72,8 @@ path= "spectra"
 arm = "r"
 label = "KM"
 
-source_id = "3510294882898890880"
+sp_i = 2
+source_id = "5709390701922940416"
 
 # Import MIKE spectra
 wave, spec, sigma, orders = pum.load_3D_spec_from_fits(path=path, label=label, arm=arm)
@@ -81,7 +85,8 @@ spec_sp = spec[is_spphot]
 sigma_sp = sigma[is_spphot]
 obs_info_sp = obs_info[is_spphot]
 
-sp_i = 1
+plot_label = "{}_{}".format(
+    obs_info_sp.iloc[sp_i]["ut_date"], obs_info_sp.iloc[sp_i]["source_id"])
 
 rv = spphot_rvs[source_id]
 bcor = obs_info_sp.iloc[sp_i]["bcor"]
@@ -136,3 +141,7 @@ fit_dict = psm.fit_atmospheric_transmission(
     edge_px_to_mask=20,
     optimise_order_overlap=True,
     smooth_via_convolution=False,)
+
+# Diagnostic plot
+ppltm.plot_flux_calibration(
+    fit_dict, plot_folder=plot_folder, plot_label=plot_label)
