@@ -1,6 +1,7 @@
 """Utilities functions to work with MIKE spectra.
 """
 import os
+import numpy as np
 from astropy.io import fits
 from astropy.table import Table
 
@@ -281,3 +282,103 @@ def convert_vacuum_to_air_wl(wavelengths_vac,):
     wavelengths_air = wavelengths_vac / n_ref
 
     return wavelengths_air
+
+
+def save_flux_calibration_poly_coeff(
+    poly_order,
+    poly_coeff,
+    orders,
+    arm,
+    save_path,
+    label,):
+    """Function to save flux calibration coefficients to disk. The data file
+    has 1+ n_coeff columns, where the first column is the integer order number,
+    and the remainder of the columns are float polynomial coefficients. The 
+    file has a header row of columns names, and has filename format:
+    'flux_cal_coeff_<arm>_<label>_<poly_order>.tsv'.
+
+    Parameters
+    ----------
+    poly_order: int
+        Polynomial order to be fit as the transfer function for each order.
+
+    poly_coeff: 2D float array
+        Polynomial coefficient array, of shape [n_order, poly_order].
+
+    orders: 1D int array
+        Echelle order numbers, of shape [n_order].
+
+    arm: str
+        String identifying the spectrograph arm.
+
+    save_path: str
+        File path to save coeffients to.
+
+    label: str
+        Label for the file used to identify the flux standard, e.g.
+        "<night>_<target_id>".
+    """
+    # Construct filename
+    fn = "flux_cal_coeff_{}_{}_{}.txt".format(arm, label, poly_order)
+    path = os.path.join(save_path, fn)
+    
+    # Concatenate together the orders and polynomial coefficient arrays
+    data = np.hstack((orders[:,None], poly_coeff))
+
+    # Construct header and format array
+    header = ["order"] + ["coeff_{}".format(pc) for pc in range(poly_order)]
+    header = "\t".join(header)
+ 
+    fmt = ["%0.0f"] + ["%.18e" for pc in range(poly_order)]
+
+    # Save
+    np.savetxt(path, data, fmt=fmt, delimiter="\t", header=header,)
+
+
+def load_flux_calibration_poly_coeff(
+    poly_order,
+    arm,
+    save_path,
+    label,):
+    """Function to load flux calibration coefficients from disk. The data file
+    has 1+ n_coeff columns, where the first column is the integer order number,
+    and the remainder of the columns are float polynomial coefficients. The 
+    file has a header row of columns names, and has filename format:
+    'flux_cal_coeff_<arm>_<label>_<poly_order>.tsv'.
+
+    Parameters
+    ----------
+    poly_order: int
+        Polynomial order to be fit as the transfer function for each order.
+
+    arm: str
+        String identifying the spectrograph arm.
+
+    save_path: str
+        File path to save coeffients to.
+
+    label: str
+        Label for the file used to identify the flux standard, e.g.
+        "<night>_<target_id>".
+
+    Returns
+    -------
+    orders: 1D int array
+        Echelle order numbers, of shape [n_order].
+        
+    poly_coeff: 2D float array
+        Polynomial coefficient array, of shape [n_order, poly_order].
+    """
+    # Construct filename
+    fn = "flux_cal_coeff_{}_{}_{}.txt".format(arm, label, poly_order)
+    path = os.path.join(save_path, fn)
+    
+    # Load
+    data = np.loadtxt(path, delimiter="\t", comments="#",)
+
+    # Unpack
+    orders = data[:,0].astype(int)
+    poly_coeff = data[:,1:]
+
+    # Return
+    return orders, poly_coeff

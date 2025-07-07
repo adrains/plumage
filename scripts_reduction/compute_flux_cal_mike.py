@@ -71,6 +71,7 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM"
+poly_order = 4
 
 sp_i = 2
 source_id = "5709390701922940416"
@@ -137,7 +138,7 @@ fit_dict = psm.fit_atmospheric_transmission(
     spec_synth=spec_synth_ds,
     airmass=airmass,
     max_line_depth=0.9,
-    poly_order=4,
+    poly_order=poly_order,
     edge_px_to_mask=20,
     optimise_order_overlap=True,
     smooth_via_convolution=False,)
@@ -145,3 +146,12 @@ fit_dict = psm.fit_atmospheric_transmission(
 # Diagnostic plot
 ppltm.plot_flux_calibration(
     fit_dict, plot_folder=plot_folder, plot_label=plot_label)
+
+# Save coefficients to disk
+pum.save_flux_calibration_poly_coeff(
+    poly_order=poly_order,
+    poly_coeff=fit_dict["poly_coef"],
+    orders=orders[1:],
+    arm=arm,
+    label=plot_label,
+    save_path=plot_folder,)
