@@ -20,6 +20,7 @@ from scipy.optimize import least_squares
 from astropy.stats import sigma_clip
 from numpy.polynomial.polynomial import Polynomial
 from PyAstronomy.pyasl import instrBroadGaussFast
+import plumage.utils_mike as pum
 
 HEADERS_TO_EXTRACT = ["SITENAME", "SITEALT", "SITELAT", "SITELONG", "TELESCOP",
     "OBSERVER", "DATE-OBS", "UT-DATE", "UT-START", "LC-START", "INSTRUME",
@@ -1297,7 +1298,7 @@ def fit_atmospheric_transmission(
         The maximum depth we allow telluric and stellar lines to absorb to
         before we mask them when fitting for the smoothed transfer function.
 
-    poly_order: float, default: 4
+    poly_order: int, default: 4
         Polynomial order to be fit as the transfer function for each order.
 
     edge_px_to_mask: int, default: 20
@@ -1441,3 +1442,94 @@ def fit_atmospheric_transmission(
     fit_dict["tau_O2_2D"] = tau_O2_2D
 
     return fit_dict
+
+
+def flux_calibrate_mike_spectrum(
+    wave_2D,
+    spec_2D,
+    sigma_2D,
+    airmass,
+    poly_order,
+    arm,
+    coeff_save_folder,
+    label,
+    extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
+    """Flux calibrates a single MIKE spectrum using pre-computed polynomial
+    coefficients from fit_atmospheric_transmission, the airmass of the target,
+    and the observatory extinction.
+
+    Parameters
+    ----------
+    wave_2D, spec_2D, sigma_2D: 2D float array
+        Observed spectra of shape [n_order, n_px].
+
+    wave_telluric, trans_H2O_telluric, trans_O2_telluric: 1D float array
+        Telluric wavelength scale and transmission for H2O and O2.
+
+    airmass: float
+        Airmass of the target.
+
+    poly_order: int
+        Polynomial order to be fit as the transfer function for each order.
+
+    arm: str
+        String identifying the spectrograph arm.
+
+    coeff_save_folder: str
+        File path to save coeffients to.
+
+    label: str
+        Label for the file used to identify the flux standard, e.g.
+        "<night>_<target_id>".
+
+    extinction_curve_fn: str, default: 'data/paranal_extinction_patat2011.tsv'
+        Path to extinction at observatory.
+    """
+    # Import polynomial coefficients
+    orders, poly_coeff = pum.load_flux_calibration_poly_coeff(
+        poly_order=poly_order,
+        arm=arm,
+        save_path=coeff_save_folder,
+        label=label,)
+    
+    # Grab dimensions and sanity check
+    (n_order, n_px) = wave_2D.shape
+
+    if n_order != len(orders):
+        raise Exception("Order numbers don't match!")
+
+    # Import extinction curve + interpolate
+    ext_pd = pd.read_csv(extinction_curve_fn, delimiter="\t")
+    
+    interp_extinction = interp1d(
+        x=ext_pd["wave"].values,
+        y=ext_pd["extinction"].values,
+        bounds_error=False,
+        fill_value=np.nan,
+        kind="cubic",)
+
+    # Initialise fluxed arrays
+    spec_2D_fc = np.full_like(spec_2D, np.nan)
+    sigma_2D_fc = np.full_like(sigma_2D, np.nan)
+
+    # Flux calibrate
+    for order_i in range(n_order):
+        wave_1D = wave_2D[order_i]
+        spec_1D = spec_2D[order_i]
+        sigma_1D = sigma_2D[order_i]
+
+        # Compute transfer function for this order
+        tf_poly = Polynomial(poly_coeff[order_i])
+        flux_cal_tf = 10.0**(-0.4*tf_poly(wave_1D))
+
+        # Calculate extinction for object for this order
+        obj_ext = 10.0**(-0.4*((airmass-1.0)*interp_extinction(wave_1D)))
+
+        # Calculate combined correction factor
+        flux_cal_comb = flux_cal_tf*obj_ext
+
+        # Perform the flux calibration. TODO: exp, delta_lambda
+        spec_2D_fc[order_i] = spec_1D / flux_cal_comb 
+        sigma_2D_fc[order_i] = sigma_1D / flux_cal_comb
+
+    return spec_2D_fc, sigma_2D_fc
