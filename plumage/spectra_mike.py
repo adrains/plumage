@@ -735,8 +735,13 @@ def load_all_mike_fits(
     # Loop over all objects
     for obj in unique_objs:
         # Crossmatch ID and replace with Gaia DR3 source id
+        if obj not in id_cm_df.index:
+            print("\nMissing crossmatch info for {}".format(obj))
+            continue
+
         sid = id_cm_df.loc[obj]["source_id"]
         kind = id_cm_df.loc[obj]["kind"]
+        is_spphot = id_cm_df.loc[obj]["is_sphot"]
 
         # Also loop over dates observed
         ut_dates_obj = set(ut_dates[obj_names == obj])
@@ -754,6 +759,8 @@ def load_all_mike_fits(
                 
                 # Store target classification that we get from the crossmatch
                 obj_dict_b["kind"] = kind
+                obj_dict_b["is_spphot"] = is_spphot
+
             else:
                 exp_dict_b = None
                 obj_dict_b = None
@@ -770,6 +777,7 @@ def load_all_mike_fits(
                 
                 # Store target classification that we get from the crossmatch
                 obj_dict_r["kind"] = kind
+                obj_dict_r["is_spphot"] = is_spphot
 
             else:
                 exp_dict_r = None
@@ -850,8 +858,8 @@ def collate_mike_obs(blue_dict, red_dict,):
     # Create DataFrame by combining B/R info
     # -------------------------------------------------------------------------
     # Column definitions, one set is common between arms, the othar are per-arm
-    cols_common = ["source_id", "kind", "object", "observer", "ut_date", 
-        "ut_start",  "lc_start", "airmass", "slit_size", "bcor",] 
+    cols_common = ["source_id", "kind", "is_spphot", "object", "observer",
+         "ut_date", "ut_start",  "lc_start", "airmass", "slit_size", "bcor",] 
     
     cols_base_br = ["has", "exp_time", "n_loops", "binning", "speed", "snr",]
 
@@ -886,6 +894,7 @@ def collate_mike_obs(blue_dict, red_dict,):
             
             # Constant params
             obs_info.loc[obj_i, "kind"] = arm_dict[obj]["kind"]
+            obs_info.loc[obj_i, "is_spphot"] = arm_dict[obj]["is_spphot"]
             obs_info.loc[obj_i, "object"] = arm_dict[obj]["OBJECT"]
             obs_info.loc[obj_i, "observer"] = arm_dict[obj]["OBSERVER"]
             obs_info.loc[obj_i, "ut_date"] = arm_dict[obj]["UT-DATE"]
@@ -918,6 +927,7 @@ def collate_mike_obs(blue_dict, red_dict,):
     # Column unit definition to avoid astropy complaining later
     obs_info["has_b"] = obs_info["has_b"].values.astype(bool)
     obs_info["has_r"] = obs_info["has_r"].values.astype(bool)
+    obs_info["is_spphot"] = obs_info["is_spphot"].values.astype(bool)
 
     obs_dict = {
         "obs_info":obs_info,
@@ -1329,6 +1339,17 @@ def fit_atmospheric_transmission(
     ext_pd = pd.read_csv(extinction_curve_fn, delimiter="\t")
 
     # -------------------------------------------------------------------------
+    # Masking
+    # -------------------------------------------------------------------------
+    # It's possible to receive spectra where entire orders are NaNs. If so, we
+    # don't want to pass these on to the fitting function, but we do want to
+    # create dummy coefficients so that everything is consistent in shape.
+    useful_orders = np.logical_and(
+        np.sum(np.isnan(spec_obs_2D), axis=1) < n_px,
+        np.sum(np.isnan(sigma_obs_2D), axis=1) < n_px,)
+    n_useful_orders = np.sum(useful_orders)
+
+    # -------------------------------------------------------------------------
     # Regrid all reference spectra to observed 2D wavelength scale
     # -------------------------------------------------------------------------
     # Construct interpolators
@@ -1389,25 +1410,25 @@ def fit_atmospheric_transmission(
     # Optimise for atmosphere terms
     # -------------------------------------------------------------------------
     # Setup the list of parameters to pass to our fitting function
-    poly_coeff_init = np.zeros((n_order, poly_order))
+    poly_coeff_init = np.zeros((n_useful_orders, poly_order))
     poly_coeff_init[:,0] = 1
 
     params_init = [0.5, 0.5] + list(poly_coeff_init.flatten())
 
     # Establish bounds to l
     bounds_low = [0, 0] + list(
-        np.full((n_order, poly_order), -np.inf).flatten())
+        np.full((n_useful_orders, poly_order), -np.inf).flatten())
     bounds_high = [2.0, 2.0] + list(
-        np.full((n_order, poly_order), np.inf).flatten())
+        np.full((n_useful_orders, poly_order), np.inf).flatten())
 
     args = (
-        wave_obs_2D,
-        spec_obs_2D,
-        sigma_obs_2D,
-        tau_H2O_2D,
-        tau_O2_2D,
-        spec_fluxed_2D,
-        spec_synth_2D,
+        wave_obs_2D[useful_orders],
+        spec_obs_2D[useful_orders],
+        sigma_obs_2D[useful_orders],
+        tau_H2O_2D[useful_orders],
+        tau_O2_2D[useful_orders],
+        spec_fluxed_2D[useful_orders],
+        spec_synth_2D[useful_orders],
         max_line_depth,
         poly_order,
         edge_px_to_mask,
@@ -1428,7 +1449,14 @@ def fit_atmospheric_transmission(
 
     scale_H2O = params[0]
     scale_O2 = params[1]
-    poly_coef = params[2:].reshape((n_order, poly_order))
+
+    # Add in dummy polynomial coeff if necessary
+    if n_useful_orders != n_order:
+        poly_coef = np.zeros((n_order, poly_order))
+        poly_coef[useful_orders] = \
+            params[2:].reshape((n_useful_orders, poly_order))
+    else:
+        poly_coef = params[2:].reshape((n_useful_orders, poly_order))
 
     fit_dict["scale_H2O"] = scale_H2O
     fit_dict["scale_O2"] = scale_O2

@@ -5,7 +5,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import Polynomial
 
-def plot_flux_calibration(fit_dict, plot_folder, plot_label, fig_size=(18,8),):
+def plot_flux_calibration(
+    fit_dict,
+    plot_folder,
+    plot_label,
+    fig_size=(18,8),
+    clip_edge_px=True,
+    edge_px_to_clip=10,):
     """Plots an overview diagnostic  of the flux calibration for a single
     target. The plot has six panels:
         1) Stellar and telluric (H2O, O2) transmission.
@@ -33,6 +39,12 @@ def plot_flux_calibration(fit_dict, plot_folder, plot_label, fig_size=(18,8),):
 
     fig_size: float tuple, default: (18,8)
         Size of the figure in inches.
+
+    clip_edge_px: boolean, default: True
+        Whether to clip the edges of obseved MIKE spectra to not plot bad px.
+
+    edge_px_to_clip: int, default: 10
+        Number of edge pixels to not plot, per clip_edge_px.
     """
     # Unpack dict
     scale_H2O = fit_dict["scale_H2O"]
@@ -47,6 +59,13 @@ def plot_flux_calibration(fit_dict, plot_folder, plot_label, fig_size=(18,8),):
     tau_O2_2D = fit_dict["tau_O2_2D"]
 
     (n_order, n_px) = wave_obs_2D.shape
+
+    # [Optional] Clip edges of MIKE spectra when plotting
+    plot_mask = np.full((n_px), True)
+    
+    if clip_edge_px:
+        plot_mask[:edge_px_to_clip] = False
+        plot_mask[-edge_px_to_clip:] = False
 
     # -------------------------------------------------------------------------
     # Diagnostic plotting
@@ -114,10 +133,10 @@ def plot_flux_calibration(fit_dict, plot_folder, plot_label, fig_size=(18,8),):
             label="Flux Reference" if order_i == 0 else None,)
         
         # --------
-        # Panel #4: fluxed spectrum
+        # Panel #4: observed spectrum
         ax_obs.plot(
-            wave_ith,
-            spec_ith,
+            wave_ith[plot_mask],
+            spec_ith[plot_mask],
             linewidth=0.5,
             c="k",
             alpha=0.8,
@@ -135,8 +154,8 @@ def plot_flux_calibration(fit_dict, plot_folder, plot_label, fig_size=(18,8),):
         # --------
         # Panel #6: flux calibrated spectrum
         ax_corr.plot(
-            wave_ith,
-            spec_ith*smooth_tf,
+            wave_ith[plot_mask],
+            spec_ith[plot_mask]*smooth_tf[plot_mask],
             linewidth=0.5,
             label="MIKE Spectrum (Fluxed)" if order_i == 0 else None,)
     
