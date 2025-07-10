@@ -191,11 +191,11 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         wave_synth=wave_synth,
         spec_synth=spec_synth_ds,
         airmass=airmass,
+        do_convolution=True,
         max_line_depth=0.9,
         poly_order=poly_order,
-        edge_px_to_mask=20,
-        optimise_order_overlap=True,
-        smooth_via_convolution=False,)
+        edge_px_to_mask=0,
+        optimise_order_overlap=True,)
 
     # Diagnostic plot
     ppltm.plot_flux_calibration(

@@ -1029,8 +1029,7 @@ def calc_flux_correction_resid(
     max_line_depth,
     poly_order,
     edge_px_to_mask,
-    optimise_order_overlap,
-    smooth_via_convolution,):
+    optimise_order_overlap,):
     """Calculates the residuals between a low-resolution flux calibrated
     spectrum and a high-resolution spectrum corrected for the atmospheric and
     instrumental transfer function.
@@ -1120,18 +1119,6 @@ def calc_flux_correction_resid(
 
     spec_obs_2D_tell_corr = spec_obs_2D_cleaned / trans_H2O_2D / trans_O2_2D
 
-    if smooth_via_convolution:
-        for order_i in range(n_order):
-            spec_smoothed = instrBroadGaussFast(
-                wvl=wave_obs_2D[order_i][~is_bad_px[order_i]],
-                flux=spec_obs_2D_tell_corr[order_i][~is_bad_px[order_i]],
-                resolution=2000,
-                edgeHandling="firstlast",
-                maxsig=5,
-                equid=True,)
-            
-            spec_obs_2D_tell_corr[order_i][~is_bad_px[order_i]] = spec_smoothed
-
     # -------------------------------------------------------------------------
     # Calculate transfer function
     # -------------------------------------------------------------------------
@@ -1211,7 +1198,7 @@ def calc_flux_correction_resid(
 
             # Interpolate onto the same wavelength scale
             interp_mask = np.logical_and(overlap_mask_2, ~is_nan_spec_2)
-
+            
             interp_spec = interp1d(
                 x=wave_2[interp_mask],
                 y=spec_2[interp_mask],
@@ -1271,11 +1258,12 @@ def fit_atmospheric_transmission(
     wave_synth,
     spec_synth,
     airmass,
+    do_convolution=False,
+    resolving_power_during_fit=1150,
     max_line_depth=0.9,
     poly_order=4,
     edge_px_to_mask=20,
     optimise_order_overlap=False,
-    smooth_via_convolution=False,
     extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
     """Function to fit polynomial transfer functions to each spectral order to
     flux calibrate an observed MIKE spectrum, with reference to a low-
@@ -1304,6 +1292,17 @@ def fit_atmospheric_transmission(
     airmass: float
         Airmass of the target.
 
+    do_convolution: boolean, default: False
+        Whether to convolve all spectra to a lower resolving power before
+        fitting. This has the effect of better matching our MIKE spectra to the
+        CALSPEC fluxed spectra, and smoothing out deep lines likely to either
+        cause residuals or complications if just masking them.
+
+    resolving_power_during_fit: int, default: 1150
+        New resolving power if convolving to a lower resolution. The default
+        value corresponds to 40x lower resolution from the MIKE red arm which
+        very roughly (by eye) matches the CALSPEC spectra.
+
     max_line_depth: float, default: 0.9
         The maximum depth we allow telluric and stellar lines to absorb to
         before we mask them when fitting for the smoothed transfer function.
@@ -1317,9 +1316,6 @@ def fit_atmospheric_transmission(
     optimise_order_overlap: boolean, default: False
         If true, we also compute residuals for the overlapping regions of
         orders to ensure the resulting fluxed spectrum is smooth across orders.
-
-    smooth_via_convolution: boolean, default: False
-        Whether to do convolutional smoothing during the optimisation.
 
     extinction_curve_fn: str, default: 'data/paranal_extinction_patat2011.tsv'
         Path to extinction at observatory.
@@ -1348,6 +1344,67 @@ def fit_atmospheric_transmission(
         np.sum(np.isnan(spec_obs_2D), axis=1) < n_px,
         np.sum(np.isnan(sigma_obs_2D), axis=1) < n_px,)
     n_useful_orders = np.sum(useful_orders)
+
+    # -------------------------------------------------------------------------
+    # [Optional] Convolve to a lower resolution
+    # -------------------------------------------------------------------------
+    if do_convolution:
+        # Telluric (H2O)
+        trans_H2O_telluric = instrBroadGaussFast(
+            wvl=wave_telluric,
+            flux=trans_H2O_telluric,
+            resolution=resolving_power_during_fit,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
+        
+        # Telluric (O2)
+        trans_O2_telluric = instrBroadGaussFast(
+            wvl=wave_telluric,
+            flux=trans_O2_telluric,
+            resolution=resolving_power_during_fit,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
+        
+        # Synthetic (MARCS)
+        spec_synth = instrBroadGaussFast(
+            wvl=wave_synth,
+            flux=spec_synth,
+            resolution=resolving_power_during_fit,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
+        
+        # Observed
+        wave_obs_2D = wave_obs_2D.copy()
+        spec_obs_2D = spec_obs_2D.copy()
+        sigma_obs_2D = sigma_obs_2D.copy()
+
+        # Mask edges
+        edge_px = np.logical_or(np.arange(n_px) < 5, np.arange(n_px) > n_px-5)
+        spec_obs_2D[:,edge_px] = np.nan
+        sigma_obs_2D[:,edge_px] = np.nan
+        
+        for order_i in range(n_order):
+            if not useful_orders[order_i]:
+                continue
+
+            spec_obs_2D[order_i] = instrBroadGaussFast(
+                wvl=wave_obs_2D[order_i],
+                flux=spec_obs_2D[order_i],
+                resolution=resolving_power_during_fit,
+                edgeHandling="firstlast",
+                maxsig=5,
+                equid=True,)
+            
+            sigma_obs_2D[order_i] = instrBroadGaussFast(
+                wvl=wave_obs_2D[order_i],
+                flux=sigma_obs_2D[order_i],
+                resolution=resolving_power_during_fit,
+                edgeHandling="firstlast",
+                maxsig=5,
+                equid=True,)
 
     # -------------------------------------------------------------------------
     # Regrid all reference spectra to observed 2D wavelength scale
@@ -1432,8 +1489,7 @@ def fit_atmospheric_transmission(
         max_line_depth,
         poly_order,
         edge_px_to_mask,
-        optimise_order_overlap,
-        smooth_via_convolution,)
+        optimise_order_overlap,)
 
     # Do fit
     fit_dict = least_squares(
