@@ -20,6 +20,7 @@ def correct_abundance_trends(
     species_to_correct,
     comp_ref,
     references_to_compare,
+    comp_ref_secondary=None,
     poly_order=4,
     outlier_dex=0.3,
     outer_points_to_drop=2,):
@@ -49,6 +50,10 @@ def correct_abundance_trends(
     references_to_compare: str list
         List of literature sources to correct to our reference abundance scale.
 
+    comp_ref_secondary: str, default: None
+        A secondary reference abundance scale to adopt in the case our first
+        preference in comp_ref is not available. 
+
     poly_order: int, default: 4
         Polynomial order for the correction.
 
@@ -74,9 +79,31 @@ def correct_abundance_trends(
     for ref_i, ref in enumerate(references_to_compare):
         for species in species_to_correct:
             # Grab value + sigma column names
-            abund_ref = "{}_{}".format(species, comp_ref)
-            e_abund_ref = "e_{}_{}".format(species, comp_ref)
+            cols = chem_df.columns.values
 
+            # Use primary reference scale where we can
+            if "{}_{}".format(species, comp_ref) in cols:
+                comp_ref_adopt = comp_ref
+
+            # Check the secondary reference if it was provided
+            elif ("{}_{}".format(species, comp_ref_secondary) in cols
+                  and comp_ref_secondary is not None):
+                comp_ref_adopt = comp_ref_secondary
+                
+            # Otherwise we can't make this comparison, so just continue
+            else:
+                continue
+
+            # Check that ref =/= comp_ref_adopt. This can happen if we end up
+            # using the secondary reference
+            if ref == comp_ref_adopt:
+                continue
+            
+            # Initial checks passed, construct our column names for reference
+            abund_ref = "{}_{}".format(species, comp_ref_adopt)
+            e_abund_ref = "e_{}_{}".format(species, comp_ref_adopt)
+
+            # Grab the comparison values
             abund_comp = "{}_{}".format(species, ref)
             e_abund_comp = "e_{}_{}".format(species, ref)
 
@@ -168,9 +195,11 @@ def plot_abundance_trends(
     references_to_compare,
     bp_rp_lims,
     abund_Y_lims,
+    comp_ref_secondary=None,
     do_limit_y_extent=True,
     fn_label="",
-    bp_rp_ticks=(0.1,0.05)):
+    bp_rp_ticks=(0.1,0.05),
+    figsize=(16, 10),):
     """Function to plot before and after correcting for abundance trends and
     putting all samples on the same reference abundance scale. For every 
     species, we plot two panels per reference showing the residuals fit with a
@@ -203,6 +232,10 @@ def plot_abundance_trends(
     abund_Y_lims: float
         Symmetric limits for the Y abundance axis.
 
+    comp_ref_secondary: str, default: None
+        A secondary reference abundance scale to adopt in the case our first
+        preference in comp_ref is not available. 
+
     do_limit_y_extent: boolean, default: True
         Whether or not to limit the Y extent plotted.
 
@@ -212,6 +245,9 @@ def plot_abundance_trends(
 
     bp_rp_ticks: float array, default: (0.1, 0.05)
         Major and minor x tick values for BP-RP.
+
+    figsize: float tuple, default: (16, 10)
+        Size of the plotted figure for each species.
     """
     # Loop over all species
     for species in species_to_correct:
@@ -220,14 +256,28 @@ def plot_abundance_trends(
         comp_mask = np.array(["{}_{}".format(species, cr) in chem_df.columns 
             for cr in references_to_compare])
 
+        # If our primary reference does not have this species, we need to check
+        # the secondary reference and make sure to remove it from being
+        # compared with itself. We can then plot one fewer panel.
+        if ("{}_{}".format(species, comp_ref) not in chem_df.columns
+            and comp_ref_secondary is not None):
+            comp_ref_2nd_i = int(np.where(
+                references_to_compare_K == comp_ref_secondary)[0])
+            comp_mask[comp_ref_2nd_i] = False
+
         plt.close("all")
         fig, axes = plt.subplots(
             nrows=np.sum(comp_mask),
             ncols=2,
             sharex=True,
             sharey="row",
-            figsize=(16, 10))
+            figsize=figsize)
 
+        # In the event we only have one comparison (e.g. in the chemodynamic
+        # case) ensure the axes array is 2D for consistent indexing.
+        if len(axes.shape) == 1:
+            axes = np.atleast_2d(axes)
+        
         fig.subplots_adjust(
             left=0.05,
             bottom=0.05,
@@ -239,8 +289,24 @@ def plot_abundance_trends(
         # Loop over all valid comparisons
         for ref_i, ref in enumerate(references_to_compare[comp_mask]):
             # Grab value + sigma column names
-            abund_ref = "{}_{}".format(species, comp_ref)
-            e_abund_ref = "e_{}_{}".format(species, comp_ref)
+            cols = chem_df.columns.values
+
+            # Use primary reference scale where we can
+            if "{}_{}".format(species, comp_ref) in cols:
+                comp_ref_adopt = comp_ref
+
+            # Check the secondary reference if it was provided
+            elif ("{}_{}".format(species, comp_ref_secondary) in cols
+                  and comp_ref_secondary is not None):
+                comp_ref_adopt = comp_ref_secondary
+
+            # Shouldn't be able to get here?
+            else:
+                raise Exception("Something has gone wong?")
+
+            # Grab value + sigma column names
+            abund_ref = "{}_{}".format(species, comp_ref_adopt)
+            e_abund_ref = "e_{}_{}".format(species, comp_ref_adopt)
 
             abund_comp = "{}_{}".format(species, ref)
             e_abund_comp = "e_{}_{}".format(species, ref)
@@ -323,7 +389,8 @@ def plot_abundance_trends(
                 fmt="o",
                 alpha=0.8,
                 ecolor="k",
-                label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
+                label=r"{}$ - ${} (N={})".format(
+                    comp_ref_adopt, ref, n_overlap))
             
             axes[ref_i, 0].legend(loc="lower right")
             
@@ -385,7 +452,8 @@ def plot_abundance_trends(
                 fmt="o",
                 alpha=0.8,
                 ecolor="k",
-                label=r"{}$ - ${} (N={})".format(comp_ref, ref, n_overlap))
+                label=r"{}$ - ${} (N={})".format(
+                    comp_ref_adopt, ref, n_overlap))
             
             axes[ref_i, 1].legend(loc="lower right")
 
@@ -457,7 +525,7 @@ samples = {
     "D19":"data/D19_gaia_all.tsv",      # Individual sigmas
     "RB20":"data/RB20_dr3_all.tsv",     # Const sigma for: all
     "M20":"data/M20_gaia_all.tsv",      # Const sigma for: all
-    "SM25":"data/SM25_sampled_params_n224.csv", # Invidivual sigmas
+    "SM25":"data/SM25_X_Fe_chemodynamic_Ti_Ca_Na_Al_Mg.tsv",# Invidivual sigmas
 }
 
 # Mapping of chemical species within each sample
@@ -486,7 +554,7 @@ species_all = {
             "Fe", "Ni", "Y"],
     "M20":["Fe",],# "C", "Na", "Mg", "Al", "Si", "Ca", "Sc", "Ti", "V", "Cr",
            #"Mn", "Co", "Ni", "Zn",],
-    "SM25":["Ti"],
+    "SM25":["Na", "Mg", "Al", "Ca", "Ti"],
 }
 
 # Mapping of abundance uncertainties for those samples with constant adopted
@@ -1123,6 +1191,26 @@ cols.append("bp_rp")
 dataframes_cut["SM25"] = SM25[cols].copy()
 
 #------------------------------------------------------------------------------
+# Massaging things
+#------------------------------------------------------------------------------
+# If we want to use any [X/Fe] not from our reference scale, we require that
+# star to have a BP-RP so it can be corrected for inter-catalogue systematics.
+# However, this poses a problem for stars (especially binary hosts which we
+# don't automatically reject for not having Gaia or 2MASS) as it means that we
+# won't be able to use their [X/Fe] later. Thus, if we want to use one of these
+# stars we need to provide it with a dummy (but reasonable) BP-RP value from a
+# stellar twin. 
+
+# Alpha Cen A (HD 128620), the binary reference to Proxima Cen, is in VF05 but
+# is too bright to be in Gaia. GBS (Soubiran+24) lists its stellar parameters
+# as: Teff~5804, logg~4.29, and [Fe/H]~0.20. Checking VF05 for a suitable twin,
+# we select HD 24040 with Teff~5853, logg~4.36, [Fe/H]~0.21. This target has
+# BP-RP = 0.8125124 in Gaia DR3, which we assign to Alpha Cen A here, which
+# allows the systematics between VF05 and L18 to be corrected for.
+dataframes_cut["VF05"].loc["HD 128620"]["bp_rp"] = 0.81
+dataframes_cut["L18"].loc["HD 128620"]["bp_rp"] = 0.81
+
+#------------------------------------------------------------------------------
 # Join all separate tables
 #------------------------------------------------------------------------------
 for ref in dataframes_cut.keys():
@@ -1150,9 +1238,11 @@ df_comb.drop(columns=bp_rp_cols, inplace=True)
 POLY_ORDER = 4
 OUTLIER_DEX = 0.3
 
-# K dwarfs
-species_to_correct_K = ["Fe_H", "Ti_H"]
+# K dwarfs. Note: we need to give a secondary reference here since VF05 doesn't
+# have all [X/Fe] of interest. 
+species_to_correct_K = ["Fe_H", "Ti_H", "Mg_H", "Ca_H"]
 comp_ref_K = "VF05"
+comp_ref_secondary_K = "B16"
 references_to_compare_K = np.array(["R07", "A12", "B16", "M18", "L18", "RB20"])
 
 print("K Dwarfs\n--------")
@@ -1160,6 +1250,7 @@ fit_dict_K = correct_abundance_trends(
     chem_df=df_comb,
     species_to_correct=species_to_correct_K,
     comp_ref=comp_ref_K,
+    comp_ref_secondary=comp_ref_secondary_K,
     references_to_compare=references_to_compare_K,
     poly_order=POLY_ORDER,
     outlier_dex=OUTLIER_DEX,)
@@ -1190,10 +1281,27 @@ sp.compute_X_Fe(
     samples=samples.keys(),)
 
 #------------------------------------------------------------------------------
+# Correcting [X/Fe] systematics for chemodynamic trends
+#------------------------------------------------------------------------------
+species_to_correct_CD = ["Mg_Fe", "Ca_Fe", "Ti_Fe"]
+comp_ref_CD = "B16"
+references_to_compare_CD = np.array(["SM25"])
+
+fit_dict_CD = correct_abundance_trends(
+    chem_df=df_comb,
+    species_to_correct=species_to_correct_CD,
+    comp_ref=comp_ref_CD,
+    references_to_compare=references_to_compare_CD,
+    poly_order=0,   # Note: single order poly only!
+    outlier_dex=OUTLIER_DEX,)
+
+#------------------------------------------------------------------------------
 # Save to file
 #------------------------------------------------------------------------------
+species_fn = [stc.replace("_H", "") for stc in species_to_correct_K]
+
 save_filename = "data/lit_chemistry_corrected_{}.tsv".format(
-    "_".join(species_to_correct_K))
+    "_".join(species_fn))
 
 # Dump corrected DataFrame
 df_comb.to_csv(save_filename, sep="\t")
@@ -1215,6 +1323,7 @@ plot_abundance_trends(
     fit_dict=fit_dict_K,
     species_to_correct=species_to_correct_K,
     comp_ref=comp_ref_K,
+    comp_ref_secondary=comp_ref_secondary_K,
     references_to_compare=references_to_compare_K,
     bp_rp_lims=BP_RP_LIMS_K,
     abund_Y_lims=ABUND_Y_LIMS_K,
@@ -1238,3 +1347,17 @@ plot_abundance_trends(
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
     fn_label="M",
     bp_rp_ticks=BP_RP_TICKS_M,)
+
+# Plot abundance trends for chemodynamic [X/Fe]
+plot_abundance_trends(
+    chem_df=df_comb,
+    fit_dict=fit_dict_CD,
+    species_to_correct=species_to_correct_CD,
+    comp_ref=comp_ref_CD,
+    references_to_compare=references_to_compare_CD,
+    bp_rp_lims=BP_RP_LIMS_K,
+    abund_Y_lims=ABUND_Y_LIMS_M,
+    do_limit_y_extent=DO_LIMIT_Y_EXTENT,
+    fn_label="CD",
+    bp_rp_ticks=BP_RP_TICKS_K,
+    figsize=(16,10))

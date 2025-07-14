@@ -1184,7 +1184,12 @@ def load_model(filename):
     sm.theta = class_dict["theta"]
     sm.s2 = class_dict["s2"]
     sm.cross_val_labels = class_dict["cross_val_labels"]
-    sm.cross_val_sigmas = class_dict["cross_val_sigmas"]
+
+    # HACK: compatability with previous models where sigma was not saved
+    try:
+        sm.cross_val_sigmas = class_dict["cross_val_sigmas"]
+    except:
+        pass
 
     # HACK: compatability with previous models where chi^2 was not saved
     try:

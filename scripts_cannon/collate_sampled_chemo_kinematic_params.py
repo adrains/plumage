@@ -4,18 +4,19 @@ including predicted [Ti/Fe] abundances.
 import pandas as pd
 import numpy as np
 import glob
-import plumage.utils as pu
-import stannon.plotting as splt
 
 # -----------------------------------------------------------------------------
 # Setup + Settings
 # -----------------------------------------------------------------------------
-path_wc = "/Users/adamrains/Dropbox/AdamTiDists/2025/Results/*PullsSymmetricErrors"
+X_Fe = "[Mg/Fe]"
+X_Fe_label = X_Fe[1:-1].replace("/", "_")
+
+path_wc = "/Users/arains/Dropbox/AdamTiDists/2025/MgCa/MDwarfs/MgResults/*PullsSymmetricErrors"
 sample_files = glob.glob(path_wc)
 
 # Setup mean and sigma columns for dataframe and interleave
 cols_mean = ["ra", "dec", "dist", "pm_ra", "pm_dec",  "rv", "[Fe/H]", "vphi", 
-             "[Ti/Fe]"]
+             X_Fe]
 
 cols_sigma = ["e_{}".format(col) for col in cols_mean]
 
@@ -56,4 +57,5 @@ df.index.name = "source_id_dr3"
 df["bp_rp"] = np.nan
 
 # Save
-df.to_csv("data/monty_sampled_params_n{:0.0f}.csv".format(n_stars), sep="\t")
+df.to_csv("data/monty_sampled_params_{}_n{:0.0f}.csv".format(
+    X_Fe_label, n_stars), sep="\t")
