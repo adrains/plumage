@@ -627,6 +627,11 @@ K_DWARF_BP_RP_MAX = 1.7
 cool_dwarf_catalogues = \
     ["RA12", "M14", "G14a", "G14b", "M15", "D19", "M20", "SM25"]
 
+# Set to true to drop columns related to abundances we're not correcting for
+# systematics. This prevents bloat in the number of columns, and is important
+# later when saving to a fits file which only support 1000 columns.
+remove_unused_X_H = True
+
 #------------------------------------------------------------------------------
 # Initial Import + Unique IDs
 #------------------------------------------------------------------------------
@@ -1240,7 +1245,7 @@ OUTLIER_DEX = 0.3
 
 # K dwarfs. Note: we need to give a secondary reference here since VF05 doesn't
 # have all [X/Fe] of interest. 
-species_to_correct_K = ["Fe_H", "Ti_H", "Mg_H", "Ca_H"]
+species_to_correct_K = ["Fe_H", "Ti_H", "Mg_H", "Ca_H", "Na_H", "Al_H"]
 comp_ref_K = "VF05"
 comp_ref_secondary_K = "B16"
 references_to_compare_K = np.array(["R07", "A12", "B16", "M18", "L18", "RB20"])
@@ -1283,7 +1288,7 @@ sp.compute_X_Fe(
 #------------------------------------------------------------------------------
 # Correcting [X/Fe] systematics for chemodynamic trends
 #------------------------------------------------------------------------------
-species_to_correct_CD = ["Mg_Fe", "Ca_Fe", "Ti_Fe"]
+species_to_correct_CD = ["Mg_Fe", "Ca_Fe", "Ti_Fe", "Na_Fe", "Al_Fe"]
 comp_ref_CD = "B16"
 references_to_compare_CD = np.array(["SM25"])
 
@@ -1294,6 +1299,30 @@ fit_dict_CD = correct_abundance_trends(
     references_to_compare=references_to_compare_CD,
     poly_order=0,   # Note: single order poly only!
     outlier_dex=OUTLIER_DEX,)
+
+#------------------------------------------------------------------------------
+# [Optional] Remove unused [X/Fe] to reduce the number of columns
+#------------------------------------------------------------------------------
+possible_X_H = ["C", "N", "O", "Na", "Mg", "Al", "Si", "S", "Ca", "Sc", "Ti",
+    "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Sr", "Y", "Zr", "Ba", "La",
+    "Ce", "Nd", "Sm", "Eu"]
+
+if remove_unused_X_H:
+    columns = df_comb.columns.values
+    drop_mask = np.full_like(columns, False).astype(bool)
+
+    for element in possible_X_H:
+        X_H = "{}_H".format(element)
+
+        # Dron't drop elements we've corrected
+        if X_H in species_to_correct_K:
+            continue
+
+        # Check all columns, update our mask accordingly
+        drop_mask = np.logical_or([X_H in col for col in columns], drop_mask)
+
+    # Remove these columns
+    df_comb.drop(columns=columns[drop_mask], inplace=True)
 
 #------------------------------------------------------------------------------
 # Save to file
