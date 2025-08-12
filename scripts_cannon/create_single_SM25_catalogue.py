@@ -4,6 +4,7 @@ running assess_literature_systematics.py.
 """
 import numpy as np
 import pandas as pd
+import plumage.utils as pu
 import matplotlib.pyplot as plt
 
 # MK samples
@@ -57,6 +58,19 @@ for df in MK_dfs[1:]:
         loc=len(MK_df.columns)-1, column=X_Fe, value=df[X_Fe].values)
     MK_df.insert(
         loc=len(MK_df.columns)-1, column=e_X_Fe, value=df[e_X_Fe].values)
+
+# Drop the existing (assumed entirely NaN) BP-RP column
+assert np.sum(~np.isnan( MK_df["bp_rp"].values)) == 0
+MK_df.drop(columns=["bp_rp"], inplace=True)
+
+# Crossmatch this back to our obs_join DataFrame to specifically get BP-RP. We
+# do this so that we can self-consistently correct for systematics later, even
+# if for the chemodynamic sample we only ever correct for a scalar value.
+obs_join = pu.load_fits_table("CANNON_INFO", "cannon_mk")
+obs_join_subset =  obs_join[["BP_RP_dr3"]].copy()
+obs_join_subset.rename(columns={"BP_RP_dr3":"bp_rp"}, inplace=True)
+
+MK_df = MK_df.join(obs_join_subset, "source_id_dr3",).copy()
 
 # -----------------------------------------------------------------------------
 # Combine B16
