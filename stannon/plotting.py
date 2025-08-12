@@ -16,6 +16,7 @@ def plot_label_recovery(
     e_label_values,
     label_pred,
     e_label_pred,
+    label_names,
     teff_lims=(2500,5000),
     logg_lims=(4.4,5.4),
     feh_lims=(-1.1,0.65),
@@ -40,6 +41,9 @@ def plot_label_recovery(
         Predicted label values and uncertainty arrays of shape 
         [n_star, n_label].
 
+    label_names: str list
+        List of label names of length [n_label].
+        
     teff_lims: float array, default: (2800, 4500)
         Teff limits to use for X/Y axes and 1:1 recovery line.
     
@@ -146,26 +150,31 @@ def plot_label_recovery(
         panel_label=panel_label,
         plot_resid_y_label=False,)
     
-    if n_labels == 4:
-        # [Ti/Fe]
-        pplt.plot_std_comp_generic(
-            fig=fig,
-            axis=axes[3],
-            lit=label_values[:,3],
-            e_lit=e_label_values[:,3],
-            fit=label_pred[:,3],
-            e_fit=e_label_pred[:,3],
-            colour=label_values[:,0],
-            fit_label=r"[Ti/Fe] ($\it{Cannon}$)",
-            lit_label=r"[Ti/Fe] (Adopted)",
-            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
-            x_lims=X_Fe_lims,
-            y_lims=X_Fe_lims,
-            cmap="magma",
-            show_offset=show_offset,
-            ticks=X_Fe_ticks,
-            panel_label=panel_label,
-            plot_resid_y_label=False,)
+    if n_labels > 3:
+        # [X/Fe]
+        for i, X_Fe in enumerate(label_names[3:]):
+            # Grab label and index
+            xfe_lbl = "[{}]".format(X_Fe.replace("_", "/"))
+            xfe_i = 3 + i
+
+            pplt.plot_std_comp_generic(
+                fig=fig,
+                axis=axes[xfe_i],
+                lit=label_values[:,xfe_i],
+                e_lit=e_label_values[:,xfe_i],
+                fit=label_pred[:,xfe_i],
+                e_fit=e_label_pred[:,xfe_i],
+                colour=label_values[:,0],
+                fit_label=r"{} ($\it{{Cannon}}$)".format(xfe_lbl),
+                lit_label=r"{} (Adopted)".format(xfe_lbl),
+                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                x_lims=X_Fe_lims,
+                y_lims=X_Fe_lims,
+                cmap="magma",
+                show_offset=show_offset,
+                ticks=X_Fe_ticks,
+                panel_label=panel_label,
+                plot_resid_y_label=False,)
 
     fig.set_size_inches(12/3 * n_labels, 3)
     fig.tight_layout()
@@ -293,8 +302,12 @@ def plot_label_recovery_per_source(
         if np.sum(is_cpm) > 0:
             n_X_Fe_labels += 1
 
-        # Add a panel for directly measured [X/Fe]
-        if len(set(obs_join[~is_cpm]["label_source_{}".format(label)])) > 0:
+        # Add a panel for directly measured [X/Fe]. To do this, we count all
+        # sources excluding the chemodynamic source.
+        n_X_Fe_src = set(obs_join[~is_cpm]["label_source_{}".format(label)])
+        n_X_Fe_src.remove("SM25")
+
+        if len(n_X_Fe_src) > 0:
             n_X_Fe_labels += 1
 
     #-----------------------------
@@ -491,13 +504,15 @@ def plot_label_recovery_per_source(
             ax_i += 1
 
         # Chemodynamic [X/Fe]
-        X_Fe_mask = ~np.isnan(obs_join["{}_SM25".format(label)].values)
+        X_Fe_CD = obs_join["{}_SM25".format(label)].values
+        e_X_Fe_CD = obs_join["e_{}_SM25".format(label)].values
+        X_Fe_mask = ~np.isnan(X_Fe_CD)
 
         pplt.plot_std_comp_generic(
             fig=fig,
             axis=axes[ax_i],
-            lit=label_values[:,label_i][X_Fe_mask],
-            e_lit=e_label_values[:,label_i][X_Fe_mask],
+            lit=X_Fe_CD[X_Fe_mask],
+            e_lit=e_X_Fe_CD[X_Fe_mask],
             fit=label_pred[:,label_i][X_Fe_mask],
             e_fit=e_label_pred[:,label_i][X_Fe_mask],
             colour=label_values[:,0][X_Fe_mask],
@@ -935,7 +950,7 @@ def plot_theta_coefficients(
     # Format for plotting
     theta_lvec = theta_lvec.replace("teff", r"$T_{eff}$")
     theta_lvec = theta_lvec.replace("logg", r"$\log g$")
-    theta_lvec = theta_lvec.replace("feh", "[Fe/H]")
+    theta_lvec = theta_lvec.replace("Fe_H", "[Fe/H]")
 
     if sm.L > 3:
         for abundance_i, abundance in enumerate(sm.label_names[3:]):
@@ -1188,7 +1203,9 @@ def plot_spectra_comparison(
     fluxes_2_plot_colour="",
     do_plot_galah_bands=False,
     n_leg_col=2,
-    plot_folder="plots/",):
+    plot_folder="plots/",
+    use_scatter_as_line_width=False,
+    scatter_as_line_width_scale=1000,):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
 
@@ -1296,6 +1313,23 @@ def plot_spectra_comparison(
             linewidth=0.2,
             c="tomato",
             label=r"$\it{Cannon}$",)
+        
+        # [Optional] Plot the model scatter as uncertainties
+        if use_scatter_as_line_width:
+            s2 = np.full_like(sm.wavelengths, np.nan)
+            s2[sm.adopted_wl_mask] = sm.s2 * scatter_as_line_width_scale
+
+            ax.fill_between(
+                x=sm.wavelengths,
+                y1=spec_gen + star_i*y_offset + s2/2,
+                y2=spec_gen + star_i*y_offset - s2/2,
+                #linewidth=0.2,
+                edgecolor=None,
+                facecolor="tomato",
+                #color="tomato",
+                alpha=0.2,
+                #interpolate=True,
+                zorder=100)
         
         # [Optional] Plot third set of spectra
         if fluxes_2 is not None:

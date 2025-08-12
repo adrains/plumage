@@ -59,8 +59,7 @@ obs_join = obs_join[adopted_benchmark]
 is_binary = obs_join["is_cpm"].values
 
 # Grab our adopted labels from cross validation
-labels_pred, errs_all, chi2_all = sm.infer_labels(
-        sm.masked_data, sm.masked_data_ivar)
+labels_pred = sm.cross_val_labels
 
 # Create name of subfolder to save everything to
 save_folder = "paper/{}_{}_{}_{}L_{}S_{}P_{}".format(
@@ -119,13 +118,14 @@ splt.plot_label_recovery(
     label_pred=labels_pred,
     e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
     #chi2=sm.cross_val_chi2,
+    label_names=sm.label_names,
     fn_suffix=fn_label,
     teff_lims=(2500,4250),
     teff_ticks=(500,250,200,100),
     logg_ticks=(0.25,0.125,0.1,0.05),
     feh_lims=(-1.1,0.65),
     feh_ticks=(0.5,0.25,0.4,0.2),
-    X_Fe_lims=(-0.3,0.4),
+    X_Fe_lims=(-0.4,0.4),
     X_Fe_ticks=(0.2,0.1,0.2,0.1),
     plot_folder=save_folder,)
 
@@ -158,8 +158,8 @@ if len(cds.abundance_labels) >= 1:
         obs_join=obs_join[is_binary],
         fn_suffix=fn_label,
         abundance_labels=cds.abundance_labels,
-        feh_lims=(-0.15,0.4),
-        feh_ticks=(0.2,0.1,0.1,0.05),
+        feh_lims=(-0.4,0.4),
+        feh_ticks=(0.2,0.1,0.2,0.1),
         plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
@@ -235,7 +235,7 @@ splt.plot_theta_coefficients(
     y_theta_cross_lims=(-0.2,0.2),
     y_s2_lims=(-0.0001, 0.005),
     x_ticks=(200,100),
-    fn_label="a",
+    fn_label="br",
     linewidth=0.5,
     alpha=0.8,
     fn_suffix=fn_label,
