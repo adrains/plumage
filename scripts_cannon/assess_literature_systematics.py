@@ -505,6 +505,87 @@ def plot_abundance_trends(
             dpi=200)
 
 
+def plot_chemodynamic_one_to_one_recovery(
+    chem_df,
+    species_to_plot,
+    comp_refs,
+    figsize=(16,10),):
+    """Function to plot 1:1 recovery of a literature [X/Fe] sample with the
+    chemodynamic equivalent values.
+    """
+    plt.close("all")
+    fig, axes = plt.subplots(
+        nrows=len(species_to_plot),
+        ncols=1,
+        figsize=figsize)
+    
+    fig.subplots_adjust(
+        wspace=0.1, hspace=0.2, right=0.98, left=0.125, top=0.975, bottom=0.05)
+    
+    for sp_i, (species, comp_ref) in enumerate(zip(species_to_plot, comp_refs)):
+        # Grab reference data
+        X_Fe_ref = chem_df["{}_{}".format(species, comp_ref)].values
+        e_X_Fe_ref = chem_df["e_{}_{}".format(species, comp_ref)].values
+        Fe_H_ref = chem_df["Fe_H_{}".format(comp_ref)].values
+
+        # Grab chemodynamic data
+        X_Fe_CD = chem_df["{}_SM25".format(species)].values
+        e_X_Fe_CD = chem_df["e_{}_SM25".format(species)].values
+
+        # Plot error bars with overplotted scatter points + colour bar
+        axes[sp_i].errorbar(
+            X_Fe_ref, 
+            X_Fe_CD, 
+            xerr=e_X_Fe_ref,
+            yerr=e_X_Fe_CD,
+            fmt=".",
+            zorder=0,
+            ecolor="black",
+            #markersize=ms,
+            elinewidth=0.2,)
+
+        sc = axes[sp_i].scatter(
+            X_Fe_ref, X_Fe_CD, c=Fe_H_ref, zorder=1,)
+
+        cb = fig.colorbar(sc, ax=axes[sp_i])
+        cb.ax.tick_params(labelsize="medium", rotation=0)
+        cb.ax.set_title("[Fe/H]", fontsize="medium")
+        
+        # Plot 1:1 line
+        all_X_Fe = np.concatenate([X_Fe_ref, X_Fe_CD])
+        lim_min = np.nanmin(all_X_Fe)
+        lim_max = np.nanmax(all_X_Fe)
+
+        # Plot 1:1 line
+        xx = np.arange(lim_min, lim_max, (lim_max-lim_min)/100)
+        axes[sp_i].plot(xx, xx, "k--", zorder=0)
+
+        # Other setup
+        species_str = "[{}]".format(species.replace("_", "/"))
+        axes[sp_i].set_xlabel("{} ({})".format(species_str, comp_ref))
+        axes[sp_i].set_ylabel("{} (Chemodynamic)".format(species_str))
+
+        # Compute residuals
+        resid = X_Fe_ref - X_Fe_CD
+
+        # Compute statistics before and after
+        med = np.nanmedian(resid)
+        std = np.nanstd(resid)
+
+        # Annotate residuals
+        txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
+        txt = txt.replace("-0.00", "0.00")
+    
+        axes[sp_i].text(
+            x=0.5,
+            y=0.1,
+            s=txt,
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=axes[sp_i].transAxes,
+            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+
+
 #------------------------------------------------------------------------------
 # Literature samples + info
 #------------------------------------------------------------------------------
@@ -1389,4 +1470,11 @@ plot_abundance_trends(
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
     fn_label="CD",
     bp_rp_ticks=BP_RP_TICKS_K,
+    figsize=(16,10))
+
+# Plot literature recovery for chemodynamic correction
+plot_chemodynamic_one_to_one_recovery(
+    chem_df=df_comb,
+    species_to_plot=species_to_correct_CD,
+    comp_ref=comp_ref_CD,
     figsize=(16,10))
