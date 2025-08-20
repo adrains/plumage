@@ -745,7 +745,7 @@ def plot_chemodynamic_abundance_trends(
     fig.subplots_adjust(
         left=0.05,
         bottom=0.05,
-        right=0.98,
+        right=0.99,
         top=0.97,
         hspace=0.01,
         wspace=0.01)
@@ -780,6 +780,7 @@ def plot_chemodynamic_abundance_trends(
         #=========================================
         # Grab X values
         Fe_H = chem_df["Fe_H_{}".format(comp_ref_adopt)].values
+        e_Fe_H = chem_df["e_Fe_H_{}".format(comp_ref_adopt)].values
 
         # Compute the residuals and the combined uncertainties
         # TODO: use abundances uncertainties corrected in log-space
@@ -787,8 +788,11 @@ def plot_chemodynamic_abundance_trends(
         CD_abund = chem_df[abund_comp].values
 
         resid = ref_abund - CD_abund
-        e_resid = np.sqrt(chem_df[e_abund_ref].values**2
-                            + chem_df[e_abund_comp].values**2)
+        #e_resid = np.sqrt(chem_df[e_abund_ref].values**2
+        #                    + chem_df[e_abund_comp].values**2)
+        
+        # HACK: need to get SM to sample B16 values so we have uncertainties
+        e_resid = chem_df[e_abund_ref].values
         
         # Compute the corrected residuals. To do this we need to perform the
         # polynomial correction.
@@ -809,6 +813,9 @@ def plot_chemodynamic_abundance_trends(
         #=========================================
         # Left Hand Panels: raw residuals + fit
         #=========================================
+        # Grab BP_RP for colour bar
+        bp_rp = chem_df["BP_RP"].values
+
         # Plot polynomial correction within bounds
         xx = np.linspace(poly.Fe_H_bounds[0], poly.Fe_H_bounds[1], 100)
         axes[sp_i, 0].plot(
@@ -854,12 +861,18 @@ def plot_chemodynamic_abundance_trends(
         axes[sp_i, 0].errorbar(
             x=Fe_H,
             y=resid,
+            xerr=e_Fe_H,
             yerr=e_resid,
-            fmt="o",
+            fmt=".",
             alpha=0.8,
             ecolor="k",
+            zorder=0,
             label=r"{}$ - ${} (N={})".format(
                 comp_ref_adopt, CD_ref, n_overlap))
+        
+        # [Fe/H] scatter points on top
+        sc = axes[sp_i, 0].scatter(
+            Fe_H, resid, c=bp_rp, zorder=1, cmap="cividis_r")
         
         axes[sp_i, 0].legend(loc="lower right")
         
@@ -927,11 +940,16 @@ def plot_chemodynamic_abundance_trends(
             x=Fe_H,
             y=resid_corr,
             yerr=e_resid,
-            fmt="o",
+            fmt=".",
             alpha=0.8,
             ecolor="k",
+            zorder=0,
             label=r"{}$ - ${} (N={})".format(
                 comp_ref_adopt, CD_ref, n_overlap))
+        
+        # [Fe/H] scatter points on top
+        sc = axes[sp_i, 1].scatter(
+            Fe_H, resid_corr, c=bp_rp, zorder=1, cmap="cividis_r")
         
         axes[sp_i, 1].legend(loc="lower right")
 
@@ -962,6 +980,13 @@ def plot_chemodynamic_abundance_trends(
             plticker.MultipleLocator(base=0.2))
         axes[sp_i,0].yaxis.set_minor_locator(
             plticker.MultipleLocator(base=0.1))
+
+    # Single colourbar along right
+    fig.subplots_adjust(right=0.95)
+    cbar_ax = fig.add_axes([0.96, 0.05, 0.015, 0.9]) # [L, B, W, H]
+    cb = fig.colorbar(sc, cax=cbar_ax)
+    cb.ax.tick_params(labelsize="medium", rotation=0)
+    cb.ax.set_title(r"$BP-RP$", fontsize="medium")
 
     axes[0,0].set_title("Best-fit Residuals")
     axes[0,1].set_title("Corrected Residuals")
