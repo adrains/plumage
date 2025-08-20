@@ -26,10 +26,10 @@ def correct_abundance_trends(
     outer_points_to_drop=2,):
     """Function to put separate and *overlapping* chemical samples on the same
     scale by performing polynomial fits to the residuals between a literature
-    and reference abundance samples. These trends are then corrected, and the
-    abundances updated in-place in the DataFrame. The original uncorrected
-    abundances are then stored as <abund>_<ref>_uc in the DataFrame, where 'uc'
-    stands for 'uncorrected abundance'.
+    and reference abundance samples as a function of Gaia BP-RP. These trends
+    are then corrected, and the abundances updated in-place in the DataFrame.
+    The original uncorrected abundances are then stored as <abund>_<ref>_uc in
+    the DataFrame, where 'uc' stands for 'uncorrected abundance'.
 
     TODO: perform the polynomial fit and correction taking into account the
     fact that abundances are logarithmic values. 
@@ -183,6 +183,162 @@ def correct_abundance_trends(
             fit_dict[(ref, species)] = poly
         
         print(ref, n_abund_before, n_abund_after)
+
+    return fit_dict
+
+
+def correct_chemodynamic_abundance_trends(
+    chem_df,
+    species_to_correct,
+    comp_ref,
+    CD_ref="SM25",
+    comp_ref_secondary=None,
+    poly_order=2,
+    outlier_dex=0.3,
+    outer_points_to_drop=2,):
+    """Function to put our chemodynamic abundances on the same scale (or as
+    best we can) as an adopted literature scale. We do this by performing
+    polynomial fits to the residuals between the chemodynamic and reference
+    abundance samples, here as a function of [Fe/H]. However, unlike 
+    correct_abundance_trends() we don't correct the abundances here, we simply
+    save the polynomial coeffiencts for later when we've adopted an [Fe/H] for
+    each star.
+
+    TODO: perform the polynomial fit and correction taking into account the
+    fact that abundances are logarithmic values. 
+
+    Parameters
+    ----------
+    chem_df: pandas DataFrame
+        Pandas DataFrame of literature abundances information. Has columns 
+        BP-RP, and then <abund>_<ref>, and e_<abund>_<ref> for all literature
+        sources and abundances.
+
+    species_to_correct: str list
+        List of species to correct for systematics, e.g. ['Fe_H', 'Ti_H'].
+
+    comp_ref: str
+        The reference abundance scale to correct to, e.g. 'VF05'.
+
+    CD_ref: str
+        Reference string for our chemodynamic sample.
+
+    comp_ref_secondary: str, default: None
+        A secondary reference abundance scale to adopt in the case our first
+        preference in comp_ref is not available. 
+
+    poly_order: int, default: 2
+        Polynomial order for the correction.
+
+    outlier_dex: default: 0.3
+        Residuals beyond +/- outlier_dex are excluded when fitting the 
+        polynomial in order to prevent outliers affecting the fit.
+
+    outer_points_to_drop: int, default 2
+        In order to prevent potentially sparsely sampled edge points from 
+        influencing the fit, we drop the first and last outer_points_to_drop
+        points when fitting.
+
+    Returns
+    -------
+    fit_dict: dict
+        Dictionary containing <ref>:(<abund>, Polynomial Obj) pairs for each
+        corrected reference/abundance combination.
+    """
+    # Create dict for storing polynomials for use when plotting later
+    fit_dict = {}
+
+    for species in species_to_correct:
+        # Grab value + sigma column names
+        cols = chem_df.columns.values
+
+        # Use primary reference scale where we can
+        if "{}_{}".format(species, comp_ref) in cols:
+            comp_ref_adopt = comp_ref
+
+        # Check the secondary reference if it was provided
+        elif ("{}_{}".format(species, comp_ref_secondary) in cols
+                and comp_ref_secondary is not None):
+            comp_ref_adopt = comp_ref_secondary
+            
+        # Otherwise we can't make this comparison, so just continue
+        else:
+            continue
+
+        # Check that ref =/= comp_ref_adopt. This can happen if we end up
+        # using the secondary reference
+        if CD_ref == comp_ref_adopt:
+            continue
+        
+        # Initial checks passed, construct our column names for reference
+        abund_ref = "{}_{}".format(species, comp_ref_adopt)
+        e_abund_ref = "e_{}_{}".format(species, comp_ref_adopt)
+
+        # Grab the comparison values
+        abund_comp = "{}_{}".format(species, CD_ref)
+        e_abund_comp = "e_{}_{}".format(species, CD_ref)
+
+        # Continue if we don't have this species to correct
+        if abund_comp not in chem_df.columns.values:
+            continue
+
+        #=========================================
+        # Fit residuals with polynomial
+        #=========================================
+        n_abund_before = np.sum(~np.isnan(chem_df[abund_comp].values))
+
+        # Compute the residuals and the combined uncertainties
+        resid = chem_df[abund_ref].values - chem_df[abund_comp].values
+        e_resid = np.sqrt(chem_df[e_abund_ref].values**2
+                            + chem_df[e_abund_comp].values**2)
+        
+        # Perform polynomial fitting
+        n_overlap = np.sum(~np.isnan(resid))
+        resid_mask = ~np.isnan(resid)
+        fit_mask = np.logical_and(resid_mask, np.abs(resid) < outlier_dex)
+
+        Fe_H = chem_df["Fe_H_{}".format(comp_ref_adopt)].values
+        
+        poly = np.polynomial.Polynomial.fit(
+            Fe_H[fit_mask], resid[fit_mask], poly_order)
+        
+        #=========================================
+        # Correct systematics below/within/above bounds
+        #=========================================
+        # The polynomial correction is only valid within the [Fe/H] bounds
+        # of the overlapping sample. However, for our correction we'll
+        # evaluate it several points in from each end to prevent outliers
+        # from having too much of an influence.
+        Fe_H_sorted = Fe_H[resid_mask].copy()
+        Fe_H_sorted.sort()
+
+        i_min = outer_points_to_drop
+        i_max = len(Fe_H_sorted) - outer_points_to_drop
+
+        min_Fe_H = Fe_H_sorted[i_min]
+        max_Fe_H = Fe_H_sorted[i_max]
+        
+        # Store bounds in polynomial object for plotting later
+        poly.Fe_H_bounds = (min_Fe_H, max_Fe_H)
+
+        # Work out beyond bounds
+        abund = chem_df[abund_comp].values
+
+        is_below = Fe_H < min_Fe_H
+        within_bounds = np.logical_and(
+            Fe_H >= min_Fe_H, Fe_H <= max_Fe_H)
+        is_above = Fe_H > max_Fe_H
+
+        has_data = ~np.isnan(abund)
+        n_below = np.sum(np.logical_and(has_data, is_below))
+        n_above = np.sum(np.logical_and(has_data, is_above))
+        poly.n_beyond_bounds = (n_below, n_above)
+
+        # TODO: recalculate residuals properly considering logarithms 
+        pass
+
+        # Store polynomial
+        fit_dict[(CD_ref, species)] = poly
 
     return fit_dict
 
@@ -420,12 +576,21 @@ def plot_abundance_trends(
                 bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
             
             # Display polynomial coefficients
+            n_order = n_order = len(poly.coef) - 1
             coefs = poly.coef[::-1]
-            exponents = np.arange(3, 0, -1)
-            ft = r"{:0.3}\cdot(BP-RP)^{:0.0f}"
 
-            fit_list = \
-                [ft.format(cc, ee) for (cc, ee) in zip(coefs, exponents)]
+            # Order > 0
+            if n_order > 0:
+                exponents = np.arange(n_order, 0, -1)
+                ft = r"{:0.3}\cdot(BP-RP)^{:0.0f}"
+
+                fit_list = \
+                    [ft.format(cc, ee) for (cc, ee) in zip(coefs, exponents)]
+            
+            # Zeroeth order, no [Fe/H] term
+            else:
+                fit_list = []
+
             fit_list.append("{:0.3f}".format(coefs[-1]))
             fit_txt = r"${}$".format("+".join(fit_list).replace("+-", "-"))
 
@@ -503,6 +668,321 @@ def plot_abundance_trends(
         plt.savefig(
             "paper/chemical_trends_{}{}.png".format(lbl, species),
             dpi=200)
+        
+
+def plot_chemodynamic_abundance_trends(
+    chem_df,
+    fit_dict,
+    species_to_correct,
+    comp_ref,
+    CD_ref,
+    Fe_H_lims,
+    abund_Y_lims,
+    comp_ref_secondary=None,
+    do_limit_y_extent=True,
+    fn_label="",
+    Fe_H_ticks=(0.1,0.05),
+    figsize=(16, 10),):
+    """Function to plot before and after correcting for abundance trends and
+    putting all samples on the same reference abundance scale. For every 
+    species, we plot two panels showing the residuals fit with a polynomial
+    trend, and then the corrected residuals. This function is specifically for
+    the chemodynamic case, dor which we do a correction as a function of [Fe/H]
+    instead of (BP-RP) as in plot_abundance_trends().
+
+    Parameters
+    ----------
+    chem_df: pandas DataFrame
+        Pandas DataFrame of literature abundances information. Has columns 
+        BP-RP, and then <abund>_<ref>, and e_<abund>_<ref> for all literature
+        sources and abundances.
+
+    fit_dict: dict
+        Dictionary containing <ref>:(<abund>, Polynomial Obj) pairs for each
+        corrected reference/abundance combination.
+
+    species_to_correct: str list
+        List of species to correct for systematics, e.g. ['Fe_H', 'Ti_H'].
+
+    comp_ref: str
+        The reference abundance scale to correct to, e.g. 'VF05'.
+
+    CD_ref: str
+        Reference string for chemodynamic sample.
+
+    Fe_H_lims: float list
+        Two element list of the minimum and maximum [Fe/H]] limits to plot, of
+        form [min, max] 
+
+    abund_Y_lims: float
+        Symmetric limits for the Y abundance axis.
+
+    comp_ref_secondary: str, default: None
+        A secondary reference abundance scale to adopt in the case our first
+        preference in comp_ref is not available. 
+
+    do_limit_y_extent: boolean, default: True
+        Whether or not to limit the Y extent plotted.
+
+    fn_label: str, default: ''
+        Plots by default saved as paper/chemodynamic_trends_<abund>.<pdf/png>
+        but this changes to paper/chemodynamic_trends_<label>_<abund>.<pdf/png>
+
+    Fe_H_ticks: float array, default: (0.1, 0.05)
+        Major and minor x tick values for [Fe/H].
+
+    figsize: float tuple, default: (16, 10)
+        Size of the plotted figure for each species.
+    """
+    plt.close("all")
+    fig, axes = plt.subplots(
+        nrows=len(species_to_correct),
+        ncols=2,
+        sharex=True,
+        sharey="row",
+        figsize=figsize)
+    
+    fig.subplots_adjust(
+        left=0.05,
+        bottom=0.05,
+        right=0.98,
+        top=0.97,
+        hspace=0.01,
+        wspace=0.01)
+
+    # Loop over all species
+    for sp_i, species in enumerate(species_to_correct):
+        # Grab value + sigma column names
+        cols = chem_df.columns.values
+
+        # Use primary reference scale where we can
+        if "{}_{}".format(species, comp_ref) in cols:
+            comp_ref_adopt = comp_ref
+
+        # Check the secondary reference if it was provided
+        elif ("{}_{}".format(species, comp_ref_secondary) in cols
+                and comp_ref_secondary is not None):
+            comp_ref_adopt = comp_ref_secondary
+
+        # Shouldn't be able to get here?
+        else:
+            raise Exception("Something has gone wong?")
+
+        # Grab value + sigma column names
+        abund_ref = "{}_{}".format(species, comp_ref_adopt)
+        e_abund_ref = "e_{}_{}".format(species, comp_ref_adopt)
+
+        abund_comp = "{}_{}".format(species, CD_ref)
+        e_abund_comp = "e_{}_{}".format(species, CD_ref)
+
+        #=========================================
+        # Compute residuals
+        #=========================================
+        # Grab X values
+        Fe_H = chem_df["Fe_H_{}".format(comp_ref_adopt)].values
+
+        # Compute the residuals and the combined uncertainties
+        # TODO: use abundances uncertainties corrected in log-space
+        ref_abund = chem_df[abund_ref].values
+        CD_abund = chem_df[abund_comp].values
+
+        resid = ref_abund - CD_abund
+        e_resid = np.sqrt(chem_df[e_abund_ref].values**2
+                            + chem_df[e_abund_comp].values**2)
+        
+        # Compute the corrected residuals. To do this we need to perform the
+        # polynomial correction.
+        poly = fit_dict[(CD_ref, species)]
+        CD_abund_corr = CD_abund + poly(Fe_H)
+
+        resid_corr = ref_abund - CD_abund_corr
+
+        # Compute statistics before and after
+        med = np.nanmedian(resid)
+        std = np.nanstd(resid)
+
+        med_corr = np.nanmedian(resid_corr)
+        std_corr = np.nanstd(resid_corr)
+
+        n_overlap = np.sum(~np.isnan(resid_corr))
+
+        #=========================================
+        # Left Hand Panels: raw residuals + fit
+        #=========================================
+        # Plot polynomial correction within bounds
+        xx = np.linspace(poly.Fe_H_bounds[0], poly.Fe_H_bounds[1], 100)
+        axes[sp_i, 0].plot(
+            xx, poly(xx), color="r", linewidth=1.0, zorder=10)
+
+        # Plot and annotate correction *below* polynomial bounds
+        axes[sp_i, 0].hlines(
+            y=poly(poly.Fe_H_bounds[0]),
+            xmin=Fe_H_lims[0],
+            xmax=poly.Fe_H_bounds[0],
+            color="r",
+            linewidth=1.0,
+            linestyle="--",)
+
+        axes[sp_i, 0].text(
+            x=0.025,
+            y=0.925,
+            s=r"$\leftarrow {:0.0f}$".format(poly.n_beyond_bounds[0]),
+            horizontalalignment="center",
+            verticalalignment="center",
+            color="r",
+            transform=axes[sp_i, 0].transAxes,)
+        
+        # Plot and annotate correction *above* polynomial bounds
+        axes[sp_i, 0].hlines(
+            y=poly(poly.Fe_H_bounds[1]),
+            xmin=poly.Fe_H_bounds[1],
+            xmax=Fe_H_lims[1],
+            color="r",
+            linewidth=1.0,
+            linestyle="--",)
+        
+        axes[sp_i, 0].text(
+            x=0.975,
+            y=0.925,
+            s=r"${:0.0f} \rightarrow$".format(poly.n_beyond_bounds[1]),
+            horizontalalignment="center",
+            verticalalignment="center",
+            color="r",
+            transform=axes[sp_i, 0].transAxes,)
+        
+        # Plot the residuals
+        axes[sp_i, 0].errorbar(
+            x=Fe_H,
+            y=resid,
+            yerr=e_resid,
+            fmt="o",
+            alpha=0.8,
+            ecolor="k",
+            label=r"{}$ - ${} (N={})".format(
+                comp_ref_adopt, CD_ref, n_overlap))
+        
+        axes[sp_i, 0].legend(loc="lower right")
+        
+        axes[sp_i, 0].set_ylabel(
+            r"$\Delta$[{}]".format(species.replace("_", "/")))
+
+        # Plot resid=0 line
+        axes[sp_i, 0].hlines(
+            y=0,
+            xmin=Fe_H_lims[0],
+            xmax=Fe_H_lims[1],
+            linestyles="--",
+            colors="k",
+            linewidth=0.5,)
+        
+        # Annotate statistics
+        txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
+        txt = txt.replace("-0.00", "0.00")
+
+        axes[sp_i, 0].text(
+            x=0.5,
+            y=0.25,
+            s=txt,
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=axes[sp_i, 0].transAxes,
+            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+        
+        # Display polynomial coefficients
+        n_order = n_order = len(poly.coef) - 1
+        coefs = poly.coef[::-1]
+
+        # Order > 0
+        if n_order > 0:
+            exponents = np.arange(n_order, 0, -1)
+            ft = r"{:0.3}\cdot({{\rm[Fe/H]}})^{:0.0f}"
+
+            fit_list = \
+                [ft.format(cc, ee) for (cc, ee) in zip(coefs, exponents)]
+        
+        # Zeroeth order, no [Fe/H] term
+        else:
+            fit_list = []
+
+        fit_list.append("{:0.3f}".format(coefs[-1]))
+        fit_txt = r"${}$".format("+".join(fit_list).replace("+-", "-"))
+
+        # Also display BP-RP limits
+        lims = "\t$[{:0.2f}, {:0.2f}]$".format(*poly.Fe_H_bounds)
+
+        axes[sp_i, 0].text(
+            x=0.01,
+            y=0.04,
+            s=fit_txt + lims,
+            horizontalalignment="left",
+            verticalalignment="center",
+            color="r",
+            fontsize="x-small",
+            transform=axes[sp_i, 0].transAxes,)
+
+        #=========================================
+        # Right Hand Panels: corrected residuals
+        #=========================================
+        axes[sp_i, 1].errorbar(
+            x=Fe_H,
+            y=resid_corr,
+            yerr=e_resid,
+            fmt="o",
+            alpha=0.8,
+            ecolor="k",
+            label=r"{}$ - ${} (N={})".format(
+                comp_ref_adopt, CD_ref, n_overlap))
+        
+        axes[sp_i, 1].legend(loc="lower right")
+
+        axes[sp_i, 1].hlines(
+            y=0,
+            xmin=Fe_H_lims[0],
+            xmax=Fe_H_lims[1],
+            linestyles="--",
+            colors="k",
+            linewidth=0.5,)
+        
+        txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med_corr, std_corr)
+        txt = txt.replace("-0.00", "0.00")
+
+        axes[sp_i, 1].text(
+            x=0.5,
+            y=0.2,
+            s=txt,
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=axes[sp_i, 1].transAxes,
+            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+        
+        if do_limit_y_extent:
+            axes[sp_i, 1].set_ylim(abund_Y_lims[0], abund_Y_lims[1])
+
+        axes[sp_i,0].yaxis.set_major_locator(
+            plticker.MultipleLocator(base=0.2))
+        axes[sp_i,0].yaxis.set_minor_locator(
+            plticker.MultipleLocator(base=0.1))
+
+    axes[0,0].set_title("Best-fit Residuals")
+    axes[0,1].set_title("Corrected Residuals")
+
+    axes[sp_i, 0].set_xlim(Fe_H_lims[0], Fe_H_lims[1])
+    axes[sp_i, 0].set_xlabel("[Fe/H]")
+    axes[sp_i, 1].set_xlabel("[Fe/H]")
+
+    axes[sp_i,0].xaxis.set_major_locator(
+        plticker.MultipleLocator(base=Fe_H_ticks[0]))
+    axes[sp_i,0].xaxis.set_minor_locator(
+        plticker.MultipleLocator(base=Fe_H_ticks[1]))
+
+    lbl = "" if fn_label == "" else "{}_".format(fn_label)
+
+    species_str = "_".join(species_to_correct)
+    plt.savefig("paper/chemodynamic_trends_{}{}_O{}.pdf".format(
+        lbl, species_str, n_order))
+    plt.savefig(
+        "paper/chemodynamic_trends_{}{}_O{}.png".format(
+            lbl, species_str, n_order), dpi=200)
 
 
 def plot_chemodynamic_one_to_one_recovery(
@@ -1369,17 +1849,21 @@ sp.compute_X_Fe(
 #------------------------------------------------------------------------------
 # Correcting [X/Fe] systematics for chemodynamic trends
 #------------------------------------------------------------------------------
+# Default polynomial order and outlier rejection options
+POLY_ORDER_CD = 3
+OUTLIER_DEX_CD = 0.3
+
 species_to_correct_CD = ["Mg_Fe", "Ca_Fe", "Ti_Fe", "Na_Fe", "Al_Fe"]
 comp_ref_CD = "B16"
-references_to_compare_CD = np.array(["SM25"])
+references_to_compare_CD = "SM25"
 
-fit_dict_CD = correct_abundance_trends(
+fit_dict_CD = correct_chemodynamic_abundance_trends(
     chem_df=df_comb,
     species_to_correct=species_to_correct_CD,
     comp_ref=comp_ref_CD,
-    references_to_compare=references_to_compare_CD,
-    poly_order=0,   # Note: single order poly only!
-    outlier_dex=OUTLIER_DEX,)
+    CD_ref=references_to_compare_CD,
+    poly_order=POLY_ORDER_CD,
+    outlier_dex=OUTLIER_DEX_CD,)
 
 #------------------------------------------------------------------------------
 # [Optional] Remove unused [X/Fe] to reduce the number of columns
@@ -1408,6 +1892,7 @@ if remove_unused_X_H:
 #------------------------------------------------------------------------------
 # Save to file
 #------------------------------------------------------------------------------
+# 1) First we have to save the corrected literature values.
 species_fn = [stc.replace("_H", "") for stc in species_to_correct_K]
 
 save_filename = "data/lit_chemistry_corrected_{}.tsv".format(
@@ -1415,6 +1900,12 @@ save_filename = "data/lit_chemistry_corrected_{}.tsv".format(
 
 # Dump corrected DataFrame
 df_comb.to_csv(save_filename, sep="\t")
+
+# 2) Then we have to save the [X/Fe] polynomials for the chemodynamic sample.
+# These won't be corrected here, but later when we've adopted an [Fe/H] value
+# as we don't currently have an 'adopted' [Fe/H] value in the same way we have
+# BP-RP for doing correcting the literature sample.
+pass
 
 #------------------------------------------------------------------------------
 # Plotting
@@ -1459,17 +1950,20 @@ plot_abundance_trends(
     bp_rp_ticks=BP_RP_TICKS_M,)
 
 # Plot abundance trends for chemodynamic [X/Fe]
-plot_abundance_trends(
+FE_H_LIMS_CD = (-1.15,0.5)
+ABUND_Y_LIMS_CD = (-0.55, 0.55)
+FE_H_TICKS_CD = (0.2, 0.1)
+
+plot_chemodynamic_abundance_trends(
     chem_df=df_comb,
     fit_dict=fit_dict_CD,
     species_to_correct=species_to_correct_CD,
     comp_ref=comp_ref_CD,
-    references_to_compare=references_to_compare_CD,
-    bp_rp_lims=BP_RP_LIMS_K,
-    abund_Y_lims=ABUND_Y_LIMS_M,
+    CD_ref=references_to_compare_CD,
+    Fe_H_lims=FE_H_LIMS_CD,
+    abund_Y_lims=ABUND_Y_LIMS_CD,
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
-    fn_label="CD",
-    bp_rp_ticks=BP_RP_TICKS_K,
+    Fe_H_ticks=FE_H_TICKS_CD,
     figsize=(16,10))
 
 # Plot literature recovery for chemodynamic correction
