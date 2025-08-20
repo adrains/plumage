@@ -21,7 +21,11 @@ spectra_label: "cannon_mk"
 std_info_fn: "data/std_info.tsv"
 
 # TSV of uniform literature chemistry corrected for systematics
-lit_chem: "data/lit_chemistry_corrected_Fe_H_Ti_H.tsv"
+lit_chem: "data/lit_chemistry_corrected_Fe_Ti_Mg_Ca_Na_Al.tsv"
+
+# Pickle file of polynomial coefficients to correct chemodynamic [X/Fe]
+do_CD_polynomial_correction: True
+CD_polynomial_fn: "data/chemodynamic_polynomials_Fe_Ti_Mg_Ca_Na_Al.pkl"
 
 # Binary component TSVs
 tsv_primaries_fn: "data/cpm_primaries_dr3.tsv"
@@ -44,10 +48,10 @@ gdr: "dr3"
 # Abund order of preference (highest priority to lowest).
 ABUND_ORDER_K: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20", "SM25"]
 ABUND_ORDER_M: ["M15", "G14b", "G14a", "D19", "RA12", "M20", "SM25"]
-ABUND_ORDER_BINARY: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20",]
+ABUND_ORDER_BINARY: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20", "SM25"]
 
 # Abundance labels to compute, e.g. ['Fe_H', 'Ti_Fe'].
-abundance_labels: ["Fe_H", "Ti_Fe"]
+abundance_labels: ["Fe_H", "Ti_Fe", "Ca_Fe", "Mg_Fe", "Na_Fe", "Al_Fe"]
 
 #------------------------------------------------------------------------------
 # Benchmark citations

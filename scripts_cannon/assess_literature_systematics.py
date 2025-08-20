@@ -6,6 +6,7 @@ benchmarks subsequently.
 
 TODO: perform fit and correction on *unlogged* abundances and uncertainties.
 """
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -1014,6 +1015,7 @@ def plot_chemodynamic_one_to_one_recovery(
     chem_df,
     species_to_plot,
     comp_refs,
+    poly_dict_CD,
     figsize=(16,10),):
     """Function to plot 1:1 recovery of a literature [X/Fe] sample with the
     chemodynamic equivalent values.
@@ -1021,11 +1023,11 @@ def plot_chemodynamic_one_to_one_recovery(
     plt.close("all")
     fig, axes = plt.subplots(
         nrows=len(species_to_plot),
-        ncols=1,
+        ncols=2,
         figsize=figsize)
     
     fig.subplots_adjust(
-        wspace=0.1, hspace=0.2, right=0.98, left=0.125, top=0.975, bottom=0.05)
+        wspace=0.05, hspace=0.3, right=0.995, left=0.05, top=0.97, bottom=0.05)
     
     for sp_i, (species, comp_ref) in enumerate(zip(species_to_plot, comp_refs)):
         # Grab reference data
@@ -1037,8 +1039,31 @@ def plot_chemodynamic_one_to_one_recovery(
         X_Fe_CD = chem_df["{}_SM25".format(species)].values
         e_X_Fe_CD = chem_df["e_{}_SM25".format(species)].values
 
+        #=============================================
+        # Compute corrected [X/Fe]
+        #=============================================
+        # Grab the polynomial and its bounds in [Fe/H]
+        poly = poly_dict_CD[("SM25", species)]
+        Fe_H_bounds = poly.Fe_H_bounds
+        
+        # Work out beyond bounds
+        is_below = Fe_H_ref < Fe_H_bounds[0]
+        within_bounds = np.logical_and(
+            Fe_H_ref >= Fe_H_bounds[0], Fe_H_ref <= Fe_H_bounds[1])
+        is_above = Fe_H_ref > Fe_H_bounds[1]
+
+        # Correct for the fit (below, overlapping, & above [Fe/H] bounds)
+        X_Fe_CD_corr = np.full_like(X_Fe_CD, np.nan)
+        X_Fe_CD_corr[is_below] = X_Fe_CD[is_below] + poly(Fe_H_bounds[0])
+        X_Fe_CD_corr[within_bounds] = \
+            X_Fe_CD[within_bounds] + poly(Fe_H_ref[within_bounds])
+        X_Fe_CD_corr[is_above] = X_Fe_CD[is_above] + poly(Fe_H_bounds[1])
+
+        #=============================================
+        # Left Hand Panels: uncorrected 1:1 comparison
+        #=============================================
         # Plot error bars with overplotted scatter points + colour bar
-        axes[sp_i].errorbar(
+        axes[sp_i, 0].errorbar(
             X_Fe_ref, 
             X_Fe_CD, 
             xerr=e_X_Fe_ref,
@@ -1049,10 +1074,10 @@ def plot_chemodynamic_one_to_one_recovery(
             #markersize=ms,
             elinewidth=0.2,)
 
-        sc = axes[sp_i].scatter(
+        sc = axes[sp_i, 0].scatter(
             X_Fe_ref, X_Fe_CD, c=Fe_H_ref, zorder=1,)
 
-        cb = fig.colorbar(sc, ax=axes[sp_i])
+        cb = fig.colorbar(sc, ax=axes[sp_i, 0])
         cb.ax.tick_params(labelsize="medium", rotation=0)
         cb.ax.set_title("[Fe/H]", fontsize="medium")
         
@@ -1063,12 +1088,12 @@ def plot_chemodynamic_one_to_one_recovery(
 
         # Plot 1:1 line
         xx = np.arange(lim_min, lim_max, (lim_max-lim_min)/100)
-        axes[sp_i].plot(xx, xx, "k--", zorder=0)
+        axes[sp_i, 0].plot(xx, xx, "k--", zorder=0)
 
         # Other setup
         species_str = "[{}]".format(species.replace("_", "/"))
-        axes[sp_i].set_xlabel("{} ({})".format(species_str, comp_ref))
-        axes[sp_i].set_ylabel("{} (Chemodynamic)".format(species_str))
+        axes[sp_i, 0].set_xlabel("{} ({})".format(species_str, comp_ref))
+        axes[sp_i, 0].set_ylabel("{} (Chemodynamic)".format(species_str))
 
         # Compute residuals
         resid = X_Fe_ref - X_Fe_CD
@@ -1081,14 +1106,76 @@ def plot_chemodynamic_one_to_one_recovery(
         txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
         txt = txt.replace("-0.00", "0.00")
     
-        axes[sp_i].text(
+        axes[sp_i, 0].text(
             x=0.5,
             y=0.1,
             s=txt,
             horizontalalignment="center",
             verticalalignment="center",
-            transform=axes[sp_i].transAxes,
+            transform=axes[sp_i, 0].transAxes,
             bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+
+        #=============================================
+        # Right Hand Panels: corrected 1:1 comparison
+        #=============================================
+        # Plot error bars with overplotted scatter points + colour bar
+        axes[sp_i, 1].errorbar(
+            X_Fe_ref, 
+            X_Fe_CD_corr, 
+            xerr=e_X_Fe_ref,
+            yerr=e_X_Fe_CD,
+            fmt=".",
+            zorder=0,
+            ecolor="black",
+            #markersize=ms,
+            elinewidth=0.2,)
+
+        sc = axes[sp_i, 1].scatter(
+            X_Fe_ref, X_Fe_CD_corr, c=Fe_H_ref, zorder=1,)
+
+        cb = fig.colorbar(sc, ax=axes[sp_i, 1])
+        cb.ax.tick_params(labelsize="medium", rotation=0)
+        cb.ax.set_title("[Fe/H]", fontsize="medium")
+        
+        # Plot 1:1 line
+        all_X_Fe = np.concatenate([X_Fe_ref, X_Fe_CD_corr])
+        lim_min = np.nanmin(all_X_Fe)
+        lim_max = np.nanmax(all_X_Fe)
+
+        # Plot 1:1 line
+        xx = np.arange(lim_min, lim_max, (lim_max-lim_min)/100)
+        axes[sp_i, 1].plot(xx, xx, "k--", zorder=0)
+
+        # Other setup
+        species_str = "[{}]".format(species.replace("_", "/"))
+        axes[sp_i, 1].set_xlabel("{} ({})".format(species_str, comp_ref))
+
+        # Compute residuals
+        resid = X_Fe_ref - X_Fe_CD_corr
+
+        # Compute statistics before and after
+        med = np.nanmedian(resid)
+        std = np.nanstd(resid)
+
+        # Annotate residuals
+        txt = r"${:0.2f} \pm {:0.2f}\,$dex".format(med, std)
+        txt = txt.replace("-0.00", "0.00")
+    
+        axes[sp_i, 1].text(
+            x=0.5,
+            y=0.1,
+            s=txt,
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=axes[sp_i, 1].transAxes,
+            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+        
+    axes[0,0].set_title("Uncorrected")
+    axes[0,1].set_title("Corrected")
+
+    species_str = "_".join(species_to_plot)
+    plt.savefig("paper/X_Fe_ref_vs_CD_{}.pdf".format(species_str,))
+    plt.savefig("paper/X_Fe_ref_vs_CD_{}.png".format(species_str,), dpi=200)
 
 
 #------------------------------------------------------------------------------
@@ -1930,7 +2017,11 @@ df_comb.to_csv(save_filename, sep="\t")
 # These won't be corrected here, but later when we've adopted an [Fe/H] value
 # as we don't currently have an 'adopted' [Fe/H] value in the same way we have
 # BP-RP for doing correcting the literature sample.
-pass
+pkl_filename = "data/chemodynamic_polynomials_{}.pkl".format(
+    "_".join(species_fn))
+
+with open(pkl_filename, 'wb') as output_file:
+    pickle.dump(fit_dict_CD, output_file, pickle.HIGHEST_PROTOCOL)
 
 #------------------------------------------------------------------------------
 # Plotting
@@ -1995,5 +2086,6 @@ plot_chemodynamic_abundance_trends(
 plot_chemodynamic_one_to_one_recovery(
     chem_df=df_comb,
     species_to_plot=species_to_correct_CD,
-    comp_ref=comp_ref_CD,
+    comp_refs=[comp_ref_CD]*len(species_to_correct_CD),
+    poly_dict_CD=fit_dict_CD,
     figsize=(16,10))

@@ -11,6 +11,7 @@ This script is part of a series of Cannon scripts. The main sequence is:
  4) make_stannon_diagnostics.py            --> diagnostic plots + result tables
  5) run_stannon.py                         --> running on science spectra
 """
+import pickle
 import numpy as np
 import pandas as pd
 import plumage.utils as pu
@@ -474,6 +475,40 @@ if ls.allow_misc_exceptions:
         obs_join.at[source_id, "passed_quality_cuts"] = True
         obs_join.at[source_id, "passed_sci_quality_cuts"] = True
         obs_join.at[source_id, "passed_syst_quality_cuts"] = True
+
+#------------------------------------------------------------------------------
+# Correcting chemodynamic [X/Fe]
+#------------------------------------------------------------------------------
+if ls.do_CD_polynomial_correction:
+    # Load in the fitted polynomials
+    with open(ls.CD_polynomial_fn, 'rb') as input_file:
+        poly_dict_CD = pickle.load(input_file)
+
+    # Loop over all abundance labels (ignoring [Fe/H]) and perform correction
+    for X_Fe in ls.abundance_labels[1:]:
+        # Column name for abundance
+        X_Fe_col = "{}_SM25".format(X_Fe)
+
+        # Grab the polynomial and its bounds in [Fe/H]
+        poly = poly_dict_CD[("SM25", X_Fe)]
+        Fe_H_bounds = poly.Fe_H_bounds
+        
+        # Work out beyond bounds
+        abund = obs_join[X_Fe_col].values
+
+        is_below = feh_values < Fe_H_bounds[0]
+        within_bounds = np.logical_and(
+            feh_values >= Fe_H_bounds[0], feh_values <= Fe_H_bounds[1])
+        is_above = feh_values > Fe_H_bounds[1]
+
+        # Correct for the fit (below, overlapping, & above [Fe/H] bounds)
+        abund_corr = np.full_like(abund, np.nan)
+        abund_corr[is_below] = abund[is_below] + poly(Fe_H_bounds[0])
+        abund_corr[within_bounds] = \
+            abund[within_bounds] + poly(feh_values[within_bounds])
+        abund_corr[is_above] = abund[is_above] + poly(Fe_H_bounds[1])
+
+        obs_join[X_Fe_col] = abund_corr
 
 #------------------------------------------------------------------------------
 # Setup training labels
