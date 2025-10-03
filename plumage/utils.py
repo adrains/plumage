@@ -8,6 +8,9 @@ from astropy.io import fits
 from astropy.table import Table
 import plumage.parameters as params
 
+# -----------------------------------------------------------------------------
+# Crossmatching
+# ----------------------------------------------------------------------------- 
 def do_id_crossmatch(observations, catalogue):
     """Do an ID crossmatch and add the Gaia DR2 ID to observations
 
@@ -67,6 +70,87 @@ def do_id_crossmatch(observations, catalogue):
     observations.set_index("source_id", inplace=True) 
 
 
+def do_id_crossmatch_modern(observations, star_info_fn,):
+    """Modern ID crossmatch to add the Gaia DR3 ID to observations. To do this
+    we import the same TSV file of Gaia and 2MASS info we do later for
+    parameter determination, and use it to search for IDs.
+
+    Parameters
+    ----------
+    observations: pandas DataFrame
+        Pandas dataframe logging details about each observation to match to.
+
+    star_info_fn: str
+        Filepath to TSV of star literature info and IDs to crossmatch with.
+
+    Returns
+    -------
+    successful_crossmatch: 1D bool array
+        Mask of shape [n_stars] indicating whether the star crossmatched
+        successfully.
+
+    star_info: pandas DataFrame
+        DataFrame of literature info now with a bool column 'has_observation'
+        indicating whether this particular star of interest has a matched
+        observation.
+    """
+    # Import the dataframe
+    star_info = pd.read_csv(
+        star_info_fn,
+        delimiter="\t",
+        comment="#",
+        dtype={"source_id_dr3":str, "source_id_dr2":str, "TOI":str},)
+
+    # Get the IDs that each target was *observed* with
+    ob_ids = observations["id"].values
+    
+    # Initialise array of unique IDs
+    source_ids_dr3 = []
+    successful_crossmatch = np.full_like(ob_ids, True).astype(bool)
+    
+    # Add column to star_info to keep track of which expected stars were
+    # crossmatched successfully.
+    star_info["has_observation"] = False
+
+    # Potential IDs that the target could have been observed under
+    id_cols = ["source_id_dr2", "source_id_dr3", "TOI",]
+
+    for ob_id_i, ob_id in enumerate(ob_ids):
+        id_found = False
+
+        for id_col in id_cols:
+            # Check TOI ID (requires string modification)
+            if id_col == "TOI" and id_col in star_info.columns:
+                trunc_id = ob_id.replace("TOI", "").strip()
+                idx = np.argwhere(star_info[id_col].values == trunc_id)
+
+            # Otherwise ID 'as is' was used as the object ID (e.g. Gaia ID)
+            else:
+                idx = np.argwhere(star_info[id_col].values==ob_id)
+
+            # If we've found an ID, update
+            if len(idx) == 1:
+                idx = int(idx)
+                source_ids_dr3.append(star_info.iloc[idx]["source_id_dr3"])
+                id_found = True
+                star_info.loc[idx, "has_observation"] = True
+                break
+        
+        # Mark those stars which weren't crossmatched
+        if not id_found:
+            source_ids_dr3.append("")
+            successful_crossmatch[ob_id_i] = False
+
+    print("Successful crossmatches: {}/{}".format(
+        np.sum(successful_crossmatch), len(successful_crossmatch)))
+
+    # Add the DR3 source_id to our dataframe as the index
+    observations["source_id_dr3"] = source_ids_dr3
+    observations.set_index("source_id_dr3", inplace=True)
+
+    return successful_crossmatch, star_info
+
+
 def do_activity_crossmatch(observations, activity):
     """
 
@@ -118,8 +202,9 @@ def do_activity_crossmatch(observations, activity):
     observations["ew_ca_k"] = ew_ca_k
 
 
-def load_crossmatch_catalogue(cat_type="csv", 
-                              cat_file="data/all_2m3_star_ids.csv"):
+def load_crossmatch_catalogue(
+    cat_type="csv", 
+    cat_file="data/all_2m3_star_ids.csv"):
     """Load in the catalogue of all stars observed. Currently the csv 
     catalogue is complete, whereas the fits catalogue is meant to be a 
     FunnelWeb input catalogue crossmatch which is broken/not complete.
@@ -146,312 +231,19 @@ def load_crossmatch_catalogue(cat_type="csv",
                                 na_values=[], keep_default_na=False)
         catalogue.rename(columns={"source_id":"source_id"}, inplace=True)
 
-        #catalogue["source_id"] = catalogue["source_id"].astype(str)
-        #catalogue["subset"] = catalogue["subset"].astype(str)
-
-        #catalogue["2MASS_Source_ID"] = [str(id).replace(" ", "") 
-        #                                for id in catalogue["2MASS_Source_ID"]]
-        #catalogue["program"] = [prog.replace(" ", "") 
-        #                        for prog in catalogue["program"]]
-        #catalogue["subset"] = [str(ss).replace(" ", "") 
-        #                        for ss in catalogue["subset"]]
-
     elif cat_type == "fits":
         catalogue_file = cat_file
         catalogue = Table.read(catalogue_file).to_pandas() 
         catalogue.rename(columns={"Gaia ID":"source_id"}, inplace=True)  
         catalogue["source_id"] = catalogue["source_id"].astype(str)
         catalogue["TOI"] = catalogue["TOI"].astype(str)
-        catalogue["2MASS_Source_ID_1"] = [id.decode().replace(" ", "") 
-                                        for id in catalogue["2MASS_Source_ID_1]"]]
+        catalogue["2MASS_Source_ID_1"] = [
+            id.decode().replace(" ", "") 
+            for id in catalogue["2MASS_Source_ID_1]"]]
         catalogue["program"] = [prog.decode().replace(" ", "") 
                                 for prog in catalogue["program"]]
         catalogue["subset"] = [ss.decode().replace(" ", "") 
                                 for ss in catalogue["subset"]]
-    
-    return catalogue
-
-def do_standard_crossmatch(catalogue):
-    """Crossmatch standards with the catalogue of all potential science
-    targets. Very TBD and TODO.
-    """
-    # Load in standards
-    standards = load_standards()
-
-    # Initialise 
-    catalogue["teff_lit"] = np.nan
-    catalogue["e_teff_lit"] = np.nan
-    catalogue["logg_lit"] = np.nan
-    catalogue["e_logg_lit"] = np.nan
-    catalogue["feh_lit"] = np.nan
-    catalogue["e_feh_lit"] = np.nan
-
-    # For each standard catalogue in standards, find matching IDs and add
-    # lit values
-    for cat_i, std_cat in enumerate(standards):
-        print("Running on standard catalogue %i" % cat_i)
-
-        for std_i in range(len(std_cat)):
-            gaia_id = std_cat.iloc[std_i].name
-
-            idx = np.argwhere(catalogue["source_id"].values==gaia_id)
-
-            if len(idx) == 1:
-                print("Adding %s" % gaia_id)
-                try:
-                    catalogue.at[int(idx), "teff_lit"] = std_cat.loc[gaia_id]["teff"]
-                    catalogue.at[int(idx), "e_teff_lit"] = std_cat.loc[gaia_id]["e_teff"]
-                    catalogue.at[int(idx), "logg_lit"] = std_cat.loc[gaia_id]["logg"]
-                    catalogue.at[int(idx), "e_logg_lit"] = std_cat.loc[gaia_id]["e_logg"]
-                    catalogue.at[int(idx), "feh_lit"] = std_cat.loc[gaia_id]["feh"]
-                    catalogue.at[int(idx), "e_feh_lit"] = std_cat.loc[gaia_id]["e_feh"]
-                except:
-                    print("Gaia DR2 %s has duplicate values" % gaia_id)
-                    continue
-
-def load_standards():
-    """Load in various standard catalogues. This should be cleaned.
-    """
-    curr_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", 
-                                             "standards"))
-
-    # Import Mann et al. 2015 Teff standards catalogue                    
-    mann = pd.read_csv(os.path.join(curr_path, "mann_constrain_2015.tsv"), 
-                       sep="\t", header=1, skiprows=0, 
-                       dtype={"source_id":str, "useful":bool})
-    mann.set_index("source_id", inplace=True)
-    mann = mann[[type(ii) == str for ii in mann.index.values]] 
-    mann = mann[mann["useful"]]
-
-    # Import Royas-Ayala et al. 2012 [Fe/H] standards catalogue
-    royas = pd.read_csv(os.path.join(curr_path, "rojas-ayala_2012.tsv"), 
-                        sep="\t", header=1, skiprows=0, 
-                        dtype={"source_id":str, "useful":bool})
-    royas.set_index("source_id", inplace=True)
-    royas = royas[[type(ii) == str for ii in royas.index.values]]
-    royas = royas[royas["useful"]]
-    
-    # Import Newton et al. 2014 [Fe/H] standard catalogue
-    newton = pd.read_csv(os.path.join(curr_path, "newton_cpm_2014.tsv"), 
-                         sep="\t", header=1, skiprows=0, 
-                         dtype={"source_id":str, "logg":np.float64, 
-                                "useful":bool})
-    newton.set_index("source_id", inplace=True)
-    newton = newton[[type(ii) == str for ii in newton.index.values]]
-    newton = newton[newton["useful"]]
-
-    # Import interferometry standards (various sources)
-    interferometry = pd.read_csv(os.path.join(curr_path, "interferometry.tsv"), 
-                                 sep="\t", header=1, skiprows=0, 
-                                 dtype={"source_id":str, "useful":bool})
-    interferometry.set_index("source_id", inplace=True)
-    interferometry = interferometry[[type(ii) == str 
-                                     for ii in interferometry.index.values]] 
-    interferometry = interferometry[interferometry["useful"]]
-
-    # Import Herczeg & Hillenbrand 2014 young star standard catalogue
-    herczeg = pd.read_csv(os.path.join(curr_path, 
-                                       "herczeg_2014_standards_gaia.tsv"), 
-                          sep="\t", header=1, skiprows=0, comment="#",
-                          dtype={"source_id":str, "useful":bool})
-    herczeg.set_index("source_id", inplace=True)
-    herczeg = herczeg[[type(ii) == str for ii in herczeg.index.values]]
-    herczeg = herczeg[herczeg["useful"]]
-
-    # Miscellaneous SpT standards
-    spt = pd.read_csv(os.path.join(curr_path, "spt_standards.tsv"), 
-                          sep="\t", header=0, comment="#",
-                          dtype={"source_id":str})#, "useful":bool})
-    spt.set_index("source_id", inplace=True)
-    spt = spt[[type(ii) == str for ii in spt.index.values]]
-    #herczeg = herczeg[herczeg["useful"]]
-
-    standards = {"royas":royas, "newton":newton, "mann":mann, 
-                 "interferometry":interferometry, "herczeg":herczeg, "spt":spt}
-
-    return standards
-
-
-def consolidate_standards(
-    standards, 
-    force_unique=False, 
-    remove_standards_with_nan_params=False,
-    teff_lims=None,
-    logg_lims=None, 
-    feh_lims=None,
-    assign_default_uncertainties=False,
-    force_solar_missing_feh=False,
-    ):
-    """WARNING: force_unique is a temporary HACK
-
-    TODO: this can be simplified using a dictionary and looping over the keys
-    """
-    ids = []
-    teffs = []
-    e_teffs = []
-    loggs = []
-    e_loggs = []
-    fehs = []
-    e_fehs = []
-    rvs = []
-    e_rvs = []
-    sources = []
-
-    # There may be some overlap in standards from different catalogues
-    for key in standards.keys():
-        ids.extend(standards[key].index.values)
-
-        # teff
-        teffs.extend(standards[key]["teff"].values)
-
-        if "e_teff" in standards[key]:
-            e_teffs.extend(standards[key]["e_teff"].values)
-        else:
-            e_teffs.extend(np.nan*np.ones_like(standards[key]["teff"]))
-
-        # logg
-        loggs.extend(standards[key]["logg"].values)
-
-        if "e_logg" in standards[key]:
-            e_loggs.extend(standards[key]["e_logg"])
-        else:
-            e_loggs.extend(np.nan*np.ones_like(standards[key]["logg"]))
-        
-        # [Fe/H]
-        fehs.extend(standards[key]["feh"].values)
-
-        if "e_feh" in standards[key]:
-            e_fehs.extend(standards[key]["e_feh"].values)
-        else:
-            e_fehs.extend(np.nan*np.ones_like(standards[key]["feh"]))
-
-        # Radial Velocity
-        try:
-            rvs.extend(standards[key]["rv"].values)
-            e_rvs.extend(standards[key]["e_rv"].values)
-        except:
-            import pdb
-            pdb.set_trace()
-        
-        sources.extend([key]*len(standards[key]))
-
-    data = (ids, teffs, e_teffs, loggs, e_loggs, fehs, e_fehs, rvs, e_rvs, 
-            sources)
-    columns = ["ids", "teffs", "e_teffs", "loggs", "e_loggs", "fehs", "e_fehs", 
-               "rv", "e_rv", "sources"]
-    std_params_all = pd.DataFrame(
-        {"source_id": ids,
-         "teff": teffs,
-         "e_teff": e_teffs,
-         "logg": loggs,
-         "e_logg": e_loggs,
-         "feh": fehs,
-         "e_feh": e_fehs,
-         "rv": rvs,
-         "e_rv": e_rvs,
-         "source": sources,
-         })
-
-    if force_unique:
-        std_params_all.drop_duplicates(subset="source_id", inplace=True)
-
-    if force_solar_missing_feh:
-        std_params_all.loc[~np.isfinite(std_params_all["feh"]), "feh"] = 0.0
-
-    if remove_standards_with_nan_params:
-        std_params_all = std_params_all[np.isfinite(std_params_all["teff"])]
-        std_params_all = std_params_all[np.isfinite(std_params_all["logg"])]
-        std_params_all = std_params_all[np.isfinite(std_params_all["feh"])]
-
-    if teff_lims is not None:
-        mask = np.logical_and(std_params_all["teff"] > teff_lims[0],
-                              std_params_all["teff"] < teff_lims[1])
-        std_params_all = std_params_all[mask]
-
-    if logg_lims is not None:
-        mask = np.logical_and(std_params_all["logg"] > logg_lims[0],
-                              std_params_all["logg"] < logg_lims[1])
-        std_params_all = std_params_all[mask]
-
-    if feh_lims is not None:
-        mask = np.logical_and(std_params_all["feh"] > feh_lims[0],
-                              std_params_all["feh"] < feh_lims[1])
-        std_params_all = std_params_all[mask]
-
-    if assign_default_uncertainties:
-        std_params_all.loc[~np.isfinite(std_params_all["e_teff"]), "e_teff"] = 100
-        std_params_all.loc[~np.isfinite(std_params_all["e_logg"]), "e_logg"] = 0.1
-        std_params_all.loc[~np.isfinite(std_params_all["e_feh"]), "e_feh"] = 0.1
-
-    return std_params_all
-
-
-def mask_spectral_wavelengths(spectra_b, spectra_r, ob_mask=None):
-    """TODO: This shouldn't be here
-    """
-    import plumage.spectra as spec
-    if ob_mask is None:
-        ob_mask = np.ones(len(spectra_b)).astype(bool)
-    
-    spec_b_subset = spectra_b[ob_mask]
-    spec_r_subset = spectra_r[ob_mask]
-
-    # Mask blue
-    wl_mask = spec.make_wavelength_mask(spec_b_subset[0,0], 
-                                        mask_blue_edges=True)
-    dims = spec_b_subset.shape
-    wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
-    
-    spec_b_subset = spec_b_subset[wl_mask]
-    spec_b_subset = spec_b_subset.reshape(
-        [dims[0], dims[1], int(len(spec_b_subset)/np.prod(dims[:2]))])
-
-    # Mask red
-    wl_mask = spec.make_wavelength_mask(spec_r_subset[0,0])
-    dims = spec_r_subset.shape
-    wl_mask = np.tile(wl_mask, dims[0]*dims[1]).reshape(dims)
-    
-    spec_r_subset = spec_r_subset[wl_mask]
-    spec_r_subset = spec_r_subset.reshape(
-        [dims[0], dims[1], int(len(spec_r_subset)/np.prod(dims[:2]))])
-
-    return spec_b_subset, spec_r_subset
-
-
-def combine_obs_and_lit_tables(labels):
-    """Combine two separate sets of observation and literature info dataframes
-    """
-    catalogues = []
-    
-    # Import and combine literature and observed information for each label
-    for label in labels:
-        # Load info cat
-        info_cat_path = "data/{}_info.tsv".format(label)
-        info_cat = utils.load_info_cat(
-            info_cat_path, 
-            in_paper=True, 
-            only_observed=True)
-        
-        # Load observed results
-        observations = utils.load_fits_table("OBS_TAB", label)
-
-        # Join
-        obs_join = observations.join(
-            info_cat, 
-            "source_id", 
-            rsuffix="_info",
-            how="inner")
-
-        # Save
-        catalogues.append(obs_join)
-
-    # If we only got one label, just take that table
-    if len(catalogues) == 1:
-        catalogue = catalogues[0]
-
-    # Otherwise combine
-    else:
-        catalogue = pd.concat(catalogues, sort=False)
     
     return catalogue
 
@@ -609,7 +401,12 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits table
 # -----------------------------------------------------------------------------
-def load_fits_table(extension, label, path="spectra", ext_label="",):
+def load_fits_table(
+    extension,
+    label,
+    path="spectra",
+    ext_label="",
+    do_use_dr3_id=False,):
     """Loads in the data from specified fits table HDU.
 
     Parameters
@@ -628,6 +425,9 @@ def load_fits_table(extension, label, path="spectra", ext_label="",):
         Sublabel of the extension. At the moment only applicable to the 
         'CANNON_MODEL' extension to note the specifics of the model.
 
+    do_use_dr3_id: bool, default: False
+        Set to true if we're using 'source_id_dr3' as the ID column
+
     Returns
     -------
     obs_pd: pandas dataframe
@@ -643,6 +443,9 @@ def load_fits_table(extension, label, path="spectra", ext_label="",):
         "CANNON_INFO":"source_id_dr3",
         "CANNON_MODEL":"source_id_dr3",
     }
+
+    if do_use_dr3_id:
+        ext_index["OBS_TAB"] = "source_id_dr3"
 
     # Input checking
     if extension not in valid_ext:

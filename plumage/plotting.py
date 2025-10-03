@@ -107,7 +107,8 @@ def plot_nightly_spectra(root, night, plot_step_id="10",
         snrs = []
         for fsnr in fsnr_band:
             sp_snr = np.loadtxt(fsnr)
-            snrs.append(np.nanmedian(sp_snr[:,1])/np.sqrt(np.nanmedian(sp_snr[:,1])))
+            snrs.append(
+                np.nanmedian(sp_snr[:,1])/np.sqrt(np.nanmedian(sp_snr[:,1])))
 
         snrs = np.array(snrs)
 
@@ -223,7 +224,8 @@ def plot_teff_sorted_spectra(spectra, observations, arm="r",
         h2o = [6270.0, 6290.0]
         o2 = [6856.0, 6956.0]
 
-        plt.axvspan(h2o[0], h2o[1], ymin=0, ymax=sp_i+1, alpha=0.1, color="grey")
+        plt.axvspan(
+            h2o[0], h2o[1], ymin=0, ymax=sp_i+1, alpha=0.1, color="grey")
         plt.axvspan(o2[0], o2[1], ymin=0, ymax=sp_i+1, alpha=0.1, color="grey")
 
     plt.xlabel("Wavelength (A)")
@@ -236,104 +238,6 @@ def plot_teff_sorted_spectra(spectra, observations, arm="r",
         plt.savefig("plots/teff_sorted_spectra_%s_%s.pdf" % (arm, suffix))
     else:
         plt.savefig("plots/teff_sorted_spectra_%s.pdf" % arm)
-
-
-def plot_normalised_spectra(spectra, observations, band="r", snr=0, mask=None,
-                            plot_balmer=False, do_med_norm=False):
-    """
-    """
-    if mask is None:
-        mask = np.ones(len(spectra)).astype(bool)
-
-    plt.close("all")
-
-    stars_plotted = 0
-
-    for i in range(0,len(spectra[mask])): 
-        if do_med_norm:
-            scale = np.nanmedian(spectra[mask][i,1,:])
-        else:
-            scale = 1
-
-        if int(observations[mask].iloc[i]["snr_%s" % band]) > snr: 
-            plt.plot(spectra[mask][i,0,:], spectra[mask][i,1,:]/scale,linewidth=0.1,)
-                     #alpha=0.5, color="black") 
-            stars_plotted += 1
-    
-    print("%i stars plotted" % (stars_plotted))
-
-    if band == "b":
-        plt.xlim([3600,5500]) 
-    elif band == "r":
-        plt.xlim([5400,7000]) 
-
-    if plot_balmer:
-        plot_balmer_series()
-
-    plt.ylim([0,3])
-    plt.xlabel("Wavelength (A)") 
-    plt.ylabel("Flux (Normalised)")
-    
-    
-def plot_balmer_series():
-    """
-    """
-    balmer = {r"H$\alpha$":6564.5,
-                r"H$\beta$":4861.4,
-                r"H$\gamma$":4340.5,
-                r"H$\delta$":4101.7,
-                r"H$\epsilon$":3970.1,
-                r"H$\zeta$":3889.01,
-                r"H$\eta$":3835.4,}
-
-    for line in balmer.keys():
-        plt.vlines(balmer[line], 0.2, 10, color="grey", linestyles="dashed", linewidth=1)
-        plt.text(balmer[line], 0.1, line, fontsize="x-small", horizontalalignment='center')
-
-
-def plot_templates(ref_spec_norm, ref_params):
-    """
-    """
-    plt.close("all")
-    for sp_i, (spec, params) in enumerate(zip(ref_spec_norm[::-1], ref_params[::-1])):
-        plt.plot(spec[0,:], 2*sp_i+spec[1,:],linewidth=0.1)
-
-        label = (r"T$_{\rm eff}=%i\,$K, $\log g=%0.1f$, [Fe/H]$=%0.1f$"
-                 % (params[0], params[1], params[2]))
-        plt.text(spec[0,:].mean(), 2*sp_i, label, fontsize=4, 
-                        ha="center")
-
-    plt.xlabel("Wavelength (A)") 
-    plt.ylabel("Flux (Normalised)")
-    plt.gcf().set_size_inches(9, 20)
-    plt.tight_layout()
-    plt.savefig("plots/teff_sorted_ref_spectra.pdf") 
-    plt.savefig("plots/teff_sorted_ref_spectra.png") 
-    
-
-def plot_standards(spectra, observations, catalogue):
-    """
-    """
-    # Get the standards
-    is_standard = catalogue["program"] == "standard"
-
-    # Get only IDs that have been matched
-    #id_match_mask = [sid is not "" for sid in observations["uid"]]
-
-    # Now get the standards that have been observed
-    is_observed = [sid in observations["uid"].values 
-                            for sid in catalogue["source_id"].values]
-
-    # Final mask exludes those with empty souce ID
-    mask = is_standard * is_observed
-
-    plt.close("all")
-    plt.scatter(catalogue[mask]["teff_lit"], catalogue[mask]["logg_lit"],)
-                #catalogue[mask]["feh_lit"])
-
-    plt.xlim([6700, 3000])
-    plt.ylim([5.1, 1])
-
 
 # -----------------------------------------------------------------------------
 # Synthetic fit diagnostics
@@ -509,8 +413,17 @@ def plot_synthetic_fit(
         plt.savefig(save_path)
 
 
-def plot_cmd_diagnostic(colours, abs_mags, ruwe_mask, target_colour, target_abs_mag, 
-             target_ruwe, ax, xlabel, y_label, text_min=None):
+def plot_cmd_diagnostic(
+    colours,
+    abs_mags,
+    ruwe_mask,
+    target_colour,
+    target_abs_mag,
+    target_ruwe, 
+    ax,
+    xlabel,
+    y_label,
+    text_min=None):
     """Plots a colour magnitude diagram, outlining those stars with high
     values for Gaia DR2 RUWE (>1.4) and highlighting the current target star.
 
@@ -1184,7 +1097,8 @@ def plot_chi2_map(
 
         cont_ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
         cont_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.2))
-        cont_ax.tick_params(axis='x', which='major', labelsize="xx-small", rotation=45)
+        cont_ax.tick_params(
+            axis='x', which='major', labelsize="xx-small", rotation=45)
         cont_ax.tick_params(axis='y', which='major', labelsize="xx-small")
 
         # 3) Plot the valley as its own plot
@@ -1265,8 +1179,10 @@ def plot_chi2_map(
 
     # Title and save the plot
     title = (r"{} ({}), $T_{{\rm eff}}$={:0.0f} K, [Fe/H]={:0.2f}")
-    plt.suptitle(title.format(
-        star_id, source_id, teff_actual, feh_actual,), y=1.0, fontsize="x-small")
+    plt.suptitle(
+        title.format(star_id, source_id, teff_actual, feh_actual,),
+        y=1.0,
+        fontsize="x-small")
     plt.gcf().set_size_inches(16, 8)
     #plt.tight_layout()
     plt.savefig(save_path + "/chi2_map_{:0.0f}_{}.pdf".format(
@@ -1295,9 +1211,26 @@ def plot_black_body_axis(
     spec_bb_lit = chi2_map_dict["spec_bb_lit"][wl_mask]
     spec_bb_lit /= np.max(spec_bb_lit)
 
-    axis.plot(wave_bb, spec_bb_low_feh, linewidth=0.2, alpha=0.8, label="low [Fe/H]")
-    axis.plot(wave_bb, spec_bb_high_feh, linewidth=0.2, alpha=0.8, label="high [Fe/H]")
-    axis.plot(wave_bb, spec_bb_lit, linewidth=0.2, alpha=0.8, label="literature")
+    axis.plot(
+        wave_bb,
+        spec_bb_low_feh,
+        linewidth=0.2,
+        alpha=0.8,
+        label="low [Fe/H]")
+    
+    axis.plot(
+        wave_bb,
+        spec_bb_high_feh,
+        linewidth=0.2,
+        alpha=0.8,
+        label="high [Fe/H]")
+    
+    axis.plot(
+        wave_bb,
+        spec_bb_lit,
+        linewidth=0.2,
+        alpha=0.8,
+        label="literature")
 
     axis.legend(loc="best", fontsize="x-small")
 
@@ -1925,7 +1858,8 @@ def plot_tic_stellar_param_comp(
     observations = utils.load_fits_table("OBS_TAB", "tess", path="spectra",)
 
     # Temporary join to get combined info in single datastructure
-    info = toi_info.join(tic_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
+    info = toi_info.join(
+        tic_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
     comb_info = info.join(
         observations, 
         on="source_id", 
@@ -2360,7 +2294,8 @@ def plot_fbol_comp(
         ax.tick_params(axis='y', which='minor', labelsize="xx-small")
         ax.tick_params(axis='y', which='major', labelsize="xx-small")
         
-        plt.setp(ax.get_xticklabels(), fontsize="xx-small", rotation="vertical")
+        plt.setp(
+            ax.get_xticklabels(), fontsize="xx-small", rotation="vertical")
         ax.yaxis.offsetText.set_fontsize("xx-small")
         
         # Only display x ticks if on bottom
@@ -2445,7 +2380,8 @@ def plot_representative_spectral_model_limitations(
             plot_suffix, plot_index), dpi=500,)
     # Plot observed data
     plt.close("all")
-    plt.plot(wl_br, spec_br, linewidth=lw, label="Observed", alpha=0.7, zorder=2)
+    plt.plot(
+        wl_br, spec_br, linewidth=lw, label="Observed", alpha=0.7, zorder=2)
 
     # Setup plot and save for each new addition
     plt.xlabel(r"Wavelength ($\mathrm{\AA}$)")
@@ -2456,10 +2392,26 @@ def plot_representative_spectral_model_limitations(
     plt.tight_layout()
     setup_plot(plot_index="_0")
 
-    plt.plot(wl_br, spec_lit, "--", linewidth=lw,  label="MARCS", alpha=0.7, zorder=1)
+    plt.plot(
+        wl_br,
+        spec_lit,
+        "--",
+        linewidth=lw, 
+        label="MARCS",
+        alpha=0.7,
+        zorder=1)
+    
     setup_plot(plot_index="_1")
 
-    plt.plot(wl_bts, spec_bts, ":", linewidth=lw, label="BT-Settl", alpha=0.7, zorder=0)
+    plt.plot(
+        wl_bts,
+        spec_bts,
+        ":",
+        linewidth=lw,
+        label="BT-Settl",
+        alpha=0.7,
+        zorder=0)
+    
     setup_plot(plot_index="_2")
 
     # Filter profiles
@@ -2467,8 +2419,10 @@ def plot_representative_spectral_model_limitations(
     filter_labels = ["v", "g", "r", "B_P", "R_P"]
 
     for filt_i, (filt, lbl) in enumerate(zip(filters, filter_labels)):
-        wl_f, fp = synth.load_filter_profile(filt, 3000, 7000, do_zero_pad=True)
-        plt.plot(wl_f, fp*2, linewidth=1.0, label=r"${}$".format(lbl), zorder=3)
+        wl_f, fp = synth.load_filter_profile(
+            filt, 3000, 7000, do_zero_pad=True)
+        plt.plot(
+            wl_f, fp*2, linewidth=1.0, label=r"${}$".format(lbl), zorder=3)
 
     setup_plot(plot_index="")
     
@@ -2499,7 +2453,8 @@ def plot_label_comparison(
     fig.subplots_adjust(left=0.1, bottom=0.2, right=0.9, top=0.95, 
                         wspace=0.5)
 
-    lit_source = [ls for ls in list(set(std_info["source"].values)) if type(ls) == str]
+    lit_source = [ls for ls in list(set(std_info["source"].values))
+                  if type(ls) == str]
     
     # Only plot standards in std_info that are marked as observed
     obs_stds = std_info[std_info["observed"]]
@@ -2545,11 +2500,7 @@ def plot_label_comparison(
     ax_feh.set_ylabel(r"[Fe/H] (Lit)") 
 
     plt.savefig("plots/std_label_comp.pdf")
-    # Plot every source separately
-    #for source in lit_source:
-        # Sort the array
-        #mm = np.isin(observations["uid"], std_info[std_info["source"]==source]["source_id"])  
-        #obs = observations[mm]
+
 
 # -----------------------------------------------------------------------------
 # Planet plots
@@ -2729,7 +2680,8 @@ def plot_confirmed_planet_comparison(
     cp_cat = pd.read_csv(confirmed_planet_tab, delimiter="\t", index_col="TOI")
 
     # Merge
-    merged_cat = toi_results.join(cp_cat, on="TOI", how="inner", rsuffix="_lit")
+    merged_cat = toi_results.join(
+        cp_cat, on="TOI", how="inner", rsuffix="_lit")
 
     # If we've been given maximums for rp_rstar and rp, make cuts
     if max_rp_rstar is not None:
@@ -2753,7 +2705,8 @@ def plot_confirmed_planet_comparison(
         merged_cat["rp_rstar_fit"].values,
         merged_cat["e_rp_rstar_fit"].values,
         merged_cat["rp_rstar"].values,
-        [merged_cat["e_rp_rstar_neg"].values, merged_cat["e_rp_rstar_pos"].values],
+        [merged_cat["e_rp_rstar_neg"].values, 
+         merged_cat["e_rp_rstar_pos"].values],
         None,
         r"$R_P/R_*$ (fit)",
         r"$R_P/R_*$ (literature)",
@@ -2777,7 +2730,8 @@ def plot_confirmed_planet_comparison(
         merged_cat["sma_rstar_fit"].values,
         merged_cat["e_sma_rstar_fit"].values,
         merged_cat["a_rstar"].values,
-        [merged_cat["e_a_rstar_neg"].values, merged_cat["e_a_rstar_pos"].values],
+        [merged_cat["e_a_rstar_neg"].values,
+         merged_cat["e_a_rstar_pos"].values],
         None,
         r"$a/R_*$ (fit)",
         r"$a/R_*$ (literature)",
@@ -3027,7 +2981,8 @@ def plot_lightcurve_fit(
 
     # First plot unfolded/unflattened light curve
     if not plot_in_paper_figure_format:
-        lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, zorder=1,
+        lightcurve.errorbar(
+            ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, zorder=1,
             rasterized=rasterized, alpha=0.8, label="unflattened light curve")
 
         binned_lightcurve.errorbar(ax=ax_lc_unfolded, fmt=".", elinewidth=0.1, 
@@ -3077,11 +3032,13 @@ def plot_lightcurve_fit(
     if not plot_in_paper_figure_format:
         folded_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, 
             zorder=1, rasterized=rasterized, alpha=0.8, 
-            label="folded light curve ({} min binning)".format(bin_size_mins[0]))
+            label="folded light curve ({} min binning)".format(
+                bin_size_mins[0]))
 
         folded_binned_lc.errorbar(ax=ax_lc_folded_all, fmt=".", elinewidth=0.1, 
             zorder=1, rasterized=rasterized,
-            label="folded light curve ({} min binning)".format(bin_size_mins[1]))
+            label="folded light curve ({} min binning)".format(
+                bin_size_mins[1]))
 
         ax_lc_folded_all.plot(bm_lc_times, bm_lc_flux, zorder=2, c="red",
             label="transit model")
@@ -3197,9 +3154,9 @@ def plot_lightcurve_fit(
     # Do remaining plot setup depending on whether diagnostic or paper
     if not plot_in_paper_figure_format:
         # Only set title for diagnostic plots
-        title = (r"TIC {}, TOI {}    $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,"
-                r"R_\odot$, T = {:0.6f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$, "
-                r"$R_P$ = {:0.2f} $R_E$, "
+        title = (r"TIC {}, TOI {}  $[T_{{\rm eff}}={:0.0f}\,$K, $R_*={:0.2f}\,"
+                r"R_\odot$, T = {:0.6f} days, $\frac{{R_p}}{{R_*}} = {:0.5f}$,"
+                r" $R_P$ = {:0.2f} $R_E$, "
                 r"$\frac{{a}}{{R_*}} = {:0.2f}$, $i = {:0.2f}]$")
 
         title = title.format(
@@ -3282,9 +3239,11 @@ def plot_all_lightcurve_fits(
             os.remove(pdf)
 
     # Get temporary single jumbo dataframe
-    info = toi_info.join(tess_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
+    info = toi_info.join(
+        tess_info, on="TIC", how="inner", lsuffix="", rsuffix="_2")
     #info.reset_index(inplace=True)
-    comb_info = info.join(observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
+    comb_info = info.join(
+        observations, on="source_id", lsuffix="", rsuffix="_2", how="inner")
     
     for toi_i, (toi, toi_row) in zip(
         tqdm(range(len(comb_info)),desc="Plotting"), comb_info.iterrows()):
@@ -3483,7 +3442,8 @@ def plot_lightcurve_phasefolded_x2(
     # Find median at +/-0.01 phase
     transit_mask = np.abs(folded_lc.time) < 0.001
     med = np.median(folded_lc.flux[transit_mask])
-    ax.text(0, 1+0.9*(std_lim), "{:0.5f}".format(med), horizontalalignment="center")
+    ax.text(0, 1+0.9*(std_lim), "{:0.5f}".format(med),
+            horizontalalignment="center")
 
     plt.gcf().set_size_inches(20, 6)
 
@@ -3509,22 +3469,6 @@ def plot_lightcurve_phasefolded_x2(
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # ----------------------------------------------------------------------------- 
-def get_gaia_rv(uid, std_params):
-    """
-    """
-    entry = std_params[std_params["source_id"]==uid]
-    if len(entry) == 0:
-        rv = np.nan
-        e_rv = np.nan
-    elif len(entry) == 1:
-        rv = float(entry["rv"])
-        e_rv = float(entry["e_rv"])
-    elif len(entry) > 1:
-        raise ValueError("Duplicate standard detected in std_params")
-
-    return rv, e_rv
-
-
 def plot_rv_comparison():
     """Join catalogues, and plot a comparison of observed RVs with those from
     Gaia.

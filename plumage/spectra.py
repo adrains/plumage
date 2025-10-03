@@ -4,7 +4,6 @@ import os
 import numpy as np 
 import pandas as pd
 import glob
-import pickle
 import warnings
 from tqdm import tqdm
 from scipy.optimize import leastsq
@@ -15,14 +14,13 @@ from astropy import units as u
 from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation
 import matplotlib.pyplot as plt
-from numpy.polynomial.polynomial import Polynomial, polyval
+from numpy.polynomial.polynomial import Polynomial
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 from scipy.interpolate import interp1d
 from collections import Counter
 
-
 # -----------------------------------------------------------------------------
-# Loading spectra
+# Loading spectra: WiFeS @ 2.3 m
 # -----------------------------------------------------------------------------
 def load_input_catalogue(catalogue_file="data/all_star_2m3_crossmatch.fits"):
     """Load the input catalogue of all science, calibrator, and standard
@@ -48,7 +46,7 @@ def load_all_spectra(
 
     Parameters
     ----------
-    spectra_folder: string
+    spectra_folder: str or str list
         Root directory of nightly extracted 1D fits cubes.
 
     ext_snr: int
@@ -118,15 +116,23 @@ def load_all_spectra(
     neg_flux_weight_b_all = []
     neg_flux_weight_r_all = []
 
-    if not include_subfolders:
-        spectra_b_path = os.path.join(spectra_folder, "*_b.fits")
-        spectra_r_path = os.path.join(spectra_folder, "*_r.fits")
-    else:
-        spectra_b_path = os.path.join(spectra_folder, "*", "*_b.fits")
-        spectra_r_path = os.path.join(spectra_folder, "*", "*_r.fits")
+    # For consistency convert to list
+    if type(spectra_folder) == str:
+        spectra_folder = list(spectra_folder)
     
-    spectra_b_files = glob.glob(spectra_b_path)
-    spectra_r_files = glob.glob(spectra_r_path)
+    spectra_b_files = []
+    spectra_r_files = []
+
+    for folder in spectra_folder:
+        if not include_subfolders:
+            spectra_b_path = os.path.join(folder, "*_b.fits")
+            spectra_r_path = os.path.join(folder, "*_r.fits")
+        else:
+            spectra_b_path = os.path.join(folder, "*", "*_b.fits")
+            spectra_r_path = os.path.join(folder, "*", "*_r.fits")
+    
+        spectra_b_files += glob.glob(spectra_b_path)
+        spectra_r_files += glob.glob(spectra_r_path)
 
     spectra_b_files.sort()
     spectra_r_files.sort()
@@ -143,8 +149,10 @@ def load_all_spectra(
         raise ValueError("Unequal number of blue and red spectra for following"
                          " observations: %s" % unmatched_spec)
 
+    desc = "Loading fits files, collating spectra and header information:"
+
     for fi, (file_b, file_r) in enumerate(
-        zip(tqdm(spectra_b_files), spectra_r_files)):
+        zip(tqdm(spectra_b_files, desc=desc, leave=False), spectra_r_files)):
         # Load in and extract required information from fits files
         with fits.open(file_b) as fits_b, fits.open(file_r) as fits_r:
             # If we're relying on our own flux calibration, no need to bother
@@ -359,7 +367,8 @@ def load_all_spectra(
                 if snrs_r[id_i] != np.nanmax(subset["snr_r"]):
                     is_dup[id_i] = True
 
-        print("Excluding duplicate observations:\n", observations[is_dup])
+        print("Excluding duplicate observations (keeping highest SNR):")
+        print(observations[is_dup])
 
         observations = observations[~is_dup]
         spectra_b = spectra_b[~is_dup]
@@ -545,27 +554,37 @@ def clean_spectra(spectra, do_set_nan_for_neg_px=False,):
             spectra[:,1] = np.where(spectra[:,1] <= 0, np.nan, spectra[:,1])
 
 
-def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False, 
-                       plot_norm=False, mask=None, poly_order=2, wl_min=0,
-                       wl_max=10000,):
+def normalise_spectrum(
+    wl,
+    spectrum,
+    e_spectrum=None,
+    plot_fit=False, 
+    plot_norm=False,
+    mask=None,
+    poly_order=2,
+    wl_min=0,
+    wl_max=10000,):
     """Normalise a single spectrum by a 2nd order polynomial in log space. 
     Automatically detects which WiFeS arm and grating is being used and masks 
     out regions accordingly. Currently only implemented for B3000 and R7000.
 
     Parameters
     ----------
-    wl: float array
-        Wavelength scale for the spectrum.
-
-    spectrum: float array
-        The spectrum corresponding to wl, units irrelevant.
-
-    e_spectrum: float array or None
-        Errors (if available) on fluxes. None if not available or relevant
-        (e.g. for synthetic spectra)
-
-    plot_fit, plot_norm: boolean
+    wl, spectrum, e_spectrum: 1D float array
+        Wavelengths, spectra, & (optional) uncertainty arrays of shape [n_px].
+    
+    plot_fit, plot_norm: bool, default: False
         Whether to plot the normalised spectrum, or show the polynomial fit.
+
+    mask: 1D bool array
+        Mask to use when normalising. If not provided, we mask potential
+        emission features only.
+
+    poly_order: int, default: 2
+        Polynomial order to use when normalising spectra.
+
+    wl_min, wl_max: float, default 0, 10000
+        Wavelength limits to consider during normalisation.
 
     Returns
     -------
@@ -574,7 +593,6 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
     """
     # Fit to flux in log space
     spectrum_fit = np.log(spectrum)
-    #e_spectrum_fit = np.log(spectrum)
 
     # Red arm, R7000 grating
     if np.round(wl.mean()/100)*100 == 6200:
@@ -653,22 +671,28 @@ def normalise_spectrum(wl, spectrum, e_spectrum=None, plot_fit=False,
         return spectrum_norm.astype(float)
 
 
-def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2, wl_min=0,
+def normalise_spectra(
+    wl,
+    spectra,
+    e_spectra=None,
+    poly_order=2,
+    wl_min=0,
     wl_max=10000,):
-    """Normalises all spectra
+    """Normalises all spectra with a polynomial.
 
     Parameters
     ----------
-    wl: TODO
+    wl: 1D float array
+        Wavelength scale of shape [n_px].
 
-    spectra: float array
-        3D numpy array containing red arm spectra of form 
-        [N_ob, wl/spec/sigma, value].
+    spectra, e_spectra: 2D float array
+        Spectra and (optionally) uncertainty arrays of shape [n_star, n_px].
 
-    e_spectra: TODO
+    poly_order: int, default: 2
+        Polynomial order to use when normalising spectra.
 
-    normalise_uncertainties: boolean
-        Whether to normalise uncertainties (use False if no uncertainties).
+    wl_min, wl_max: float, default 0, 10000
+        Wavelength limits to consider during normalisation.
     """
     # Initialise
     spectra_norm = spectra.copy()
@@ -676,7 +700,9 @@ def normalise_spectra(wl, spectra, e_spectra=None, poly_order=2, wl_min=0,
     if e_spectra is not None:
         e_spectra_norm = e_spectra.copy()
 
-    for spec_i in tqdm(range(len(spectra_norm)), desc="Normalising spectra"):
+    desc = "Normalising"
+
+    for spec_i in tqdm(range(len(spectra_norm)), desc=desc, leave=False):
         # If uncertainties are provided
         if e_spectra is not None:
             spec_norm, e_spec_norm = normalise_spectrum(
@@ -1091,9 +1117,14 @@ def make_wl_scale(wl_min, wl_max, n_px):
 # -----------------------------------------------------------------------------
 # Radial Velocities
 # -----------------------------------------------------------------------------
-def compute_barycentric_correction(ras, decs, times, exps, site="SSO", 
-                                   disable_auto_max_age=False,
-                                   overrid_iers=False):
+def compute_barycentric_correction(
+    ras,
+    decs,
+    times,
+    exps,
+    site="SSO", 
+    disable_auto_max_age=False,
+    overrid_iers=False):
     """Compute the barycentric corrections for a set of stars
 
     In late 2019 issues were encountered accessing online files related to the
@@ -1144,8 +1175,11 @@ def compute_barycentric_correction(ras, decs, times, exps, site="SSO",
         iers_conf.iers_auto_url = url
         iers_conf.reload()
 
+    desc = "Calaculating bcors for {}:".format(site)
+
     # Calculate the barycentric correction for every star
-    for ra, dec, time, exp in zip(tqdm(ras), decs, times, exps):
+    for ra, dec, time, exp in zip(
+        tqdm(ras, desc=desc, leave=False), decs, times, exps):
         sc = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
 
         # Get the *mid-point* of the observeration
@@ -1435,40 +1469,52 @@ def do_all_template_matches(
 
     Parameters
     ----------
-    sci_spectra: float array
-        3D numpy array containing spectra of form [N_ob, wl/spec/sigma, flux].
+    sci_wave: 1D float array
+        Science wavelength scale of shape [n_px].
+
+    sci_spectra, e_sci_spectra: 2D float array
+        2D numpy array containing science spectra and uncertainties of shape 
+        [n_star, n_px].
     
-    TODO
+    observations: pandas DataFrame
+        DataFrame of information about each observation, of length [n_star].
 
-    TODO
-
-    observations: pandas dataframe
-        Dataframe containing information about each observation.
-
-    ref_params: float array
-        Array of stellar parameters of form [teff, logg, feh]
+    ref_params: 2D float array
+        Array of stellar parameters corresponding to each template spectrum, of
+        shape [n_template, 4] where the 4 parameters are
+        [teff, logg, feh, and vsini].
     
+    ref_wave: 1D float array
+        Wavelength scale for template spectra, of shape [n_px].
+
     ref_spectra: float array
-        Array of imported template spectra of form [star, wl/spec, flux]
-    
-    TODO
-
-    TODO
+        Array of imported template spectra of form [n_template, n_px]
 
     arm: string
-        Which WiFeS arm we're using (either b or r).
+        Which WiFeS arm we're using, either 'b' or 'r'.
 
-    print_diagnostics: boolean
-        Whether to print diagnostics about the fit
+    print_diagnostics: bool, default: False
+        Whether to print diagnostics about the fit.
+
+    save_column_ext: str, default: ""
+        Whether to add an extension to the column names saved back to the
+        observations DataFrame.
 
     Returns
     -------
-    nres: float array
-        Fit residuals for all science spectra.
+    all_nres: 2D float array
+        Fit residuals for all science spectra, of shape [n_star, n_px].
 
-    rchi2_grid: float array
+    rchi2_grid: 2D float array
         Grid of reduced chi^2 values corresponding to all template spectra for
-        all science spectra.
+        all science spectra, of shape [n_star, n_template].
+
+    bad_px_masks: 2D bool array
+        Bad pixel masks corresponding to each science spectrum of shape
+        [n_star, n_px].
+
+    info_dicts_r: dict
+        Dictionaries of fit results of shape [n_star].
     """
     # Initialise
     all_rvs = []
@@ -1483,7 +1529,7 @@ def do_all_template_matches(
     desc = "Fitting RVs to {} arm".format(arm)
 
     # For every star, do template fitting
-    for star_i in tqdm(range(len(sci_spectra)), desc=desc):
+    for star_i in tqdm(range(len(sci_spectra)), desc=desc, leave=False):
         if print_diagnostics:
             print("\n(%4i/%i) Running fitting on %s:" 
                  % (star_i+1, len(sci_spectra), 
