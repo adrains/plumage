@@ -206,6 +206,7 @@ def plot_label_recovery_per_source(
     feh_ticks,
     X_Fe_ticks,
     n_cols=4,
+    plot_individual_X_Fe_refs=False,
     show_offset=True,
     fn_suffix="",
     plot_folder="plots/",):
@@ -245,6 +246,8 @@ def plot_label_recovery_per_source(
 
     n_cols: int, default: 4
         Number of columns for our grid.
+
+    TODO
 
     show_offset: bool, default: True
         Whether to plot the median offset as text.
@@ -309,6 +312,10 @@ def plot_label_recovery_per_source(
 
         if len(n_X_Fe_src) > 0:
             n_X_Fe_labels += 1
+
+        # [Optional] Plot individual [X/Fe] sources
+        #if plot_individual_X_Fe_refs:
+
 
     #-----------------------------
     # Finalise setup
@@ -529,6 +536,34 @@ def plot_label_recovery_per_source(
         
         ax_i += 1
 
+        #--------------------------------------------------------------------------
+        # [Optional Specific [X/Fe] samples
+        #--------------------------------------------------------------------------
+        """
+        for source in Fe_H_sources:
+            feh_mask = ~np.isnan(obs_join["Fe_H_{}".format(source)].values)
+
+            pplt.plot_std_comp_generic(
+                fig=fig,
+                axis=axes[ax_i],
+                lit=label_values[:,2][feh_mask],
+                e_lit=e_label_values[:,2][feh_mask],
+                fit=label_pred[:,2][feh_mask],
+                e_fit=e_label_pred[:,2][feh_mask],
+                colour=label_values[:,0][feh_mask],
+                fit_label=r"[Fe/H] ($\it{Cannon}$)",
+                lit_label=r"[Fe/H] ({})".format(source),
+                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                x_lims=feh_lims,
+                y_lims=feh_lims,
+                cmap="magma",
+                show_offset=show_offset,
+                ticks=feh_ticks,
+                panel_label=panel_label,
+                plot_resid_y_label=False,)
+            
+            ax_i += 1
+            """
     for ii in range(ax_i, len(axes)):
         axes[ii].set_visible(False) 
 
@@ -541,7 +576,7 @@ def plot_label_recovery_per_source(
 
     plot_fn = os.path.join(
         plot_folder,
-        "cannon_param_recovery_ps{}.pdf".format(fn_suffix))
+        "cannon_param_recovery_ps{}".format(fn_suffix))
 
     plt.savefig("{}.pdf".format(plot_fn))
     plt.savefig("{}.png".format(plot_fn), dpi=300)
@@ -1205,7 +1240,8 @@ def plot_spectra_comparison(
     n_leg_col=2,
     plot_folder="plots/",
     use_scatter_as_line_width=False,
-    scatter_as_line_width_scale=1000,):
+    scatter_as_line_width_scale=1000,
+    linewidth=0.2,):
     """Plot a set of observed spectra against their Cannon generated spectra
     equivalents.
 
@@ -1302,7 +1338,7 @@ def plot_spectra_comparison(
         ax.plot(
             sm.wavelengths,
             masked_spectra[bm_i] + star_i*y_offset,
-            linewidth=0.2,
+            linewidth=linewidth,
             c=data_plot_colour,
             label=data_plot_label,)
 
@@ -1310,7 +1346,7 @@ def plot_spectra_comparison(
         ax.plot(
             sm.wavelengths,
             spec_gen + star_i*y_offset,
-            linewidth=0.2,
+            linewidth=linewidth,
             c="tomato",
             label=r"$\it{Cannon}$",)
         
@@ -1336,7 +1372,7 @@ def plot_spectra_comparison(
             ax.plot(
                 sm.wavelengths,
                 fluxes_2_masked[bm_i] + star_i*y_offset,
-                linewidth=0.2,
+                linewidth=linewidth,
                 c=fluxes_2_plot_colour,
                 label=fluxes_2_plot_label,)
 
@@ -1595,6 +1631,7 @@ def plot_delta_cannon_vs_marcs(
     fig_size=(12,3),
     plot_smooth_interpolated_fluxes=False,
     s=None,
+    xticks=(200,100),
     plot_folder="plots/",):
     """Plots a series of comparisons of Cannon vs MARCS spectra below the
     provided set of fractional flux tolerances.
@@ -1704,8 +1741,8 @@ def plot_delta_cannon_vs_marcs(
         cb.ax.minorticks_on()
         cb.set_label(r"$\Delta{\rm Flux}$ (%)")
         
-        ax.xaxis.set_major_locator(plticker.MultipleLocator(base=200))
-        ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=100))
+        ax.xaxis.set_major_locator(plticker.MultipleLocator(base=xticks[0]))
+        ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=xticks[1]))
 
         ax.yaxis.set_major_locator(plticker.MultipleLocator(base=1.0))
         ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.5))

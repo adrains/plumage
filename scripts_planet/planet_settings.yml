@@ -1,0 +1,60 @@
+# This file contains the common set of parameters associated with the script
+# scripts_planet/investigate_exoplanet_demographics.py.
+#
+# This is part of a series of Cannon scripts. The main sequence is:
+# 1) prepare_stannon_training_sample.py    --> label preparation
+# 2) train_stannon.py                      --> training and cross validation
+# 3) make_stannon_diagnostics.py           --> diagnostic plots + result tables
+# 4) run_stannon.py                        --> running on science spectra
+#
+# Where the values in this file currently apply to items 2) and 3).
+#
+# YAML specifications: https://yaml.org/spec/1.2.2/
+
+#------------------------------------------------------------------------------
+# Info files
+#------------------------------------------------------------------------------
+# Spectra
+path: "spectra"
+label: "planet_mk"
+do_use_dr3_id: True
+
+benchmark_label: "cannon_mk"
+
+# Stellar Info: Gaia DR3 and 2MASS photometry
+star_info: "data/all_known_and_candidate_hosts.tsv"
+
+# Planet Info #1: Properties of *confirmed* planets from NASA Exoplanet Archive
+confirmed_planet_info: "data/confirmed_planets_aug25.tsv"
+
+# Planet Info #2: ExoFOP info for all TOIs
+candidate_planet_info: "data/exofop_tois_250925.csv"
+
+# Other settings
+use_mann_code_for_masses: False
+in_paper: False
+only_observed: False
+do_extinction_correction: False
+do_skymapper_crossmatch: False
+gdr: "dr3"
+do_use_mann_15_JHK: False
+
+#------------------------------------------------------------------------------
+# Cannon Model Settings
+#------------------------------------------------------------------------------
+# Define the Cannon model used to predict labels for the hosts
+#cannon_model_fn: "spectra/stannon_model_basic_MK_4L_5024P_199S_teff_logg_Fe_H_Ti_Fe.pkl"
+cannon_model_fn: "spectra/stannon_model_basic_MK_6L_5024P_199S_teff_logg_Fe_H_Ti_Fe_Mg_Fe_Ca_Fe.pkl"
+
+# Normalisation - using using a Gaussian smoothed version of the spectrum, or 
+# a much simpler polynomial fit. Only wavelengths > than wl_min_normalisation
+# will be considered during either approach to avoid low-SNR blue pixels for
+# the coolest stars. TODO: save these parameters in the Cannon model.
+do_gaussian_spectra_normalisation: True
+wl_min_normalisation: 4000
+wl_broadening: 50
+poly_order: 4
+
+# Minimum and maximum wavelengths for Cannon model
+wl_min_model: 4000
+wl_max_model: 7000

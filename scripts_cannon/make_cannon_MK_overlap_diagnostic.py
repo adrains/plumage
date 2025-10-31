@@ -267,27 +267,29 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 # Model settings for each of our 3 different Cannon models. Note that they 
 # share n_px and n_label.
 n_px = 5024
-n_label = 4
+n_label = 6
 
 n_star_MK = 199
-n_star_K = 76
-n_star_M = 139
+n_star_K = 74
+n_star_M = 143
 
 # Names of each of the three models
-model_names = ("M", "K", "M+K")
+model_names = ("M", "K", "MK")
 
 # Labels + axis info for plotting later. These should have length >= n_label.
-labels = ("teff", "logg", "Fe_H", "Ti_Fe")
-labels_str = (r"$T_{\rm eff}$", r"$\log g$", "[Fe/H]", "[Ti/Fe]")
-labels_cb = ("[Fe/H]", "[Fe/H]", r"$T_{\rm eff}$", r"$T_{\rm eff}$")
+labels = ("teff", "logg", "Fe_H", "Ti_Fe", "Mg_Fe", "Ca_Fe",)
+labels_str = (r"$T_{\rm eff}$", r"$\log g$", "[Fe/H]", "[Ti/Fe]", "[Mg/Fe]", "[Ca/Fe]")
+labels_cb = ("[Fe/H]", "[Fe/H]", r"$T_{\rm eff}$", r"$T_{\rm eff}$", r"$T_{\rm eff}$", r"$T_{\rm eff}$")
 
-units = ("K", "dex", "dex", "dex")
+units = ("K", "dex", "dex", "dex", "dex", "dex")
 
 axis_ticks = {
     "teff":(100,50,50,25),
     "logg":(0.04,0.02,0.02,0.01),
     "Fe_H":(0.2,0.1,0.1,0.05),
-    "Ti_Fe":(0.1,0.05,0.1,0.05),}
+    "Ti_Fe":(0.1,0.05,0.1,0.05),
+    "Mg_Fe":(0.1,0.05,0.1,0.05),
+    "Ca_Fe":(0.1,0.05,0.1,0.05),}
 
 #------------------------------------------------------------------------------
 # Imports and setup

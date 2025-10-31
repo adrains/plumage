@@ -10,6 +10,9 @@ import stannon.tables as st
 #------------------------------------------------------------------------------
 # Import Cannon settings file
 #------------------------------------------------------------------------------
+cannon_settings_yaml = "scripts_cannon/diagnostic_settings.yml"
+cds = su.load_diagnostic_settings(cannon_settings_yaml)
+
 cannon_settings_yaml = "scripts_cannon/cannon_settings.yml"
 cs = su.load_cannon_settings(cannon_settings_yaml)
 
@@ -17,8 +20,8 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 # Setup
 #------------------------------------------------------------------------------
 # Load in Cannon models
-sm1 = stannon.load_model(cs.sm_1_path)
-sm2 = stannon.load_model(cs.sm_2_path)
+sm1 = stannon.load_model(cds.sm_1_path)
+sm2 = stannon.load_model(cds.sm_2_path)
 
 #------------------------------------------------------------------------------
 # MARCS vs Cannon spectra comparison plots
@@ -27,7 +30,16 @@ sm2 = stannon.load_model(cs.sm_2_path)
 # Since the MARCS grid doesn't have an abundance dimension, we can only make
 # this plot for a 3 label model.
 obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
-is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
+
+fits_ext_label = "{}_{}L_{}P_{}S".format(
+    cds.sm_name, len(cs.label_names), cds.P, cds.S)
+cannon_df = pu.load_fits_table(
+    extension="CANNON_MODEL",
+    label=cs.std_label,
+    path=cs.model_save_path,
+    ext_label=fits_ext_label)
+
+adopted_benchmark = cannon_df["adopted_benchmark"].values
 
 wls = pu.load_fits_image_hdu("rest_frame_wave", cs.std_label, arm="br")
 spec_marcs_br = \
@@ -43,8 +55,8 @@ for spec_i in range(len(spec_marcs_br)):
 fluxes_marcs_norm, _, bad_px_mask, _, _ = \
     stannon.prepare_cannon_spectra_normalisation(
         wls=wls,
-        spectra=spec_marcs_br[is_cannon_benchmark],
-        e_spectra=e_spec_marcs_br[is_cannon_benchmark],
+        spectra=spec_marcs_br[adopted_benchmark],
+        e_spectra=e_spec_marcs_br[adopted_benchmark],
         wl_min_model=cs.wl_min_model,
         wl_max_model=cs.wl_max_model,
         wl_min_normalisation=cs.wl_min_normalisation,
@@ -57,7 +69,7 @@ fluxes_marcs_norm, _, bad_px_mask, _, _ = \
 # 1) Just for our selected stars
 splt.plot_spectra_comparison(
     sm=sm1,
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join[adopted_benchmark],
     fluxes=fluxes_marcs_norm,
     bad_px_masks=bad_px_mask,
     labels_all=sm1.training_labels,
@@ -73,11 +85,11 @@ splt.plot_spectra_comparison(
 # 2) For all stars
 splt.plot_spectra_comparison(
     sm=sm1,
-    obs_join=obs_join[is_cannon_benchmark],
+    obs_join=obs_join[adopted_benchmark],
     fluxes=fluxes_marcs_norm,
     bad_px_masks=bad_px_mask,
     labels_all=sm1.training_labels,
-    source_ids=obs_join[is_cannon_benchmark].index.values,
+    source_ids=obs_join[adopted_benchmark].index.values,
     sort_col_name="BP_RP_dr3",
     x_lims=(cs.wl_min_model,cs.wl_max_model),
     fn_label="marcs_all",
@@ -89,7 +101,7 @@ splt.plot_spectra_comparison(
 
 # Plot *difference* between these fluxes for all benchmarks
 splt.plot_delta_cannon_vs_marcs(
-    obs_join=obs_join,
+    obs_join=obs_join[adopted_benchmark],
     sm=sm1,
     fluxes_marcs_norm=fluxes_marcs_norm,
     delta_thresholds=cs.delta_thresholds,)

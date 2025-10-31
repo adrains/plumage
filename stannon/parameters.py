@@ -344,9 +344,22 @@ def select_abund_label(
                 # We've found our parameter, break out of the loop
                 break
             
-        # TODO: default?
-        if abund_source == "":
-            print("Missing CPM [{}] for {} ({})".format(
+        # Chemodynamic default: if we don't find a binary [X/Fe] value for this
+        # particular [X/Fe] (and it should only ever be [X/Fe] that fails, 
+        # never [Fe/H] as that is required for Teff and logg) then we can
+        # select a chemodynamic default. However, doing this means that we then
+        # need to always do a joing check for whether a star is a binary, and
+        # whether this particular [X/Fe] label is from SM25 or not.
+        if abund_source == "" and abund != "Fe_H":
+            ref = "SM25"
+            abund_col = "{}_{}".format(abund, ref)
+            e_abund_col = "e_{}_{}".format(abund, ref)
+
+            abund_source = ref
+            abund_value = star_info[abund_col]
+            abund_sigma = star_info[e_abund_col]
+            
+            print("Using chemodynamic [{}] for {} ({})".format(
                 abund.replace("_", "/"), 
                 star_info["simbad_name"], 
                 star_info.name))

@@ -740,14 +740,11 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
 # ----------------------------------------------------------------------------- 
 def load_info_cat(
     path="data/tess_info.tsv", 
-    clean=True, 
-    remove_fp=False, 
+    clean=True,
     only_observed=False, 
     use_plx_systematic=True, 
     in_paper=True,
-    allow_alt_plx=False,
     use_mann_code_for_masses=True,
-    mann_mass_mk_bounds=(4,11),
     do_extinction_correction=True,
     do_skymapper_crossmatch=True,
     skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",
@@ -786,6 +783,7 @@ def load_info_cat(
         info_cat = pd.read_csv(
             path,
             sep="\t",
+            comment="#",
             dtype={"source_id":str, "source_id_dr2":str, "source_id_dr3":str})
 
     # Clean
@@ -794,19 +792,6 @@ def load_info_cat(
     
     # Set the index to be source_id
     info_cat.set_index(sid_drx, inplace=True)
-
-    # Make new boolean column for planet candidates or known planets
-    if "TOI" in info_cat:
-        pc_mask = np.logical_and(
-            info_cat["TFOPWG Disposition"] != "FP",
-            np.logical_or(
-                info_cat["TESS Disposition"] == "PC",
-                info_cat["TESS Disposition"] == "KP")
-        ).values
-        info_cat["pc"] = pc_mask
-
-        if remove_fp:
-            info_cat = info_cat[pc_mask]
 
     if only_observed:
         info_cat = info_cat[info_cat["observed"]]
@@ -852,12 +837,6 @@ def load_info_cat(
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # Distance, absolute magnitudes, and colours
     #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    if allow_alt_plx:
-        for source_id, row in info_cat.iterrows():
-            if type(source_id) == str and ~np.isnan(info_cat.loc[source_id]["plx_alt"]):
-                info_cat.at[source_id, "plx"] = info_cat.loc[source_id]["plx_alt"]
-                info_cat.at[source_id, "e_plx"] = info_cat.loc[source_id]["e_plx_alt"]
-
     # Stassun & Torres systematic offsets
     if use_plx_systematic:
         plx_off = -0.082    # mas
