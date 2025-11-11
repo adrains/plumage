@@ -9,6 +9,9 @@ from astropy.io import fits
 import astropy.constants as const
 from scipy.interpolate import interp1d
 
+# Update for line breaks
+np.set_printoptions(linewidth=150)
+
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
@@ -92,8 +95,10 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 # Settings
 path= "spectra"
 arm = "r"
-label = "KM"
-poly_order = 4
+label = "KM_noflat"
+poly_order = 5
+optimise_order_overlap = True
+do_convolution = False
 
 # Import MIKE spectra
 wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
@@ -114,6 +119,9 @@ n_spphot = np.sum(is_spphot)
 for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Grab source ID
     source_id = star_data["source_id"]
+
+    if source_id != "5164707970261890560":
+        continue
 
     print("-"*160,
           "{}/{} - Gaia DR3 {}".format(si+1, n_spphot, source_id),
@@ -191,11 +199,11 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         wave_synth=wave_synth,
         spec_synth=spec_synth_ds,
         airmass=airmass,
-        do_convolution=True,
-        max_line_depth=0.9,
+        do_convolution=do_convolution,
+        max_line_depth=0.0,
         poly_order=poly_order,
         edge_px_to_mask=0,
-        optimise_order_overlap=True,)
+        optimise_order_overlap=optimise_order_overlap,)
 
     # Diagnostic plot
     ppltm.plot_flux_calibration(

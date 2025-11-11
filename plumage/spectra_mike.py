@@ -481,7 +481,7 @@ def load_single_mike_fits(fn):
     return data_dict
 
 
-def load_and_combine_single_star(filenames, plot_folder,):
+def load_and_combine_single_star(filenames, plot_folder, normalise_by_flat):
     """Load in a list of fits files corresponding to reduced MIKE data of a
     *single* arm, and co-add the spectra.
 
@@ -565,20 +565,25 @@ def load_and_combine_single_star(filenames, plot_folder,):
     # -------------------------------------------------------------------------
     # Flat field normalisation
     # -------------------------------------------------------------------------
-    # Normalise all stellar fluxes + sigmas by the flat field
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning) 
-        # Normalise flat, setting zero sensitivity pixels to nan to avoid inf
-        flat = np.stack(all_exp_dict["spec_flat"])
-        flat[flat == 0] = np.nan
+    # [Optional ]Normalise all stellar fluxes + sigmas by the flat field
+    if normalise_by_flat:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning) 
+            # Normalise flat, setting zero sensitivity pixels to nan to avoid inf
+            flat = np.stack(all_exp_dict["spec_flat"])
+            flat[flat == 0] = np.nan
 
-        flat_max = np.nanmax(flat, axis=2)
-        flat /= np.broadcast_to(flat_max[:,:,None], flat.shape)
+            flat_max = np.nanmax(flat, axis=2)
+            flat /= np.broadcast_to(flat_max[:,:,None], flat.shape)
 
-        all_exp_dict["spec_star_norm"] = \
-            np.stack(all_exp_dict["spec_star"]) / flat
-        all_exp_dict["sigma_star_norm"] = \
-            np.stack(all_exp_dict["sigma_star"]) / flat
+            all_exp_dict["spec_star_norm"] = \
+                np.stack(all_exp_dict["spec_star"]) / flat
+            all_exp_dict["sigma_star_norm"] = \
+                np.stack(all_exp_dict["sigma_star"]) / flat
+            
+    else:
+        all_exp_dict["spec_star_norm"] = np.stack(all_exp_dict["spec_star"])
+        all_exp_dict["sigma_star_norm"] = np.stack(all_exp_dict["sigma_star"])
 
     # -------------------------------------------------------------------------
     # Computing barycentric corrections for all exposures
@@ -672,7 +677,8 @@ def load_and_combine_single_star(filenames, plot_folder,):
 def load_all_mike_fits(
     spectra_folder="spectra/",
     id_crossmatch_fn="data/mike_id_cross_match.tsv",
-    plot_folder="",):
+    plot_folder="",
+    normalise_by_flat=True,):
     """Load in all fits cubes containing 1D spectra to extract both the spectra
     and key details of the observations for many targets or nights of data.
 
@@ -755,7 +761,7 @@ def load_all_mike_fits(
                 obj_blue_fns = fits_files[is_obj_blue_arm_date]
                 print("\n\tBlue:\n\t", "\n\t".join(obj_blue_fns), sep="",)
                 exp_dict_b, obj_dict_b = load_and_combine_single_star(
-                    obj_blue_fns, plot_folder)
+                    obj_blue_fns, plot_folder, normalise_by_flat)
                 
                 # Store target classification that we get from the crossmatch
                 obj_dict_b["kind"] = kind
@@ -773,7 +779,7 @@ def load_all_mike_fits(
                 obj_red_fns = fits_files[is_obj_red_arm_date]
                 print("\n\tRed:\n\t", "\n\t".join(obj_red_fns), sep="",)
                 exp_dict_r, obj_dict_r = load_and_combine_single_star(
-                    obj_red_fns, plot_folder)
+                    obj_red_fns, plot_folder, normalise_by_flat)
                 
                 # Store target classification that we get from the crossmatch
                 obj_dict_r["kind"] = kind
@@ -791,7 +797,7 @@ def load_all_mike_fits(
     return blue_dict, red_dict
 
 
-def collate_mike_obs(blue_dict, red_dict,):
+def collate_mike_obs(blue_dict, red_dict):
     """Takes extraced dictionaries of each observation, and compiles these into
     one unified pandas DataFrame and sets of arrays.
 
@@ -1260,6 +1266,7 @@ def fit_atmospheric_transmission(
     airmass,
     do_convolution=False,
     resolving_power_during_fit=1150,
+    wavelength_subsample_fac=20,
     max_line_depth=0.9,
     poly_order=4,
     edge_px_to_mask=20,
@@ -1302,6 +1309,9 @@ def fit_atmospheric_transmission(
         New resolving power if convolving to a lower resolution. The default
         value corresponds to 40x lower resolution from the MIKE red arm which
         very roughly (by eye) matches the CALSPEC spectra.
+
+    wavelength_subsample_fac: int, default: 20
+        Factor to subsample the wavelength scale by after broadening.
 
     max_line_depth: float, default: 0.9
         The maximum depth we allow telluric and stellar lines to absorb to
@@ -1377,20 +1387,30 @@ def fit_atmospheric_transmission(
             equid=True,)
         
         # Observed
-        wave_obs_2D = wave_obs_2D.copy()
-        spec_obs_2D = spec_obs_2D.copy()
-        sigma_obs_2D = sigma_obs_2D.copy()
 
-        # Mask edges
+        # Mask edges. We can't just set these to NaN when smoothing, as the NaN
+        # pixels will end up 'corrupting' neighbouring px up to 5 sigma away.
         edge_px = np.logical_or(np.arange(n_px) < 5, np.arange(n_px) > n_px-5)
-        spec_obs_2D[:,edge_px] = np.nan
-        sigma_obs_2D[:,edge_px] = np.nan
-        
+        #spec_obs_2D[:,edge_px] = np.nan
+        #sigma_obs_2D[:,edge_px] = np.nan
+
+        wave_obs_2D = wave_obs_2D[:,~edge_px]
+        spec_obs_2D = spec_obs_2D[:,~edge_px]
+        sigma_obs_2D = sigma_obs_2D[:,~edge_px]
+
+        # Compute new arrays with subsampled wavelength scale
+        n_px_ss = wave_obs_2D[:,::wavelength_subsample_fac].shape[1]
+
+        wave_obs_2D_new = np.full((n_order, n_px_ss), np.nan)
+        spec_obs_2D_new = np.full((n_order, n_px_ss), np.nan)
+        sigma_obs_2D_new = np.full((n_order, n_px_ss), np.nan)
+
         for order_i in range(n_order):
             if not useful_orders[order_i]:
                 continue
-
-            spec_obs_2D[order_i] = instrBroadGaussFast(
+            
+            # Broaden spectra
+            spec_broad = instrBroadGaussFast(
                 wvl=wave_obs_2D[order_i],
                 flux=spec_obs_2D[order_i],
                 resolution=resolving_power_during_fit,
@@ -1398,13 +1418,40 @@ def fit_atmospheric_transmission(
                 maxsig=5,
                 equid=True,)
             
-            sigma_obs_2D[order_i] = instrBroadGaussFast(
+            sigma_broad = instrBroadGaussFast(
                 wvl=wave_obs_2D[order_i],
                 flux=sigma_obs_2D[order_i],
                 resolution=resolving_power_during_fit,
                 edgeHandling="firstlast",
                 maxsig=5,
                 equid=True,)
+            
+            # Subsample wavelength scale
+            interp_spec_broad = interp1d(
+                x=wave_obs_2D[order_i],
+                y=spec_broad,
+                bounds_error=False,
+                fill_value=1.0,
+                kind="cubic",)
+            
+            interp_sigma_broad = interp1d(
+                x=wave_obs_2D[order_i],
+                y=sigma_broad,
+                bounds_error=False,
+                fill_value=1.0,
+                kind="cubic",)
+
+            wave_obs_2D_new[order_i] = \
+                wave_obs_2D[order_i,::wavelength_subsample_fac].copy()
+            spec_obs_2D_new[order_i] = \
+                interp_spec_broad(wave_obs_2D_new[order_i])
+            sigma_obs_2D_new[order_i] = \
+                interp_sigma_broad(wave_obs_2D_new[order_i])
+
+    else:
+        wave_obs_2D_new = wave_obs_2D.copy()
+        spec_obs_2D_new = spec_obs_2D.copy()
+        sigma_obs_2D_new = sigma_obs_2D.copy()
 
     # -------------------------------------------------------------------------
     # Regrid all reference spectra to observed 2D wavelength scale
@@ -1445,14 +1492,14 @@ def fit_atmospheric_transmission(
         fill_value=np.nan,
         kind="cubic",)
 
-    tau_H2O_2D = np.full_like(wave_obs_2D, np.nan)
-    tau_O2_2D = np.full_like(wave_obs_2D, np.nan)
-    spec_fluxed_2D = np.full_like(wave_obs_2D, np.nan)
-    spec_synth_2D = np.full_like(wave_obs_2D, np.nan)
-    extinction_2D = np.full_like(wave_obs_2D, np.nan)
+    tau_H2O_2D = np.full_like(wave_obs_2D_new, np.nan)
+    tau_O2_2D = np.full_like(wave_obs_2D_new, np.nan)
+    spec_fluxed_2D = np.full_like(wave_obs_2D_new, np.nan)
+    spec_synth_2D = np.full_like(wave_obs_2D_new, np.nan)
+    extinction_2D = np.full_like(wave_obs_2D_new, np.nan)
 
     for order_i in range(n_order):
-        wave_ith = wave_obs_2D[order_i]
+        wave_ith = wave_obs_2D_new[order_i]
         tau_H2O_2D[order_i] = -np.log(interp_trans_H20(wave_ith))
         tau_O2_2D[order_i] = -np.log(interp_trans_O2(wave_ith))
         spec_fluxed_2D[order_i] = interp_spec_fluxed(wave_ith)
@@ -1479,9 +1526,9 @@ def fit_atmospheric_transmission(
         np.full((n_useful_orders, poly_order), np.inf).flatten())
 
     args = (
-        wave_obs_2D[useful_orders],
-        spec_obs_2D[useful_orders],
-        sigma_obs_2D[useful_orders],
+        wave_obs_2D_new[useful_orders],
+        spec_obs_2D_new[useful_orders],
+        sigma_obs_2D_new[useful_orders],
         tau_H2O_2D[useful_orders],
         tau_O2_2D[useful_orders],
         spec_fluxed_2D[useful_orders],
@@ -1519,6 +1566,8 @@ def fit_atmospheric_transmission(
     fit_dict["poly_coef"] = poly_coef
     fit_dict["wave_obs_2D"] = wave_obs_2D
     fit_dict["spec_obs_2D"] = spec_obs_2D
+    fit_dict["wave_obs_2D_broad"] = wave_obs_2D_new
+    fit_dict["spec_obs_2D_broad"] = spec_obs_2D_new
     fit_dict["spec_synth_2D"] = spec_synth_2D
     fit_dict["spec_fluxed_2D"] = spec_fluxed_2D
     fit_dict["extinction_2D"] = extinction_2D
