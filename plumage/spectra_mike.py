@@ -1031,11 +1031,11 @@ def calc_flux_correction_resid(
     tau_H2O_2D,
     tau_O2_2D,
     spec_fluxed_2D,
-    spec_synth_2D,
-    max_line_depth,
     poly_order,
-    edge_px_to_mask,
-    optimise_order_overlap,):
+    optimise_order_overlap,
+    do_tau_scaling_term_fit,
+    scale_H2O=None,
+    scale_O2=None,):
     """Calculates the residuals between a low-resolution flux calibrated
     spectrum and a high-resolution spectrum corrected for the atmospheric and
     instrumental transfer function.
@@ -1061,24 +1061,17 @@ def calc_flux_correction_resid(
         Low-resolution fluxed spectra of our target star interpolated to be on
         the same wavelength scale as wave_obs_2D, of shape [m_order, n_px].
 
-    spec_synth_2D: 1D float array
-        Synthetic *continuum normalised* spectrum of our target star at the
-        same resolution as our observations, interpolated to be on the same
-        wavelength scale as wave_obs_2D
-
-    max_line_depth: float
-        The maximum depth we allow telluric and stellar lines to absorb to
-        before we mask them when fitting for the smoothed transfer function.
-
     poly_order: int
         Polynomial order to be fit as the transfer function for each order.
-
-    edge_px_to_mask: int
-        How many edge pixels to mask per order to avoid bad pixels.
 
     optimise_order_overlap: boolean
         If true, we also compute residuals for the overlapping regions of
         orders to ensure the resulting fluxed spectrum is smooth across orders.
+
+    do_tau_scaling_term_fit: boolean
+        Whether to fit for the tau scaling term
+
+    TODO
 
     Returns
     -------
@@ -1091,9 +1084,14 @@ def calc_flux_correction_resid(
     params = np.array(params)
 
     # Unpack params
-    scale_H2O = params[0]
-    scale_O2 = params[1]
-    poly_coef = params[2:].reshape((n_order, poly_order))
+    if do_tau_scaling_term_fit:
+        scale_H2O = params[0]
+        scale_O2 = params[1]
+        poly_coef = params[2:].reshape((n_order, poly_order))
+
+    # No scaling terms to fit, the entire parameter array is just poly coeff
+    else:
+        poly_coef = params.reshape((n_order, poly_order))
 
     # Generate 'fluxed' science spectrum by 'correcting' for the tellurics
     # and scaling by the transfer function polynomial
@@ -1264,54 +1262,6 @@ def correct_tellurics_and_apply_transfer_function(
     # Done, return
     return spec_obs_2D_fluxed, sigma_obs_2D_fluxed
 
-    # -------------------------------------------------------------------------
-    # [Old] Smooth transfer function
-    # -------------------------------------------------------------------------
-    # Note: this code probably makes the fitting unstable, and is likely not
-    # necessary when working with smoothed data.
-    """
-    # Intialise smoothed transfer function
-    stf_2D = np.full_like(tf_2D, np.nan)
-
-    # Calculate smoothed transfer function. To do this, we want to mask out
-    # deep tellurics and interpolate over them.
-    do_interp_mask = np.any((
-        trans_H2O_2D < max_line_depth,
-        trans_O2_2D < max_line_depth,
-        spec_synth_2D < max_line_depth,
-        is_bad_px), axis=0)
-
-    for order_i in range(n_order):
-        do_mask = do_interp_mask[order_i]
-
-        if np.sum(do_mask) == n_px:
-            raise Exception("All pixels masked out!")
-
-        is_good = np.full_like(do_mask, True).astype(bool)
-        is_good[do_mask] = False
-        
-        # Sigma clip what's left
-        clipped_resid_ma = sigma_clip(
-            data=tf_2D[order_i, ~do_mask], sigma=4, masked=True)
-        clipped_px = clipped_resid_ma.mask
-
-        is_good[~do_mask] = ~clipped_px
-        do_interp_mask[order_i] = ~is_good
-        
-        # Compute the polynomial representing our low-order transfer function
-        # correction
-        tf_poly = Polynomial(poly_coef[order_i])
-
-        stf_2D[order_i] = tf_poly(wave_obs_2D[order_i])
-    """
-    
-    # Compute 'corrected' spectrum
-    spec_obs_2D_fluxed = stf_2D * spec_obs_2D_tell_corr
-    sigma_obs_2D_fluxed = stf_2D * sigma_obs_2D
-
-    
-    
-
 
 def fit_atmospheric_transmission(
     wave_obs_2D,
@@ -1328,9 +1278,7 @@ def fit_atmospheric_transmission(
     do_convolution=False,
     resolving_power_during_fit=1150,
     wavelength_subsample_fac=20,
-    max_line_depth=0.9,
     poly_order=4,
-    edge_px_to_mask=20,
     optimise_order_overlap=False,
     extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
     """Function to fit polynomial transfer functions to each spectral order to
@@ -1374,15 +1322,8 @@ def fit_atmospheric_transmission(
     wavelength_subsample_fac: int, default: 20
         Factor to subsample the wavelength scale by after broadening.
 
-    max_line_depth: float, default: 0.9
-        The maximum depth we allow telluric and stellar lines to absorb to
-        before we mask them when fitting for the smoothed transfer function.
-
     poly_order: int, default: 4
         Polynomial order to be fit as the transfer function for each order.
-
-    edge_px_to_mask: int, default: 20
-        How many edge pixels to mask per order to avoid bad pixels.
 
     optimise_order_overlap: boolean, default: False
         If true, we also compute residuals for the overlapping regions of
@@ -1452,8 +1393,6 @@ def fit_atmospheric_transmission(
         # Mask edges. We can't just set these to NaN when smoothing, as the NaN
         # pixels will end up 'corrupting' neighbouring px up to 5 sigma away.
         edge_px = np.logical_or(np.arange(n_px) < 5, np.arange(n_px) > n_px-5)
-        #spec_obs_2D[:,edge_px] = np.nan
-        #sigma_obs_2D[:,edge_px] = np.nan
 
         wave_obs_2D = wave_obs_2D[:,~edge_px]
         spec_obs_2D = spec_obs_2D[:,~edge_px]
@@ -1572,13 +1511,60 @@ def fit_atmospheric_transmission(
     spec_fluxed_2D *= 10 ** (-0.4 * airmass * extinction_2D)
 
     # -------------------------------------------------------------------------
-    # Optimise for atmosphere terms
+    # 1) Initial fit (no order overlap or telluric scaling)
     # -------------------------------------------------------------------------
+    print("\n\n\n", "-"*80, "\n", "Initial Fit\n", "-"*80, "\n")
+
+    # Special terms for initial fit
+    do_tau_scaling_term_fit = False
+    optimise_order_overlap_on_initial_fit = False
+    scale_H2O = 1.0
+    scale_O2 = 1.0
+
     # Setup the list of parameters to pass to our fitting function
     poly_coeff_init = np.zeros((n_useful_orders, poly_order))
     poly_coeff_init[:,0] = 1
 
-    params_init = [0.5, 0.5] + list(poly_coeff_init.flatten())
+    params_init = poly_coeff_init.flatten()
+
+    # Establish bounds to l
+    bounds_low = np.full((n_useful_orders, poly_order), -np.inf).flatten()
+    bounds_high = np.full((n_useful_orders, poly_order), np.inf).flatten()
+
+    args = (
+        wave_obs_2D_new[useful_orders],
+        spec_obs_2D_new[useful_orders],
+        sigma_obs_2D_new[useful_orders],
+        tau_H2O_2D[useful_orders],
+        tau_O2_2D[useful_orders],
+        spec_fluxed_2D[useful_orders],
+        poly_order,
+        optimise_order_overlap_on_initial_fit,
+        do_tau_scaling_term_fit,
+        scale_H2O,
+        scale_O2,)
+
+    # Do fit
+    fit_dict = least_squares(
+        calc_flux_correction_resid, 
+        params_init, 
+        jac="3-point",
+        args=args,
+        bounds=(bounds_low, bounds_high),
+        max_nfev=100,)
+    
+    # Pack variables/results into dict and return
+    params = fit_dict["x"]
+
+    poly_coeff_init_fit = params
+
+    # -------------------------------------------------------------------------
+    # 2) Final fit (including order overlap and telluric scaling)
+    # -------------------------------------------------------------------------
+    print("\n\n\n", "-"*80, "\n", "Final Fit\n", "-"*80, "\n")
+
+    do_tau_scaling_term_fit = True
+    params_init = [scale_H2O, scale_O2] + list(poly_coeff_init_fit.flatten())
 
     # Establish bounds to l
     bounds_low = [0, 0] + list(
@@ -1593,11 +1579,9 @@ def fit_atmospheric_transmission(
         tau_H2O_2D[useful_orders],
         tau_O2_2D[useful_orders],
         spec_fluxed_2D[useful_orders],
-        spec_synth_2D[useful_orders],
-        max_line_depth,
         poly_order,
-        edge_px_to_mask,
-        optimise_order_overlap,)
+        optimise_order_overlap,
+        do_tau_scaling_term_fit)
 
     # Do fit
     fit_dict = least_squares(
@@ -1633,8 +1617,6 @@ def fit_atmospheric_transmission(
         scale_O2=scale_O2,
         poly_coef=poly_coef[useful_orders])
     
-    #import pdb; pdb.set_trace()
-
     telluric_corr_spec_2D = np.full_like(spec_obs_2D_new, np.nan)
     telluric_corr_spec_2D[useful_orders] = corr_spec
 

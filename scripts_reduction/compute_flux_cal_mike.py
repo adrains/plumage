@@ -202,9 +202,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         airmass=airmass,
         do_convolution=do_convolution,
         resolving_power_during_fit=resolving_power_during_fit,
-        max_line_depth=0.0,
         poly_order=poly_order,
-        edge_px_to_mask=0,
         optimise_order_overlap=optimise_order_overlap,)
 
     # Diagnostic plot

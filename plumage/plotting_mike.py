@@ -86,6 +86,14 @@ def plot_flux_calibration(
     plt.close( "all")
     fig, (ax_temp, ax_ext, ax_flux, ax_obs, ax_tf, ax_corr) = plt.subplots(
         nrows=6, sharex=True, figsize=fig_size)
+    
+    fig.subplots_adjust(
+        left=0.04,
+        bottom=0.075,
+        right=0.995,
+        top=0.95,
+        #wspace=0.05,
+        hspace=0.075)
 
     for order_i in range(n_order):
         wave_ith = wave_obs_2D[order_i]
@@ -175,7 +183,7 @@ def plot_flux_calibration(
             if ~np.isnan(x_mean) and ~np.isnan(y_max):
                 ax_obs.text(
                     x=x_mean,
-                    y=y_max*1.2,
+                    y=y_max*1.05,
                     s="{:0.0f}".format(med_snr[order_i]),
                     horizontalalignment="center",
                     fontsize="x-small",)
@@ -198,7 +206,7 @@ def plot_flux_calibration(
             telluric_corr_spec_2D[order_i] / tf,
             linewidth=0.5,
             c="b",
-            label="resid" if order_i == 0 else None,)
+            label="'corrected' broadened spectrum" if order_i == 0 else None,)
         
         # --------
         # Panel #6: flux calibrated spectrum
@@ -209,30 +217,32 @@ def plot_flux_calibration(
             label="MIKE Spectrum (Fluxed)" if order_i == 0 else None,)
     
     # Legends
-    loc = "lower left"
-    ax_temp.legend(loc=loc)
-    ax_ext.legend(loc=loc)
-    ax_flux.legend(loc=loc)
-    ax_obs.legend(loc=loc)
-    ax_tf.legend(loc=loc)
-    ax_corr.legend(loc=loc)
+    loc = "lower center"
+    fontsize = "small"
+    ncol = 3
+    ax_temp.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    ax_ext.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    ax_flux.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    ax_obs.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    ax_tf.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    ax_corr.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
 
     # Axis Labels
-    ax_temp.set_ylabel(r"Transmission")
-    ax_ext.set_ylabel(r"$k(\lambda)$")
-    ax_flux.set_ylabel(r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)")
-    ax_obs.set_ylabel(r"Counts")
-    ax_tf.set_ylabel(r"$\times$TF")
-    ax_corr.set_ylabel(r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)")
+    ax_temp.set_ylabel(r"Transmission", fontsize=fontsize)
+    ax_ext.set_ylabel(r"$k(\lambda)$", fontsize=fontsize)
+    ax_flux.set_ylabel(
+        r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)", fontsize=fontsize)
+    ax_obs.set_ylabel(r"Counts", fontsize=fontsize)
+    ax_tf.set_ylabel(r"$\times$TF", fontsize=fontsize)
+    ax_corr.set_ylabel(
+        r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)", fontsize=fontsize)
 
+    ax_corr.set_xlim(
+        0.995*np.nanmin(wave_obs_2D), 1.005*np.nanmax(wave_obs_2D))
     ax_corr.set_xlabel("Wavelength (Å)")
-
-    # Scale
-    ax_tf.set_yscale("log")
 
     # Title
     fig.suptitle(plot_label.replace("_", ", "))
-    plt.tight_layout()
 
     plot_fn = os.path.join(
         plot_folder, "flux_cal_result_{}.pdf".format(plot_label))
