@@ -1,6 +1,7 @@
 """Plotting functions for working with MIKE spectra.
 """
 import os
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import Polynomial
@@ -52,11 +53,18 @@ def plot_flux_calibration(
     poly_coef = fit_dict["poly_coef"]
     wave_obs_2D = fit_dict["wave_obs_2D"]
     spec_obs_2D = fit_dict["spec_obs_2D"]
+    sigma_obs_2D = fit_dict["sigma_obs_2D"]
+    wave_obs_2D_broad = fit_dict["wave_obs_2D_broad"]
+    spec_obs_2D_broad = fit_dict["spec_obs_2D_broad"]
+    sigma_obs_2D_broad = fit_dict["sigma_obs_2D_broad"]
     spec_synth_2D = fit_dict["spec_synth_2D"]
     spec_fluxed_2D = fit_dict["spec_fluxed_2D"]
     extinction_2D = fit_dict["extinction_2D"]
     tau_H2O_2D = fit_dict["tau_H2O_2D"]
     tau_O2_2D = fit_dict["tau_O2_2D"]
+    scale_H2O = fit_dict["scale_H2O"]
+    scale_O2 = fit_dict["scale_O2"]
+    telluric_corr_spec_2D = fit_dict["telluric_corr_spec_2D"]
 
     (n_order, n_px) = wave_obs_2D.shape
 
@@ -66,6 +74,11 @@ def plot_flux_calibration(
     if clip_edge_px:
         plot_mask[:edge_px_to_clip] = False
         plot_mask[-edge_px_to_clip:] = False
+
+    # Calculate per-order SNR
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning) 
+        med_snr = np.nanmedian(spec_obs_2D / sigma_obs_2D, axis=1)
 
     # -------------------------------------------------------------------------
     # Diagnostic plotting
@@ -77,6 +90,10 @@ def plot_flux_calibration(
     for order_i in range(n_order):
         wave_ith = wave_obs_2D[order_i]
         spec_ith = spec_obs_2D[order_i]
+
+        wave_broad_ith = wave_obs_2D_broad[order_i]
+        spec_broad_ith = spec_obs_2D_broad[order_i]
+
         synth_ith = spec_synth_2D[order_i]
         flux_ith = spec_fluxed_2D[order_i]
         extinction_ith = extinction_2D[order_i]
@@ -90,7 +107,7 @@ def plot_flux_calibration(
         # --------
         # Panel #1: cont norm synthetic stellar and telluric (O2, and H2) spec
         ax_temp.plot(
-            wave_ith,
+            wave_broad_ith,
             synth_ith,
             linewidth=0.5,
             c="k",
@@ -98,25 +115,25 @@ def plot_flux_calibration(
             label="Star" if order_i == 0 else None,)
         
         ax_temp.plot(
-            wave_ith,
+            wave_broad_ith,
             trans_H20,
             linewidth=0.5,
             c="maroon",
             alpha=0.8,
-            label="H2O" if order_i == 0 else None,)
+            label="H2O ({:0.2f})".format(scale_H2O) if order_i == 0 else None,)
         
         ax_temp.plot(
-            wave_ith,
+            wave_broad_ith,
             trans_O2,
             linewidth=0.5,
             c="b",
             alpha=0.8,
-            label="O2" if order_i == 0 else None,)
+            label="O2 ({:0.2f})".format(scale_O2) if order_i == 0 else None,)
 
         # --------
         # Panel #2: atmospheric extinction
         ax_ext.plot(
-            wave_ith,
+            wave_broad_ith,
             extinction_ith,
             linewidth=0.5,
             c="k",
@@ -126,30 +143,62 @@ def plot_flux_calibration(
         # --------
         # Panel #3: fluxed spectrum
         ax_flux.plot(
-            wave_ith,
+            wave_broad_ith,
             flux_ith,
             linewidth=0.5,
             c="g",
             label="Flux Reference" if order_i == 0 else None,)
         
         # --------
-        # Panel #4: observed spectrum
+        # Panel #4: observed spectrum (real + smoothed)
         ax_obs.plot(
             wave_ith[plot_mask],
             spec_ith[plot_mask],
             linewidth=0.5,
             c="k",
             alpha=0.8,
-            label="MIKE Spectrum (Raw)" if order_i == 0 else None,)
+            label="MIKE Spectrum (raw)" if order_i == 0 else None,)
+        
+        ax_obs.plot(
+            wave_broad_ith,
+            spec_broad_ith,
+            linewidth=0.5,
+            c="r",
+            alpha=0.8,
+            label="MIKE Spectrum (raw, smoothed)" if order_i == 0 else None,)
+        
+        # SNR annotations
+        if not np.isnan(med_snr[order_i]):
+            x_mean = np.nanmean(wave_ith[plot_mask])
+            y_max = np.nanmax(spec_ith[plot_mask])
+
+            if ~np.isnan(x_mean) and ~np.isnan(y_max):
+                ax_obs.text(
+                    x=x_mean,
+                    y=y_max*1.2,
+                    s="{:0.0f}".format(med_snr[order_i]),
+                    horizontalalignment="center",
+                    fontsize="x-small",)
         
         # --------
-        # Panel #5: fitted polynomials
+        # Panel #5: fitted polynomials overplotted on 'corrected' spectra
         ax_tf.plot(
             wave_ith,
-            smooth_tf,
+            1/smooth_tf,
             linewidth=0.5,
             c="r",
             label="Fitted Transfer Function" if order_i == 0 else None,)
+        
+        # 'Corrected' spectrum
+        tf_poly = Polynomial(poly_coef[order_i])
+        tf = tf_poly(wave_obs_2D_broad[order_i])
+
+        ax_tf.plot(
+            wave_obs_2D_broad[order_i],
+            telluric_corr_spec_2D[order_i] / tf,
+            linewidth=0.5,
+            c="b",
+            label="resid" if order_i == 0 else None,)
         
         # --------
         # Panel #6: flux calibrated spectrum

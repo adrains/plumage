@@ -98,7 +98,8 @@ arm = "r"
 label = "KM_noflat"
 poly_order = 5
 optimise_order_overlap = True
-do_convolution = False
+do_convolution = True
+resolving_power_during_fit = 2200
 
 # Import MIKE spectra
 wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
@@ -120,7 +121,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Grab source ID
     source_id = star_data["source_id"]
 
-    if source_id != "5164707970261890560":
+    if source_id != "4376174445988280576":
         continue
 
     print("-"*160,
@@ -200,6 +201,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         spec_synth=spec_synth_ds,
         airmass=airmass,
         do_convolution=do_convolution,
+        resolving_power_during_fit=resolving_power_during_fit,
         max_line_depth=0.0,
         poly_order=poly_order,
         edge_px_to_mask=0,

@@ -1088,86 +1088,25 @@ def calc_flux_correction_resid(
     # Grab dimensions for convenience
     (n_order, n_px) = wave_obs_2D.shape
 
+    params = np.array(params)
+
     # Unpack params
     scale_H2O = params[0]
     scale_O2 = params[1]
     poly_coef = params[2:].reshape((n_order, poly_order))
 
-    # Fill NaN/inf values or px with sigma=0 uncertainties
-    is_bad_px = np.logical_or(~np.isfinite(spec_obs_2D), sigma_obs_2D == 0)
-
-    assert np.sum(np.isnan(spec_obs_2D[~is_bad_px])) == 0
-    assert np.sum(np.isnan(sigma_obs_2D[~is_bad_px])) == 0
-
-    spec_obs_2D_cleaned = spec_obs_2D.copy()
-    sigma_obs_2D_cleaned = sigma_obs_2D.copy()
-
-    # Also mask edges
-    if edge_px_to_mask > 0:
-        is_bad_px[:, :edge_px_to_mask] = True
-        is_bad_px[:, -edge_px_to_mask:] = True
-
-    spec_obs_2D_cleaned[is_bad_px] = np.nan
-    sigma_obs_2D_cleaned[is_bad_px] = np.nan
-
-    # -------------------------------------------------------------------------
-    # Calculate + "Correct" telluric transmission
-    # -------------------------------------------------------------------------
-    # Calculate teluric transmission
-    trans_H2O_2D = np.exp(-scale_H2O * tau_H2O_2D)
-    trans_O2_2D = np.exp(-scale_O2 * tau_O2_2D)
-
-    # Set any NaNs in the transmission to 1.0
-    missing_transmission = np.logical_or(
-        np.isnan(trans_H2O_2D), np.isnan(trans_O2_2D))
-    trans_H2O_2D[missing_transmission] = 1.0
-    trans_O2_2D[missing_transmission] = 1.0
-
-    spec_obs_2D_tell_corr = spec_obs_2D_cleaned / trans_H2O_2D / trans_O2_2D
-
-    # -------------------------------------------------------------------------
-    # Calculate transfer function
-    # -------------------------------------------------------------------------
-    # Calculate transfer function
-    tf_2D = spec_fluxed_2D / spec_obs_2D_tell_corr
-
-    # Intialise smoothed transfer function
-    stf_2D = np.full_like(tf_2D, np.nan)
-
-    # Calculate smoothed transfer function. To do this, we want to mask out
-    # deep tellurics and interpolate over them.
-    do_interp_mask = np.any((
-        trans_H2O_2D < max_line_depth,
-        trans_O2_2D < max_line_depth,
-        spec_synth_2D < max_line_depth,
-        is_bad_px), axis=0)
-
-    for order_i in range(n_order):
-        do_mask = do_interp_mask[order_i]
-
-        if np.sum(do_mask) == n_px:
-            raise Exception("All pixels masked out!")
-
-        is_good = np.full_like(do_mask, True).astype(bool)
-        is_good[do_mask] = False
-        
-        # Sigma clip what's left
-        clipped_resid_ma = sigma_clip(
-            data=tf_2D[order_i, ~do_mask], sigma=4, masked=True)
-        clipped_px = clipped_resid_ma.mask
-
-        is_good[~do_mask] = ~clipped_px
-        do_interp_mask[order_i] = ~is_good
-        
-        # Compute the polynomial representing our low-order transfer function
-        # correction
-        tf_poly = Polynomial(poly_coef[order_i])
-
-        stf_2D[order_i] = tf_poly(wave_obs_2D[order_i])
-    
-    # Compute 'corrected' spectrum
-    spec_obs_2D_fluxed = stf_2D * spec_obs_2D_tell_corr
-    sigma_obs_2D_fluxed = stf_2D * sigma_obs_2D
+    # Generate 'fluxed' science spectrum by 'correcting' for the tellurics
+    # and scaling by the transfer function polynomial
+    spec_obs_2D_fluxed, sigma_obs_2D_fluxed = \
+        correct_tellurics_and_apply_transfer_function(
+            wave_obs_2D=wave_obs_2D,
+            spec_obs_2D=spec_obs_2D,
+            sigma_obs_2D=sigma_obs_2D,
+            tau_H2O_2D=tau_H2O_2D,
+            tau_O2_2D=tau_O2_2D,
+            scale_H2O=scale_H2O,
+            scale_O2=scale_O2,
+            poly_coef=poly_coef,)
 
     # -------------------------------------------------------------------------
     # Compute residuals
@@ -1176,7 +1115,7 @@ def calc_flux_correction_resid(
     fluxed_resid = (spec_fluxed_2D - spec_obs_2D_fluxed)**2 
                   #/ sigma_obs_2D_cleaned**2)
     
-    fluxed_resid[do_interp_mask] = 0
+    #fluxed_resid[do_interp_mask] = 0
 
     fluxed_resid = fluxed_resid.flatten()
 
@@ -1250,6 +1189,128 @@ def calc_flux_correction_resid(
     print("-"*80)
 
     return combined_resid
+
+
+def correct_tellurics_and_apply_transfer_function(
+    wave_obs_2D,
+    spec_obs_2D,
+    sigma_obs_2D,
+    tau_H2O_2D,
+    tau_O2_2D,
+    scale_H2O,
+    scale_O2,
+    poly_coef,):
+    """Calculates the residuals between a low-resolution flux calibrated
+    spectrum and a high-resolution spectrum corrected for the atmospheric and
+    instrumental transfer function.
+
+    Parameters
+    ----------
+    wave_obs_2D, spec_obs_2D, sigma_obs_2D: 2D float array
+        Observed spectra of shape [n_order, n_px].
+
+    tau_H2O_2D, tau_O2_2D: 2D float array
+        Telluric optical depths for H2O and O2 interpolated to be on the same
+        wavelength scale as wave_obs_2D, of shape [m_order, n_px].
+
+    scale_H2O, scale_O2: float
+        Exponent scaling terms for the strength of the telluric absorption for
+        H2O and O2 respectively. A value of 1.0 means the transmission function
+        remains unchanged.
+        
+    poly_coeff: float array
+        2D array of shape [n_order, poly_order] containing the polynomial 
+        coefficients for each spectral order for use with
+        numpy.polynomial.polynomial.Polynomial.
+
+    Returns
+    -------
+    resid_vect: float
+        Sum of the uncertainty weighted residuals vector.
+    """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_obs_2D.shape
+
+    # Initialise output vectors
+    spec_obs_2D_fluxed = spec_obs_2D.copy()
+    sigma_obs_2D_fluxed = sigma_obs_2D.copy()
+
+    # -------------------------------------------------------------------------
+    # Calculate + "Correct" telluric transmission
+    # -------------------------------------------------------------------------
+    # Calculate teluric transmission
+    trans_H2O_2D = np.exp(-scale_H2O * tau_H2O_2D)
+    trans_O2_2D = np.exp(-scale_O2 * tau_O2_2D)
+
+    # Set any NaNs in the transmission to 1.0
+    missing_transmission = np.logical_or(
+        np.isnan(trans_H2O_2D), np.isnan(trans_O2_2D))
+    trans_H2O_2D[missing_transmission] = 1.0
+    trans_O2_2D[missing_transmission] = 1.0
+
+    spec_obs_2D_fluxed /= trans_H2O_2D * trans_O2_2D
+    sigma_obs_2D_fluxed /= trans_H2O_2D * trans_O2_2D
+
+    # -------------------------------------------------------------------------
+    # Apply Polynomial
+    # -------------------------------------------------------------------------
+    for order_i in range(n_order):
+        tf_poly = Polynomial(poly_coef[order_i])
+        tf = tf_poly(wave_obs_2D[order_i])
+
+        spec_obs_2D_fluxed[order_i] *= tf
+        sigma_obs_2D_fluxed[order_i] *= tf
+
+    # Done, return
+    return spec_obs_2D_fluxed, sigma_obs_2D_fluxed
+
+    # -------------------------------------------------------------------------
+    # [Old] Smooth transfer function
+    # -------------------------------------------------------------------------
+    # Note: this code probably makes the fitting unstable, and is likely not
+    # necessary when working with smoothed data.
+    """
+    # Intialise smoothed transfer function
+    stf_2D = np.full_like(tf_2D, np.nan)
+
+    # Calculate smoothed transfer function. To do this, we want to mask out
+    # deep tellurics and interpolate over them.
+    do_interp_mask = np.any((
+        trans_H2O_2D < max_line_depth,
+        trans_O2_2D < max_line_depth,
+        spec_synth_2D < max_line_depth,
+        is_bad_px), axis=0)
+
+    for order_i in range(n_order):
+        do_mask = do_interp_mask[order_i]
+
+        if np.sum(do_mask) == n_px:
+            raise Exception("All pixels masked out!")
+
+        is_good = np.full_like(do_mask, True).astype(bool)
+        is_good[do_mask] = False
+        
+        # Sigma clip what's left
+        clipped_resid_ma = sigma_clip(
+            data=tf_2D[order_i, ~do_mask], sigma=4, masked=True)
+        clipped_px = clipped_resid_ma.mask
+
+        is_good[~do_mask] = ~clipped_px
+        do_interp_mask[order_i] = ~is_good
+        
+        # Compute the polynomial representing our low-order transfer function
+        # correction
+        tf_poly = Polynomial(poly_coef[order_i])
+
+        stf_2D[order_i] = tf_poly(wave_obs_2D[order_i])
+    """
+    
+    # Compute 'corrected' spectrum
+    spec_obs_2D_fluxed = stf_2D * spec_obs_2D_tell_corr
+    sigma_obs_2D_fluxed = stf_2D * sigma_obs_2D
+
+    
+    
 
 
 def fit_atmospheric_transmission(
@@ -1561,18 +1622,38 @@ def fit_atmospheric_transmission(
     else:
         poly_coef = params[2:].reshape((n_useful_orders, poly_order))
 
+    # Compute final best-fit 'corrected' spectrum saving
+    corr_spec, corr_sigma = correct_tellurics_and_apply_transfer_function(
+        wave_obs_2D=wave_obs_2D_new[useful_orders],
+        spec_obs_2D=spec_obs_2D_new[useful_orders],
+        sigma_obs_2D=sigma_obs_2D_new[useful_orders],
+        tau_H2O_2D=tau_H2O_2D[useful_orders],
+        tau_O2_2D=tau_O2_2D[useful_orders],
+        scale_H2O=scale_H2O,
+        scale_O2=scale_O2,
+        poly_coef=poly_coef[useful_orders])
+    
+    #import pdb; pdb.set_trace()
+
+    telluric_corr_spec_2D = np.full_like(spec_obs_2D_new, np.nan)
+    telluric_corr_spec_2D[useful_orders] = corr_spec
+
     fit_dict["scale_H2O"] = scale_H2O
     fit_dict["scale_O2"] = scale_O2
     fit_dict["poly_coef"] = poly_coef
     fit_dict["wave_obs_2D"] = wave_obs_2D
     fit_dict["spec_obs_2D"] = spec_obs_2D
+    fit_dict["spec_obs_2D"] = spec_obs_2D
+    fit_dict["sigma_obs_2D"] = sigma_obs_2D
     fit_dict["wave_obs_2D_broad"] = wave_obs_2D_new
     fit_dict["spec_obs_2D_broad"] = spec_obs_2D_new
+    fit_dict["sigma_obs_2D_broad"] = sigma_obs_2D_new
     fit_dict["spec_synth_2D"] = spec_synth_2D
     fit_dict["spec_fluxed_2D"] = spec_fluxed_2D
     fit_dict["extinction_2D"] = extinction_2D
     fit_dict["tau_H2O_2D"] = tau_H2O_2D
     fit_dict["tau_O2_2D"] = tau_O2_2D
+    fit_dict["telluric_corr_spec_2D"] = telluric_corr_spec_2D
 
     return fit_dict
 
