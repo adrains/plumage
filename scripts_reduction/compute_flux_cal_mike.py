@@ -96,15 +96,27 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 5
+poly_order = 8
 optimise_order_overlap = True
+fit_for_telluric_scale_terms = False
 do_convolution = True
-resolving_power_during_fit = 2200
+resolving_power_during_fit = 500
+run_on_order_subset = False
+order_subset = [50, 51, 52, 53, 54]
 
 # Import MIKE spectra
 wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
     path=path, label=label, arm=arm)
 obs_info = pum.load_fits_table("OBS_TAB", "KM",)
+
+# [Optional] Run on subset of orders for testing
+if run_on_order_subset:
+    order_mask = np.isin(orders, order_subset)
+
+    wave = wave[:,order_mask]
+    spec = spec[:,order_mask]
+    sigma = sigma[:,order_mask]
+    orders = orders[order_mask]
 
 is_spphot = obs_info["is_spphot"]
 wave_sp = wave[is_spphot]
@@ -203,7 +215,8 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         do_convolution=do_convolution,
         resolving_power_during_fit=resolving_power_during_fit,
         poly_order=poly_order,
-        optimise_order_overlap=optimise_order_overlap,)
+        optimise_order_overlap=optimise_order_overlap,
+        fit_for_telluric_scale_terms=fit_for_telluric_scale_terms)
 
     # Diagnostic plot
     ppltm.plot_flux_calibration(

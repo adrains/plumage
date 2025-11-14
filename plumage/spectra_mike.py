@@ -1071,7 +1071,11 @@ def calc_flux_correction_resid(
     do_tau_scaling_term_fit: boolean
         Whether to fit for the tau scaling term
 
-    TODO
+    scale_H2O, scale_O2: float or None, default: None
+        Exponent scaling terms for the strength of the telluric absorption for
+        H2O and O2 respectively. A value of 1.0 means the transmission function
+        remains unchanged. These will be used if we are *not* fitting for the
+        telluric scaling terms per do_tau_scaling_term_fit.
 
     Returns
     -------
@@ -1083,7 +1087,7 @@ def calc_flux_correction_resid(
 
     params = np.array(params)
 
-    # Unpack params
+    # Unpack params if fitting for scaling terms and polynomial coefficients
     if do_tau_scaling_term_fit:
         scale_H2O = params[0]
         scale_O2 = params[1]
@@ -1163,7 +1167,7 @@ def calc_flux_correction_resid(
             # order edges which makes the overlap between adjacent orders
             # worse.
             overlap_resid = (spec_1[overlap_mask_1] - spec_2_interp)**2 
-                            #/ (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2))
+                        #/ (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2))
 
             is_nan = np.isnan(overlap_resid)
             overlap_resid[is_nan] = 0
@@ -1182,8 +1186,17 @@ def calc_flux_correction_resid(
     r1 = np.sum(fluxed_resid)
     r2 = np.sum(overlap_resid)
 
-    print("r1 = {}, r2 = {}\nH2O = {}\nO2 = {}\ncoeff = {}".format(
-        r1, r2, scale_H2O, scale_O2, poly_coef))
+    print("r1 = {}".format(r1))
+
+    if optimise_order_overlap:
+        print("r2 = {}".format(r2))
+
+    if do_tau_scaling_term_fit:
+        print("H2O = {}\nO2 = {}".format(scale_H2O, scale_O2,))
+    else:
+        print("H2O = {} (Fixed)\nO2 = {} (Fixed)".format(scale_H2O, scale_O2,))
+
+    print("coeff = {}".format(poly_coef))
     print("-"*80)
 
     return combined_resid
@@ -1278,6 +1291,7 @@ def fit_atmospheric_transmission(
     do_convolution=False,
     resolving_power_during_fit=1150,
     wavelength_subsample_fac=20,
+    fit_for_telluric_scale_terms=False,
     poly_order=4,
     optimise_order_overlap=False,
     extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
@@ -1321,6 +1335,10 @@ def fit_atmospheric_transmission(
 
     wavelength_subsample_fac: int, default: 20
         Factor to subsample the wavelength scale by after broadening.
+
+    fit_for_telluric_scale_terms: boolean, default: False
+        If True we do a second fit after the first to optimise the telluric
+        scaling terms.
 
     poly_order: int, default: 4
         Polynomial order to be fit as the transfer function for each order.
@@ -1388,8 +1406,6 @@ def fit_atmospheric_transmission(
             maxsig=5,
             equid=True,)
         
-        # Observed
-
         # Mask edges. We can't just set these to NaN when smoothing, as the NaN
         # pixels will end up 'corrupting' neighbouring px up to 5 sigma away.
         edge_px = np.logical_or(np.arange(n_px) < 5, np.arange(n_px) > n_px-5)
@@ -1510,14 +1526,41 @@ def fit_atmospheric_transmission(
     # our observations
     spec_fluxed_2D *= 10 ** (-0.4 * airmass * extinction_2D)
 
+    """
     # -------------------------------------------------------------------------
-    # 1) Initial fit (no order overlap or telluric scaling)
+    # 0) Initial polynomial fit to *just* the 'corrected' MIKE spectra
+    # -------------------------------------------------------------------------
+    poly_coeff_init = np.zeros((n_useful_orders, poly_order))
+    poly_coeff_init[:,0] = 1
+
+    spec_obs_2D_corr_init, _ = correct_tellurics_and_apply_transfer_function(
+        wave_obs_2D_new[useful_orders],
+        spec_obs_2D_new[useful_orders],
+        sigma_obs_2D_new[useful_orders],
+        tau_H2O_2D[useful_orders],
+        tau_O2_2D[useful_orders],
+        scale_H2O=1.0,
+        scale_O2=1.0,
+        poly_coef=poly_coeff_init,)
+    
+    for order_i in range(n_useful_orders):
+        coef = polyfit(
+            x=wave_obs_2D_new[order_i],
+            y=spec_obs_2D_new[order_i],
+            deg=poly_order-1,)
+        
+        #calc_poly = Polynomial(coef)
+
+        poly_coeff_init[order_i] = 1/coef
+    """
+    # -------------------------------------------------------------------------
+    # 1) Initial fit without telluric scaling terms
     # -------------------------------------------------------------------------
     print("\n\n\n", "-"*80, "\n", "Initial Fit\n", "-"*80, "\n")
 
     # Special terms for initial fit
     do_tau_scaling_term_fit = False
-    optimise_order_overlap_on_initial_fit = False
+    #ptimise_order_overlap_on_initial_fit = False
     scale_H2O = 1.0
     scale_O2 = 1.0
 
@@ -1531,15 +1574,21 @@ def fit_atmospheric_transmission(
     bounds_low = np.full((n_useful_orders, poly_order), -np.inf).flatten()
     bounds_high = np.full((n_useful_orders, poly_order), np.inf).flatten()
 
+    # To have a well-conditioned polynomial fit, we want to subtract the mean
+    # of each order from the wavelength scale before fitting. We'll need to
+    # keep track of these means later when using the transfer functions.
+    wave_means = np.nanmean(wave_obs_2D_new, axis=1)
+    wave_means_2D = np.broadcast_to(wave_means[:,None], wave_obs_2D_new.shape)
+
     args = (
-        wave_obs_2D_new[useful_orders],
+        wave_obs_2D_new[useful_orders] - wave_means_2D[useful_orders],
         spec_obs_2D_new[useful_orders],
         sigma_obs_2D_new[useful_orders],
         tau_H2O_2D[useful_orders],
         tau_O2_2D[useful_orders],
         spec_fluxed_2D[useful_orders],
         poly_order,
-        optimise_order_overlap_on_initial_fit,
+        optimise_order_overlap,
         do_tau_scaling_term_fit,
         scale_H2O,
         scale_O2,)
@@ -1556,59 +1605,62 @@ def fit_atmospheric_transmission(
     # Pack variables/results into dict and return
     params = fit_dict["x"]
 
-    poly_coeff_init_fit = params
+    poly_coeff_fitted = params
 
     # -------------------------------------------------------------------------
-    # 2) Final fit (including order overlap and telluric scaling)
+    # 2) Second fit including telluric scaling
     # -------------------------------------------------------------------------
-    print("\n\n\n", "-"*80, "\n", "Final Fit\n", "-"*80, "\n")
+    if fit_for_telluric_scale_terms:
+        print("\n\n\n", "-"*80, "\n", "Final Fit\n", "-"*80, "\n")
 
-    do_tau_scaling_term_fit = True
-    params_init = [scale_H2O, scale_O2] + list(poly_coeff_init_fit.flatten())
+        do_tau_scaling_term_fit = True
+        params_init = [scale_H2O, scale_O2] + list(poly_coeff_fitted.flatten())
 
-    # Establish bounds to l
-    bounds_low = [0, 0] + list(
-        np.full((n_useful_orders, poly_order), -np.inf).flatten())
-    bounds_high = [2.0, 2.0] + list(
-        np.full((n_useful_orders, poly_order), np.inf).flatten())
+        # Establish bounds to l
+        bounds_low = [0, 0] + list(
+            np.full((n_useful_orders, poly_order), -np.inf).flatten())
+        bounds_high = [2.0, 2.0] + list(
+            np.full((n_useful_orders, poly_order), np.inf).flatten())
 
-    args = (
-        wave_obs_2D_new[useful_orders],
-        spec_obs_2D_new[useful_orders],
-        sigma_obs_2D_new[useful_orders],
-        tau_H2O_2D[useful_orders],
-        tau_O2_2D[useful_orders],
-        spec_fluxed_2D[useful_orders],
-        poly_order,
-        optimise_order_overlap,
-        do_tau_scaling_term_fit)
+        args = (
+            wave_obs_2D_new[useful_orders] - wave_means_2D[useful_orders],
+            spec_obs_2D_new[useful_orders],
+            sigma_obs_2D_new[useful_orders],
+            tau_H2O_2D[useful_orders],
+            tau_O2_2D[useful_orders],
+            spec_fluxed_2D[useful_orders],
+            poly_order,
+            optimise_order_overlap,
+            do_tau_scaling_term_fit)
 
-    # Do fit
-    fit_dict = least_squares(
-        calc_flux_correction_resid, 
-        params_init, 
-        jac="3-point",
-        args=args,
-        bounds=(bounds_low, bounds_high),
-        max_nfev=100,)
-    
-    # Pack variables/results into dict and return
-    params = fit_dict["x"]
+        # Do fit
+        fit_dict = least_squares(
+            calc_flux_correction_resid, 
+            params_init, 
+            jac="3-point",
+            args=args,
+            bounds=(bounds_low, bounds_high),
+            max_nfev=100,)
+        
+        # Pack variables/results into dict and return
+        params = fit_dict["x"]
 
-    scale_H2O = params[0]
-    scale_O2 = params[1]
+        scale_H2O = params[0]
+        scale_O2 = params[1]
+        poly_coeff_fitted = params[2]
 
     # Add in dummy polynomial coeff if necessary
     if n_useful_orders != n_order:
         poly_coef = np.zeros((n_order, poly_order))
         poly_coef[useful_orders] = \
-            params[2:].reshape((n_useful_orders, poly_order))
+            poly_coeff_fitted.reshape((n_useful_orders, poly_order))
     else:
-        poly_coef = params[2:].reshape((n_useful_orders, poly_order))
+        poly_coef = poly_coeff_fitted.reshape((n_useful_orders, poly_order))
 
     # Compute final best-fit 'corrected' spectrum saving
     corr_spec, corr_sigma = correct_tellurics_and_apply_transfer_function(
-        wave_obs_2D=wave_obs_2D_new[useful_orders],
+        wave_obs_2D=\
+            wave_obs_2D_new[useful_orders]-wave_means_2D[useful_orders],
         spec_obs_2D=spec_obs_2D_new[useful_orders],
         sigma_obs_2D=sigma_obs_2D_new[useful_orders],
         tau_H2O_2D=tau_H2O_2D[useful_orders],
@@ -1623,6 +1675,7 @@ def fit_atmospheric_transmission(
     fit_dict["scale_H2O"] = scale_H2O
     fit_dict["scale_O2"] = scale_O2
     fit_dict["poly_coef"] = poly_coef
+    fit_dict["wave_means"] = wave_means
     fit_dict["wave_obs_2D"] = wave_obs_2D
     fit_dict["spec_obs_2D"] = spec_obs_2D
     fit_dict["spec_obs_2D"] = spec_obs_2D

@@ -51,6 +51,7 @@ def plot_flux_calibration(
     scale_H2O = fit_dict["scale_H2O"]
     scale_O2 = fit_dict["scale_O2"] 
     poly_coef = fit_dict["poly_coef"]
+    wave_means = fit_dict["wave_means"]
     wave_obs_2D = fit_dict["wave_obs_2D"]
     spec_obs_2D = fit_dict["spec_obs_2D"]
     sigma_obs_2D = fit_dict["sigma_obs_2D"]
@@ -84,8 +85,8 @@ def plot_flux_calibration(
     # Diagnostic plotting
     # -------------------------------------------------------------------------
     plt.close( "all")
-    fig, (ax_temp, ax_ext, ax_flux, ax_obs, ax_tf, ax_corr) = plt.subplots(
-        nrows=6, sharex=True, figsize=fig_size)
+    fig, (ax_temp, ax_ext, ax_flux, ax_obs, ax_comp, ax_tf, ax_corr) = \
+        plt.subplots(nrows=7, sharex=True, figsize=fig_size)
     
     fig.subplots_adjust(
         left=0.04,
@@ -110,7 +111,7 @@ def plot_flux_calibration(
         trans_O2 = np.exp(-scale_O2 * tau_O2_2D[order_i])
 
         tf_poly = Polynomial(poly_coef[order_i])
-        smooth_tf = tf_poly(wave_ith)
+        smooth_tf = tf_poly(wave_ith-wave_means[order_i])
         
         # --------
         # Panel #1: cont norm synthetic stellar and telluric (O2, and H2) spec
@@ -189,6 +190,22 @@ def plot_flux_calibration(
                     fontsize="x-small",)
         
         # --------
+        # Panel #5: comparison
+        ax_comp.plot(
+            wave_broad_ith,
+            flux_ith,
+            linewidth=0.5,
+            c="g",
+            label="Flux Reference" if order_i == 0 else None,)
+
+        ax_comp.plot(
+            wave_obs_2D_broad[order_i],
+            telluric_corr_spec_2D[order_i],
+            linewidth=0.5,
+            c="b",
+            label="'corrected' broadened spectrum" if order_i == 0 else None,)
+
+        # --------
         # Panel #5: fitted polynomials overplotted on 'corrected' spectra
         ax_tf.plot(
             wave_ith,
@@ -199,7 +216,7 @@ def plot_flux_calibration(
         
         # 'Corrected' spectrum
         tf_poly = Polynomial(poly_coef[order_i])
-        tf = tf_poly(wave_obs_2D_broad[order_i])
+        tf = tf_poly(wave_obs_2D_broad[order_i] - wave_means[order_i])
 
         ax_tf.plot(
             wave_obs_2D_broad[order_i],
@@ -224,6 +241,7 @@ def plot_flux_calibration(
     ax_ext.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
     ax_flux.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
     ax_obs.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    ax_comp.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
     ax_tf.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
     ax_corr.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
 
@@ -233,6 +251,8 @@ def plot_flux_calibration(
     ax_flux.set_ylabel(
         r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)", fontsize=fontsize)
     ax_obs.set_ylabel(r"Counts", fontsize=fontsize)
+    ax_comp.set_ylabel(
+        r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)", fontsize=fontsize)
     ax_tf.set_ylabel(r"$\times$TF", fontsize=fontsize)
     ax_corr.set_ylabel(
         r"Flux (erg$\cdot$s$^{-1}\cdot$cm$^{-1}$Å$^{-1}$)", fontsize=fontsize)
