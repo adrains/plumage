@@ -1782,3 +1782,83 @@ def flux_calibrate_mike_spectrum(
         sigma_2D_fc[order_i] = sigma_1D / flux_cal_comb
 
     return spec_2D_fc, sigma_2D_fc
+
+# -----------------------------------------------------------------------------
+# MIKE normalised flat field
+# -----------------------------------------------------------------------------
+def normalise_mike_spectrum_by_norm_flat_field(
+    wave_2D,
+    spectrum_2D,
+    orders,
+    arm,
+    poly_order,
+    base_path="data/",
+    set_px_to_nan_beyond_domain=False,):
+    """Normalises a given MIKE spectrum by per-order polynomials fitted to the
+    normalised flat field function in:
+        scripts_reduction/fit_polynomial_to_mike_norm_flat.py 
+
+    The coefficient file is loaded as:
+        <base_path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv
+
+    Parameters
+    ----------
+    wave_2D, spectrum_2D: 2D float array
+        Wavelength scale and spectra of shape [n_order, n_px].
+
+    orders: 1D float array
+        Order numbers for wave_2D and spectrum_2D, of shape [n_order].
+
+    arm: str
+        Spectrograph arm for loading in saved coefficient csv.
+
+    poly_order: int
+        Polynomial order for loading in saved coefficient csv.
+
+    base_path: str
+        Base filepath for loading in the saved coefficient csv.
+
+    set_px_to_nan_beyond_domain: bool, default: False
+        If true, we set spectra beyond the domain limits in wavelength to NaN
+        as they were unconstrained during the polynomial fit.
+    """
+    # Initialise output array
+    spectrum_norm_2D = spectrum_2D.copy()
+
+    # Import file of polynomial coefficients
+    poly_fn = os.path.join(
+        base_path,
+        "mike_norm_flat_poly_coef_{}_{}.csv".format(poly_order, arm),)
+    
+    poly_df = pd.read_csv(poly_fn, index_col="orders")
+    
+    # Create array of column names for the coefficients themselves
+    coef_cols = ["coef_{}".format(po) for po in np.arange(0, poly_order+1, 1)]
+    
+    # Loop over all orders and apply correction
+    for order_i, order in enumerate(orders):
+        # Check that this order exists
+        if order not in poly_df.index.values:
+            raise Exception
+            # TODO: either divide by nan, or throw an exception.
+
+        domain_min = poly_df.loc[order]["domain_min"]
+        domain_max = poly_df.loc[order]["domain_max"]
+
+        flat_poly = Polynomial(
+            coef=poly_df.loc[order][coef_cols].values,
+            domain=(domain_min, domain_max),)
+        flat_tf = flat_poly(wave_2D[order_i])
+
+        # [Optional] Set any wavelength points to NaN that are beyond the
+        # domain limits, since these points were not included in the polynomial
+        # fit and are thus unconstrained.
+        if set_px_to_nan_beyond_domain:
+            beyond_domain = np.logical_or(
+                wave_2D[order_i] < domain_min, wave_2D[order_i] > domain_max)
+            flat_tf[beyond_domain] = np.nan
+
+        # Normalise the spectrum by the normalised flat field
+        spectrum_norm_2D[order_i] /=  flat_tf
+
+    return spectrum_norm_2D
