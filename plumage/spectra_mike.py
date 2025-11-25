@@ -748,6 +748,7 @@ def load_all_mike_fits(
         sid = id_cm_df.loc[obj]["source_id"]
         kind = id_cm_df.loc[obj]["kind"]
         is_spphot = id_cm_df.loc[obj]["is_sphot"]
+        teff_template = id_cm_df.loc[obj]["teff_template"]
 
         # Also loop over dates observed
         ut_dates_obj = set(ut_dates[obj_names == obj])
@@ -766,6 +767,7 @@ def load_all_mike_fits(
                 # Store target classification that we get from the crossmatch
                 obj_dict_b["kind"] = kind
                 obj_dict_b["is_spphot"] = is_spphot
+                obj_dict_b["teff_template"] = teff_template
 
             else:
                 exp_dict_b = None
@@ -784,6 +786,7 @@ def load_all_mike_fits(
                 # Store target classification that we get from the crossmatch
                 obj_dict_r["kind"] = kind
                 obj_dict_r["is_spphot"] = is_spphot
+                obj_dict_r["teff_template"] = teff_template
 
             else:
                 exp_dict_r = None
@@ -865,7 +868,8 @@ def collate_mike_obs(blue_dict, red_dict):
     # -------------------------------------------------------------------------
     # Column definitions, one set is common between arms, the othar are per-arm
     cols_common = ["source_id", "kind", "is_spphot", "object", "observer",
-         "ut_date", "ut_start",  "lc_start", "airmass", "slit_size", "bcor",] 
+         "ut_date", "ut_start",  "lc_start", "airmass", "slit_size", "bcor",
+         "teff_template",] 
     
     cols_base_br = ["has", "exp_time", "n_loops", "binning", "speed", "snr",]
 
@@ -909,6 +913,8 @@ def collate_mike_obs(blue_dict, red_dict):
             obs_info.loc[obj_i, "airmass"] = arm_dict[obj]["AIRMASS"]
             obs_info.loc[obj_i, "slit_size"] = arm_dict[obj]["SLITSIZE"]
             obs_info.loc[obj_i, "bcor"] = arm_dict[obj]["BCOR"]
+            obs_info.loc[obj_i, "teff_template"] = \
+                arm_dict[obj]["teff_template"]
 
             # Arm specfic params
             obs_info.loc[obj_i, "has_" + arm] = True
@@ -934,6 +940,7 @@ def collate_mike_obs(blue_dict, red_dict):
     obs_info["has_b"] = obs_info["has_b"].values.astype(bool)
     obs_info["has_r"] = obs_info["has_r"].values.astype(bool)
     obs_info["is_spphot"] = obs_info["is_spphot"].values.astype(bool)
+    obs_info["teff_template"] = obs_info["teff_template"].values.astype(int)
 
     obs_dict = {
         "obs_info":obs_info,
@@ -1800,6 +1807,8 @@ def normalise_mike_spectrum_by_norm_flat_field(
 
     The coefficient file is loaded as:
         <base_path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv
+
+    TODO: rescale uncertainties too
 
     Parameters
     ----------
