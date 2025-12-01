@@ -10,6 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from astropy.io import fits
 import warnings
+from tqdm import tqdm
 import astropy.constants as const
 from astropy import units as u
 from astropy.time import Time
@@ -1795,7 +1796,8 @@ def flux_calibrate_mike_spectrum(
 # -----------------------------------------------------------------------------
 def normalise_mike_spectrum_by_norm_flat_field(
     wave_2D,
-    spectrum_2D,
+    spec_2D,
+    sigma_2D,
     orders,
     arm,
     poly_order,
@@ -1808,12 +1810,10 @@ def normalise_mike_spectrum_by_norm_flat_field(
     The coefficient file is loaded as:
         <base_path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv
 
-    TODO: rescale uncertainties too
-
     Parameters
     ----------
-    wave_2D, spectrum_2D: 2D float array
-        Wavelength scale and spectra of shape [n_order, n_px].
+    wave_2D, spec_2D, sigma_2D: 2D float array
+        Wavelength scale, spectra, and uncertainties of shape [n_order, n_px].
 
     orders: 1D float array
         Order numbers for wave_2D and spectrum_2D, of shape [n_order].
@@ -1830,9 +1830,16 @@ def normalise_mike_spectrum_by_norm_flat_field(
     set_px_to_nan_beyond_domain: bool, default: False
         If true, we set spectra beyond the domain limits in wavelength to NaN
         as they were unconstrained during the polynomial fit.
+
+    Returns
+    -------
+    spec_norm_2D, sigma_norm_2D: 2D float array
+        Normalised flat field 'normalised' or 'blaze corrected' spectra and
+        uncertainties of shape [n_order, n_px].
     """
     # Initialise output array
-    spectrum_norm_2D = spectrum_2D.copy()
+    spec_norm_2D = spec_2D.copy()
+    sigma_norm_2D = sigma_2D.copy()
 
     # Import file of polynomial coefficients
     poly_fn = os.path.join(
@@ -1868,6 +1875,661 @@ def normalise_mike_spectrum_by_norm_flat_field(
             flat_tf[beyond_domain] = np.nan
 
         # Normalise the spectrum by the normalised flat field
-        spectrum_norm_2D[order_i] /=  flat_tf
+        spec_norm_2D[order_i] /=  flat_tf
+        sigma_norm_2D[order_i] /=  flat_tf
 
-    return spectrum_norm_2D
+    return spec_norm_2D, sigma_norm_2D
+
+
+def normalise_mike_all_spectra_by_norm_flat_field(
+    wave_3D,
+    spec_3D,
+    sigma_3D,
+    orders,
+    arm,
+    poly_order,
+    base_path,
+    set_px_to_nan_beyond_domain,):
+    """Normalises a set of MIKE spectra by per-order polynomials fitted to the
+    normalised flat field function, which can be taken to *roughly* be a blaze
+    correction (with the caveat that the SED of the lamp is not removed).
+
+    Parameters
+    ----------
+    wave_3D, spec_3D, sigma_3D: 3D float array
+        Wavelength scale, spectra, and uncertainties of shape 
+        [n_star, n_order, n_px].
+
+    orders: 1D float array
+        Order numbers for wave_2D and spectrum_2D, of shape [n_order].
+
+    arm: str
+        Spectrograph arm for loading in saved coefficient csv.
+
+    poly_order: int
+        Polynomial order for loading in saved coefficient csv.
+
+    base_path: str
+        Base filepath for loading in the saved coefficient csv.
+
+    set_px_to_nan_beyond_domain: bool, default: False
+        If true, we set spectra beyond the domain limits in wavelength to NaN
+        as they were unconstrained during the polynomial fit.
+
+    Returns
+    -------
+    spec_norm_2D, sigma_norm_2D: 2D float array
+        Normalised flat field 'normalised' or 'blaze corrected' spectra and
+        uncertainties of shape [n_star, n_order, n_px].
+    """
+    # Grab dimensions for convenience
+    (n_spec, n_order, n_px) = wave_3D.shape
+
+    # Intialise output arrays
+    spec_norm_3D = np.zeros_like(spec_3D)
+    sigma_norm_3D = np.zeros_like(sigma_3D)
+
+    # Loop over all spectra and do per-order normalisation for each star.
+    for spec_i in range(n_spec):
+        spec_norm_2D, sigma_norm_2D = \
+            normalise_mike_spectrum_by_norm_flat_field(
+                wave_2D=wave_3D[spec_i],
+                spec_2D=spec_3D[spec_i],
+                sigma_2D=sigma_3D[spec_i],
+                orders=orders,
+                arm=arm,
+                poly_order=poly_order,
+                base_path=base_path,
+                set_px_to_nan_beyond_domain=set_px_to_nan_beyond_domain,)
+        
+        spec_norm_3D[spec_i] = spec_norm_2D
+        sigma_norm_3D[spec_i] = sigma_norm_2D
+        
+    return spec_norm_3D, sigma_norm_3D
+
+
+def normalise_mike_spectrum_by_low_order_poly(
+    wave_2D,
+    spec_2D,
+    sigma_2D,
+    poly_order,):
+    """Function to do a polynomial fit to each MIKE order for a single star for
+    the purpose of RV fitting.
+
+    Parameters
+    ----------
+    wave_2D, spec_2D, sigma_2D: 2D float array
+        Wavelengths scale, spectra, and uncertainties of shape [n_order, n_px].
+
+    poly_order: int
+        Polynomial order to normalise by.
+
+    Returns
+    -------
+    spec_norm_2D, sigma_norm_2D: 2D float array
+        Polynomial normalised spectra and sigmas, of shape [n_order, n_px].
+    """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_2D.shape
+
+    # Initialise output arrays
+    spec_norm_2D = np.full_like(spec_2D, np.nan)
+    sigma_norm_2D = np.full_like(sigma_2D, np.nan)
+
+    # Loop over all orders (but only if the order isn't entirely NaN)
+    for order_i in range(n_order):
+        wave = wave_2D[order_i]
+        spec = spec_2D[order_i]
+
+        is_bad_px = ~np.isfinite(spec)
+
+        if np.nansum(is_bad_px) != n_px:
+
+            domain = (np.min(wave[~is_bad_px]), np.max(wave[~is_bad_px]))
+
+            poly = Polynomial.fit(
+                x=wave[~is_bad_px],
+                y=spec[~is_bad_px],
+                deg=poly_order,
+                domain=domain,)
+            
+            spec_norm_2D[order_i] = spec / poly(wave)
+            sigma_norm_2D[order_i] = sigma_2D[order_i] / poly(wave)
+
+    assert np.nansum(spec_norm_2D) != 0
+
+    return spec_norm_2D, sigma_norm_2D
+
+
+def normalise_all_mike_spectra_by_low_order_poly(
+    wave_3D,
+    spec_3D,
+    sigma_3D,
+    poly_order,):
+    """Function to do per-order polynomial fits to many stars observed with
+    MIKE for the purpose of RV fitting.
+
+    Parameters
+    ----------
+    wave_3D, spec_3D, sigma_3D: 3D float array
+        Wavelengths scale, spectra, and uncertainties of shape 
+        [n_star, n_order, n_px].
+
+    poly_order: int
+        Polynomial order to normalise by.
+
+    Returns
+    -------
+    spec_norm_3D, sigma_norm_3D: 3D float array
+        Polynomial normalised spectra and sigmas, of shape 
+        [n_star, n_order, n_px].
+    """
+    # Grab dimensions for convenience
+    (n_star, n_order, n_px) = wave_3D.shape
+
+    # Initialise output arrays
+    spec_norm_3D = np.full_like(spec_3D, np.nan)
+    sigma_norm_3D = np.full_like(sigma_3D, np.nan)
+
+    # Loop over all stars
+    for star_i in range(n_star):
+        spec_norm_2D, sigma_norm_2D = \
+            normalise_mike_spectrum_by_low_order_poly(
+                wave_2D=wave_3D[star_i],
+                spec_2D=spec_3D[star_i],
+                sigma_2D=sigma_3D[star_i],
+                poly_order=poly_order,)
+        
+        spec_norm_3D[star_i] = spec_norm_2D
+        sigma_norm_3D[star_i] = sigma_norm_2D
+
+    return spec_norm_3D, sigma_norm_3D
+
+
+# -----------------------------------------------------------------------------
+# RV fitting
+# -----------------------------------------------------------------------------
+def fit_rv_cross_corr(
+    sci_wave,
+    sci_flux,
+    calc_template_flux,
+    bcor,
+    rv_min,
+    rv_max,
+    delta_rv,
+    dpb,):
+    """Computes the cross correlation of pre-masked observed spectra against
+    a template spectrum from rv_min to rv_max in steps of delta_rv. Returns
+    the best fit RV, as well as the RV steps, and cross correlation values.
+
+    Parameters
+    ----------
+    sci_wave: float array
+        Science wavelength array corresponding to sci_flux.
+    
+    sci_flux: float array
+        Science flux array corresponding to sci_wave. Note that pixels not to
+        be included in the fit should be pre-masked and set to some default 
+        value (ideally NaN).
+
+    calc_template_flux: scipy.interpolate.interpolate.interp1d
+        Interpolation function for RV template to cross correlate with.
+
+    bcor: float
+        Barcycentric correction in km/s.
+
+    rv_min: float
+        Lower RV bound in km/s to apply to both cross correlation and least
+        squares fitting.
+
+    rv_max: float
+        Upper RV bound in km/s to apply to both cross correlation and least
+        squares fitting.
+
+    delta_rv: float
+        RV step size for cross correlation scan in km/s.
+
+    dbp: bool
+        If true, disables the tqdm progress bar.
+
+    Returns
+    -------
+    rv: float
+        Best fit RV in km/s.
+
+    rv_steps: float array
+        RV values in km/s the cross correlation was evaluated at.
+
+    cross_corrs: float array
+        Cross correlation values corresponding to rv_steps.
+    """
+    # Compute the RV steps to evaluate the cross correlation at
+    rv_steps = np.arange(rv_min, rv_max, delta_rv)
+
+    # Initialise our output vector of cross correlations
+    cross_corrs = np.full(rv_steps.shape, 0)
+
+    desc = "Fitting RV"
+
+    # Run cross correlation for each RV step
+    for rv_i, rv in enumerate(tqdm(
+        rv_steps, desc=desc, leave=False, disable=dpb)):
+        # Shift the template spectrum
+        template_flux = calc_template_flux(
+            sci_wave * (1-(rv-bcor)/(const.c.si.value/1000)))
+
+        # Compute the cross correlation
+        cross_corrs[rv_i] = np.nansum(sci_flux * template_flux)
+
+    # Determine closest RV
+    best_fit_rv =  rv_steps[np.argmax(cross_corrs)]
+    
+    return best_fit_rv, rv_steps, cross_corrs
+
+def fit_rv(
+    wave_2D,
+    spec_2D,
+    sigma_2D,
+    orders,
+    wave_telluric,
+    trans_telluric,
+    wave_template,
+    spec_template,
+    bcor,
+    segment_contamination_threshold=0.99,
+    px_absorption_threshold=0.9,
+    rv_min=-200,
+    rv_max=200,
+    delta_rv=1,
+    do_diagnostic_plots=False,
+    figsize=(16,4),
+    fig_save_path="plots/",
+    interpolation_method="cubic",
+    disable_progress_bar=False,
+    obj_name="",):
+    """Function to fit a radial velocity globally for all orders via cross
+    correlation.
+
+    TODO: remove plotting from this function.
+
+    Parameters
+    ----------
+    wave_2D, spec_2D, sigma_2D: 2D float array
+        Wavelengths scale, spectra, and uncertainties of shape [n_order, n_px].
+
+    orders: int array
+        Order numbering of shape [n_order].
+
+    wave_telluric, trans_telluric: 1D float array
+        Telluric wavelength scale and transmission, of shape [n_tell_wave].
+
+    wave_template, spec_template: 1D float array
+        Template wavelength scale and continuum normalised flux, of shape 
+        [n_temp_wave].
+
+    bcor: float
+        Barycentric velocity in km/s.
+        
+    segment_contamination_threshold: float, default: 0.99
+        If the median flux value for the model telluric transmission of a
+        spectral segment is below this we consider the *entire segment* too
+        contaminated for use when RV fitting. A value of 1 in this case 
+        would be entirely continuum (and be the most restrictive), and a 
+        value of 0 would be the most permissible.
+
+    px_absorption_threshold: float, default: 0.9
+        Similar to segment_contamination_threshold, but it operates on a
+        *per pixel* level on the model telluric spectrum rather than a per
+        segment level.
+        
+    rv_min, rv_max: float, default: (-200, 200)
+        Lower and upper RV bounds respectively in km/s.
+
+    delta_rv: float, default 1
+        RV step size for cross correlation scan in km/s.
+
+    do_diagnostic_plots: boolean, default: False
+        Whether to plot diagnostic plots at the conclusion of the fit.
+
+    figsize: float tuple, default: (16,4)
+        Figure size of diagnostic plot.
+
+    fig_save_path: str, default: 'plots'
+        Path to save diagnostic figure to.
+
+    interpolation_method: str, default: "cubic"
+        Default interpolation method to use with scipy.interp1d. Can be one of: 
+        ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
+        'cubic', 'previous', or 'next'].
+
+    disable_progress_bar: bool, default: False
+        Whether or not to disable the progress bar, set to True if running in a
+        loop.
+
+    obj_name: str, default: ""
+        Name of the star.
+
+    Returns
+    -------
+    fit_dict: dict
+        Fitting information dictionary.
+    """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_2D.shape
+
+    # Set the detault bad pixel value--cross correlation is happy with NaNs
+    bad_px_value = np.nan
+
+    # Intiialise pixel exclude mask for *all* spectral pixels. This will
+    # be separated by segment (i.e. 2D rather than 1D), but we'll later
+    # make a single continuous 1D array.
+    pixel_exclude_mask = []
+
+    # Boolean mask to keep track of orders that we have excluded from the fit
+    order_excluded = np.full(n_order, False)
+    
+    # Interpolate the telluric spectrum to the MIKE wavelength scale
+    calc_trans = interp1d(
+        x=wave_telluric,
+        y=trans_telluric,
+        kind=interpolation_method,
+        bounds_error=False,
+        assume_sorted=True,)
+
+    for order_i in range(n_order):
+        # If we have all NaN wavelengths scale due to a missing order, continue
+        if np.nansum(wave_2D[order_i]) == 0:
+            pixel_exclude_mask.append(np.full(n_px, True))
+            order_excluded[order_i] = True
+            continue
+
+        # Grab science spectra for convenience
+        spec_2D[order_i]
+
+        # Interpolate telluric spectrum for this order
+        trans_1D = calc_trans(wave_2D[order_i])
+
+        #print(order_i, np.nanmean(trans_1D[order_i]))
+        order_mean_lambda = np.nanmean(wave_2D[order_i])
+
+        # If a segment is too contaminated to use, mask it out entirely
+        if np.nanmean(trans_1D) < segment_contamination_threshold:
+            pixel_exclude_mask.append(np.full(n_px, True))
+            order_excluded[order_i] = True
+
+        elif order_mean_lambda < 5800 or order_mean_lambda > 6800:
+            pixel_exclude_mask.append(np.full(n_px, True))
+            order_excluded[order_i] = True
+
+        # Otherwise only mask out nan pixels and those below the
+        # telluric absorption threshold
+        else:
+            # While we aren't excluding this entire segment, we'll 
+            # still exclude any pixels with *telluric* absorption below
+            # px_absorption_threshold or *science* pixels with nans,
+            # infs, or nonphysical spikes (e.g. detector edge effects)
+            telluric_absorb_mask = trans_1D < px_absorption_threshold
+
+            sci_nonfinite_mask = np.logical_or(
+                ~np.isfinite(spec_2D[order_i]),
+                ~np.isfinite(sigma_2D[order_i]))
+
+            with np.errstate(invalid='ignore'):
+                sci_nonphysical_mask = np.logical_or(
+                    spec_2D[order_i] <= 0,
+                    spec_2D[order_i] >= 2)
+
+            exclude_mask = np.logical_or(
+                telluric_absorb_mask,
+                np.logical_or(
+                    sci_nonphysical_mask, 
+                    sci_nonfinite_mask))
+
+            pixel_exclude_mask.append(exclude_mask)
+
+            assert np.sum(np.isnan(spec_2D[order_i][~exclude_mask])) == 0
+
+    pixel_exclude_mask = np.hstack(pixel_exclude_mask)
+
+    # Stitch wavelengths, spectra, and sigmas together
+    sci_wave = np.hstack([wave for wave in wave_2D])
+    sci_flux = np.hstack([spec for spec in spec_2D])
+    sci_sigma = np.hstack([sigma for sigma in sigma_2D])
+
+    # Now mask out regions we're not considering
+    sci_flux[pixel_exclude_mask] = bad_px_value
+    sci_sigma[pixel_exclude_mask] = np.inf
+
+    # Load in our template spectrum and the associated interpolator
+    calc_template_flux = interp1d(
+        x=wave_template,
+        y=spec_template,
+        kind=interpolation_method,
+        bounds_error=False,
+        assume_sorted=True)
+
+    # Intialise output for misc fitting parameters
+    fit_dict = {}
+
+    # Fit using cross-correlation--best for scanning a wide range
+    rv, rv_steps, cross_corrs = fit_rv_cross_corr(
+        sci_wave=sci_wave,
+        sci_flux=sci_flux,
+        calc_template_flux=calc_template_flux,
+        bcor=bcor,
+        rv_min=rv_min,
+        rv_max=rv_max,
+        delta_rv=delta_rv,
+        dpb=disable_progress_bar,)
+
+    fit_dict["rv"] = rv
+    fit_dict["rv_steps"] = rv_steps
+    fit_dict["cross_corrs"] = cross_corrs
+
+    # ---------------------------------------------------------------------
+    # Diagnostic plot
+    # ---------------------------------------------------------------------
+    if do_diagnostic_plots:
+        plt.close("all")
+        fig, (cc_axis, spec_axis) = plt.subplots(2,1, figsize=figsize)
+        plt.subplots_adjust(hspace=0.4,)
+
+        # Plot cross correlation fit
+        cc_axis.plot(rv_steps, cross_corrs, linewidth=0.2)
+        cc_axis.set_title(obj_name)
+        cc_axis.set_xlabel("RV (km/s)")
+        cc_axis.set_ylabel("Cross Correlation")
+
+        # Compute best fit template and plot spectral fit
+        template_flux = calc_template_flux(
+            wave_template * (1-(rv-bcor)/(const.c.si.value/1000)))
+
+        # Plot per-order science spectrum
+        for order_i in range(n_order):
+            # Skip missing orders
+            if np.nansum(wave_2D[order_i]) == 0:
+                continue
+            
+            # For M-dwarfs with continuum suppression, we want to scale the
+            # science flux so it fits over the template for readability.
+            wl_mask = np.logical_and(
+                wave_template > np.nanmin(wave_2D[order_i]),
+                wave_template < np.nanmax(wave_2D[order_i]),)
+            continuum_scale = np.mean(spec_template[wl_mask])
+
+            spec_axis.plot(
+                wave_2D[order_i],
+                spec_2D[order_i] * continuum_scale,
+                linewidth=0.5,
+                alpha=0.5,
+                c="r",
+                label="science" if order_i == 0 else None,)
+
+            spec_axis.text(
+                np.nanmean(wave_2D[order_i]),
+                1.5,
+                s="{}".format(orders[order_i]),
+                color="r" if order_excluded[order_i] else "k",
+                fontsize="x-small",
+                horizontalalignment="center",)
+
+        # Template flux
+        spec_axis.plot(
+            wave_template,
+            template_flux,
+            linewidth=0.5,
+            alpha=0.5,
+            c="b",
+            label="template")
+        
+        # Telluric transmission
+        spec_axis.plot(
+            wave_telluric,
+            trans_telluric,
+            linewidth=0.5,
+            alpha=0.5,
+            c="k",
+            label="telluric")
+
+        leg = spec_axis.legend(ncol=3)
+
+        for legobj in leg.legendHandles:
+            legobj.set_linewidth(1.5)
+        
+        spec_axis.set_xlabel("Wavelength (nm)")
+        spec_axis.set_ylabel("Flux (cont norm)")
+
+        spec_axis.set_xlim(np.nanmin(wave_2D)*0.99, np.nanmax(wave_2D)*1.01)
+        spec_axis.set_ylim(0,2)
+        plt.tight_layout()
+
+        fig_name = os.path.join(fig_save_path, "rv_diagnostic")
+        plt.savefig("{}_{}.pdf".format(fig_name, obj_name))
+        plt.savefig("{}_{}.png".format(fig_name, obj_name), dpi=200)
+
+    return fit_dict
+
+
+def fit_all_rvs(
+    wave_3D,
+    spec_3D,
+    sigma_3D,
+    orders,
+    wave_telluric,
+    trans_telluric,
+    wave_template,
+    spec_template,
+    bcors,
+    segment_contamination_threshold,
+    px_absorption_threshold,
+    rv_min,
+    rv_max,
+    delta_rv,
+    do_diagnostic_plots,
+    figsize,
+    fig_save_path,
+    interpolation_method,
+    obj_names,):
+    """Function to perform RV fits to all stars using fit_rv().
+
+    Parameters
+    ----------
+    wave_3D, spec_3D, sigma_3D: 3D float array
+        Wavelengths scale, spectra, and uncertainties of shape 
+        [n_star, n_order, n_px].
+
+    orders: int array
+        Order numbering of shape [n_order].
+
+    wave_telluric, trans_telluric: 1D float array
+        Telluric wavelength scale and transmission, of shape [n_tell_wave].
+
+    wave_template: 1D float array
+        Template wavelength scale of shape [n_temp_wave].
+
+    spec_template: 2D float array
+        Template continuum normalised flux of shape [n_spec, n_temp_wave].
+
+    bcors: 1D float array
+        Barycentric velocities in km/s of shape [n_star].
+        
+    segment_contamination_threshold: float
+        If the median flux value for the model telluric transmission of a
+        spectral segment is below this we consider the *entire segment* too
+        contaminated for use when RV fitting. A value of 1 in this case 
+        would be entirely continuum (and be the most restrictive), and a 
+        value of 0 would be the most permissible.
+
+    px_absorption_threshold: float
+        Similar to segment_contamination_threshold, but it operates on a
+        *per pixel* level on the model telluric spectrum rather than a per
+        segment level.
+        
+    rv_min, rv_max: float
+        Lower and upper RV bounds respectively in km/s.
+
+    delta_rv: float
+        RV step size for cross correlation scan in km/s.
+
+    do_diagnostic_plots: boolean
+        Whether to plot diagnostic plots at the conclusion of the fit.
+
+    figsize: float tuple
+        Figure size of diagnostic plot.
+
+    fig_save_path: str
+        Path to save diagnostic figure to.
+
+    interpolation_method: str
+        Default interpolation method to use with scipy.interp1d. Can be one of: 
+        ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
+        'cubic', 'previous', or 'next'].
+
+    obj_names: 1D str array
+        Names of the stars, of shape [n_star].
+
+    Returns
+    -------
+    all_rvs: 1D float array
+        Best fit RVs of shape [n_star].
+        
+    all_fit_dicts: list of dicts
+        List of fitting information dictionaries of length [n_star].
+    """
+    # Grab dimensions for convenience
+    (n_star, n_order, n_px) = wave_3D.shape
+
+    # Initialise outputs
+    all_rvs = np.full(n_star, np.nan)
+    all_fit_dicts = []
+
+    desc = "Fitting RVs for all stars"
+
+    # Do all RV fits
+    for star_i in tqdm(range(n_star), desc=desc, leave=False):
+        rv_fit_dict = fit_rv(
+            wave_2D=wave_3D[star_i],
+            spec_2D=spec_3D[star_i],
+            sigma_2D=sigma_3D[star_i],
+            orders=orders,
+            wave_telluric=wave_telluric,
+            trans_telluric=trans_telluric,
+            wave_template=wave_template,
+            spec_template=spec_template[star_i],
+            bcor=bcors[star_i],
+            segment_contamination_threshold=segment_contamination_threshold,
+            px_absorption_threshold=px_absorption_threshold,
+            rv_min=rv_min,
+            rv_max=rv_max,
+            delta_rv=delta_rv,
+            do_diagnostic_plots=do_diagnostic_plots,
+            figsize=figsize,
+            fig_save_path=fig_save_path,
+            interpolation_method=interpolation_method,
+            disable_progress_bar=True,
+            obj_name=obj_names[star_i],)
+        
+        all_rvs[star_i] = rv_fit_dict["rv"]
+        all_fit_dicts.append(rv_fit_dict)
+
+    return all_rvs, all_fit_dicts
