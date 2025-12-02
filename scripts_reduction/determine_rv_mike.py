@@ -3,6 +3,7 @@
 import numpy as np
 import plumage.spectra_mike as sm
 import plumage.utils_mike as um
+import plumage.utils as pu
 import plumage.plotting_mike as pm
 from astropy.io import fits
 from PyAstronomy.pyasl import instrBroadGaussFast
@@ -127,7 +128,7 @@ template_spec_selected = np.stack(template_spec_selected)
 pass
 
 # Red
-rvs, all_rv_fit_dicts = sm.fit_all_rvs(
+rvs_r, all_rv_fit_dicts = sm.fit_all_rvs(
     wave_3D=wave_r_3D,
     spec_3D=spec_r_rv_norm_3D,
     sigma_3D=sigma_r_rv_norm_3D,
@@ -141,26 +142,39 @@ rvs, all_rv_fit_dicts = sm.fit_all_rvs(
     px_absorption_threshold=0.9,
     rv_min=-400,
     rv_max=400,
-    delta_rv=1,
+    delta_rv=0.5,
     interpolation_method="cubic",)
 
 # -----------------------------------------------------------------------------
 # RV diagnostics
 # -----------------------------------------------------------------------------
+# Construct title/filenames date/obj pairs
+dates = obs_info["ut_date"].values
+obj_names = obs_info["object"].values
+fit_labels = ["{}_{}".format(date, obj) for date, obj in zip(dates, obj_names)]
+
 # Blue
 pass
 
 # Red
 pm.plot_all_cc_rv_diagnostics(
     all_rv_fit_dicts=all_rv_fit_dicts,
-    obj_names=obs_info["object"].values,
+    obj_names=fit_labels,
     figsize=(16,4),
     fig_save_path="plots/rv_diagnostics",)
 
 # -----------------------------------------------------------------------------
-# Save
+# Save RV back to DataFrame
 # -----------------------------------------------------------------------------
-# Save, but now with RV
-#utils.save_fits_table("OBS_TAB", observations, label, path=spec_path)
-#utils.save_fits_image_hdu(bad_px_masks_b, "bad_px", label, arm="b")
-#utils.save_fits_image_hdu(bad_px_masks_r, "bad_px", label, arm="r")
+# Blue
+pass
+
+# Red
+obs_info["rv_r"] = rvs_r
+
+pu.save_fits_table(
+    extension="OBS_TAB",
+    dataframe=obs_info,
+    fn_base="mike_spectra",
+    label=label,
+    path="spectra",)

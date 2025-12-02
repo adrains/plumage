@@ -488,9 +488,12 @@ def save_fits_table(
     extension,
     dataframe,
     label,
+    fn_base="spectra",
     path="spectra",
     ext_label="",):
     """Update table of observations stored in given fits file.
+
+    The file is saved as <path>/<fn_base>_<label>.fits.
 
     Parameters
     ----------
@@ -504,6 +507,9 @@ def save_fits_table(
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
     
+    fn_base: string, default: "spectra"
+        Base string of filename.
+
     path: string, default: 'spectra'
         Path to save the fits file to.
 
@@ -523,7 +529,7 @@ def save_fits_table(
             valid_ext.keys()))
 
     # Load in the fits file
-    fits_path = os.path.join(path, "spectra_{}.fits".format(label))
+    fits_path = os.path.join(path, "{}_{}.fits".format(fn_base, label))
 
     with fits.open(fits_path, mode="update") as fits_file:
         # Write out the full extention name

@@ -328,12 +328,32 @@ def plot_cc_rv_diagnostic(
     fig, (cc_axis, spec_axis) = plt.subplots(2,1, figsize=figsize)
     plt.subplots_adjust(hspace=0.4,)
 
+    # ------------------------------------------------
+    # Panel #1
+    # ------------------------------------------------
     # Plot cross correlation fit
-    cc_axis.plot(rv_steps, cross_corrs, linewidth=0.2)
+    cc_axis.plot(rv_steps, cross_corrs, linewidth=0.5,)
     cc_axis.set_title(obj_name)
     cc_axis.set_xlabel("RV (km/s)")
     cc_axis.set_ylabel("Cross Correlation")
 
+    # Annotate the RV itself
+    rv_txt = "RV = {:0.1f} km/s".format(rv)
+    (y_min, y_max) = cc_axis.get_ylim()
+    cc_axis.vlines(
+        x=rv,
+        ymin=y_min,
+        ymax=y_max,
+        colors="r",
+        linestyles="dashed",
+        alpha=0.75,
+        label=rv_txt)
+    
+    cc_axis.legend(loc="lower right",)
+
+    # ------------------------------------------------
+    # Panel #2
+    # ------------------------------------------------
     # Compute best fit template and plot spectral fit
     template_flux = calc_template_flux(
         wave_template * (1-(rv-bcor)/(const.c.si.value/1000)))
@@ -384,8 +404,12 @@ def plot_cc_rv_diagnostic(
         alpha=0.5,
         c="k",
         label="telluric")
-
-    leg = spec_axis.legend(ncol=3)
+    
+    leg = spec_axis.legend(
+        ncol=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.1),
+        fancybox=True,)
 
     for legobj in leg.legendHandles:
         legobj.set_linewidth(1.5)

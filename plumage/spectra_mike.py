@@ -2242,10 +2242,6 @@ def fit_rv(
             pixel_exclude_mask.append(np.full(n_px, True))
             order_excluded[order_i] = True
 
-        elif order_mean_lambda < 5800 or order_mean_lambda > 6800:
-            pixel_exclude_mask.append(np.full(n_px, True))
-            order_excluded[order_i] = True
-
         # Otherwise only mask out nan pixels and those below the
         # telluric absorption threshold
         else:
