@@ -18,7 +18,6 @@ from scipy.interpolate import interp1d
 from astropy.coordinates import SkyCoord, EarthLocation
 import matplotlib.ticker as plticker
 from scipy.optimize import least_squares
-from astropy.stats import sigma_clip
 from numpy.polynomial.polynomial import Polynomial
 from PyAstronomy.pyasl import instrBroadGaussFast
 import plumage.utils_mike as pum
@@ -2126,6 +2125,7 @@ def fit_rv_cross_corr(
     
     return best_fit_rv, rv_steps, cross_corrs
 
+
 def fit_rv(
     wave_2D,
     spec_2D,
@@ -2141,16 +2141,10 @@ def fit_rv(
     rv_min=-200,
     rv_max=200,
     delta_rv=1,
-    do_diagnostic_plots=False,
-    figsize=(16,4),
-    fig_save_path="plots/",
     interpolation_method="cubic",
-    disable_progress_bar=False,
-    obj_name="",):
+    disable_progress_bar=False,):
     """Function to fit a radial velocity globally for all orders via cross
     correlation.
-
-    TODO: remove plotting from this function.
 
     Parameters
     ----------
@@ -2188,15 +2182,6 @@ def fit_rv(
     delta_rv: float, default 1
         RV step size for cross correlation scan in km/s.
 
-    do_diagnostic_plots: boolean, default: False
-        Whether to plot diagnostic plots at the conclusion of the fit.
-
-    figsize: float tuple, default: (16,4)
-        Figure size of diagnostic plot.
-
-    fig_save_path: str, default: 'plots'
-        Path to save diagnostic figure to.
-
     interpolation_method: str, default: "cubic"
         Default interpolation method to use with scipy.interp1d. Can be one of: 
         ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
@@ -2206,13 +2191,13 @@ def fit_rv(
         Whether or not to disable the progress bar, set to True if running in a
         loop.
 
-    obj_name: str, default: ""
-        Name of the star.
-
     Returns
     -------
-    fit_dict: dict
-        Fitting information dictionary.
+    rv_fit_dict: dict
+        Dictionary with keys ['rv', 'bcor', 'rv_steps', 'cross_corrs', 
+        'wave_template', 'spec_template', 'calc_template_flux', 
+        'wave_telluric', 'trans_telluric', 'wave_2D', 'spec_2D', 'orders', 
+        'order_excluded'].
     """
     # Grab dimensions for convenience
     (n_order, n_px) = wave_2D.shape
@@ -2322,90 +2307,24 @@ def fit_rv(
         delta_rv=delta_rv,
         dpb=disable_progress_bar,)
 
+    # Pack everything up in the fit_dict for plotting purposes later
     fit_dict["rv"] = rv
+    fit_dict["bcor"] = bcor
     fit_dict["rv_steps"] = rv_steps
     fit_dict["cross_corrs"] = cross_corrs
+    
+    fit_dict["wave_template"] = wave_template
+    fit_dict["spec_template"] = spec_template
+    fit_dict["calc_template_flux"] = calc_template_flux
 
-    # ---------------------------------------------------------------------
-    # Diagnostic plot
-    # ---------------------------------------------------------------------
-    if do_diagnostic_plots:
-        plt.close("all")
-        fig, (cc_axis, spec_axis) = plt.subplots(2,1, figsize=figsize)
-        plt.subplots_adjust(hspace=0.4,)
+    fit_dict["wave_telluric"] = wave_telluric
+    fit_dict["trans_telluric"] = trans_telluric
 
-        # Plot cross correlation fit
-        cc_axis.plot(rv_steps, cross_corrs, linewidth=0.2)
-        cc_axis.set_title(obj_name)
-        cc_axis.set_xlabel("RV (km/s)")
-        cc_axis.set_ylabel("Cross Correlation")
+    fit_dict["wave_2D"] = wave_2D
+    fit_dict["spec_2D"] = spec_2D
+    fit_dict["orders"] = orders
 
-        # Compute best fit template and plot spectral fit
-        template_flux = calc_template_flux(
-            wave_template * (1-(rv-bcor)/(const.c.si.value/1000)))
-
-        # Plot per-order science spectrum
-        for order_i in range(n_order):
-            # Skip missing orders
-            if np.nansum(wave_2D[order_i]) == 0:
-                continue
-            
-            # For M-dwarfs with continuum suppression, we want to scale the
-            # science flux so it fits over the template for readability.
-            wl_mask = np.logical_and(
-                wave_template > np.nanmin(wave_2D[order_i]),
-                wave_template < np.nanmax(wave_2D[order_i]),)
-            continuum_scale = np.mean(spec_template[wl_mask])
-
-            spec_axis.plot(
-                wave_2D[order_i],
-                spec_2D[order_i] * continuum_scale,
-                linewidth=0.5,
-                alpha=0.5,
-                c="r",
-                label="science" if order_i == 0 else None,)
-
-            spec_axis.text(
-                np.nanmean(wave_2D[order_i]),
-                1.5,
-                s="{}".format(orders[order_i]),
-                color="r" if order_excluded[order_i] else "k",
-                fontsize="x-small",
-                horizontalalignment="center",)
-
-        # Template flux
-        spec_axis.plot(
-            wave_template,
-            template_flux,
-            linewidth=0.5,
-            alpha=0.5,
-            c="b",
-            label="template")
-        
-        # Telluric transmission
-        spec_axis.plot(
-            wave_telluric,
-            trans_telluric,
-            linewidth=0.5,
-            alpha=0.5,
-            c="k",
-            label="telluric")
-
-        leg = spec_axis.legend(ncol=3)
-
-        for legobj in leg.legendHandles:
-            legobj.set_linewidth(1.5)
-        
-        spec_axis.set_xlabel("Wavelength (nm)")
-        spec_axis.set_ylabel("Flux (cont norm)")
-
-        spec_axis.set_xlim(np.nanmin(wave_2D)*0.99, np.nanmax(wave_2D)*1.01)
-        spec_axis.set_ylim(0,2)
-        plt.tight_layout()
-
-        fig_name = os.path.join(fig_save_path, "rv_diagnostic")
-        plt.savefig("{}_{}.pdf".format(fig_name, obj_name))
-        plt.savefig("{}_{}.png".format(fig_name, obj_name), dpi=200)
+    fit_dict["order_excluded"] = order_excluded
 
     return fit_dict
 
@@ -2425,11 +2344,7 @@ def fit_all_rvs(
     rv_min,
     rv_max,
     delta_rv,
-    do_diagnostic_plots,
-    figsize,
-    fig_save_path,
-    interpolation_method,
-    obj_names,):
+    interpolation_method,):
     """Function to perform RV fits to all stars using fit_rv().
 
     Parameters
@@ -2471,22 +2386,10 @@ def fit_all_rvs(
     delta_rv: float
         RV step size for cross correlation scan in km/s.
 
-    do_diagnostic_plots: boolean
-        Whether to plot diagnostic plots at the conclusion of the fit.
-
-    figsize: float tuple
-        Figure size of diagnostic plot.
-
-    fig_save_path: str
-        Path to save diagnostic figure to.
-
     interpolation_method: str
         Default interpolation method to use with scipy.interp1d. Can be one of: 
         ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
         'cubic', 'previous', or 'next'].
-
-    obj_names: 1D str array
-        Names of the stars, of shape [n_star].
 
     Returns
     -------
@@ -2494,7 +2397,10 @@ def fit_all_rvs(
         Best fit RVs of shape [n_star].
         
     all_fit_dicts: list of dicts
-        List of fitting information dictionaries of length [n_star].
+        List of dicts with keys ['rv', 'bcor', 'rv_steps', 'cross_corrs', 
+        'wave_template', 'spec_template', 'calc_template_flux', 
+        'wave_telluric', 'trans_telluric', 'wave_2D', 'spec_2D', 'orders', 
+        'order_excluded'] as output from fit_rv(), of shape [n_star].
     """
     # Grab dimensions for convenience
     (n_star, n_order, n_px) = wave_3D.shape
@@ -2522,12 +2428,8 @@ def fit_all_rvs(
             rv_min=rv_min,
             rv_max=rv_max,
             delta_rv=delta_rv,
-            do_diagnostic_plots=do_diagnostic_plots,
-            figsize=figsize,
-            fig_save_path=fig_save_path,
             interpolation_method=interpolation_method,
-            disable_progress_bar=True,
-            obj_name=obj_names[star_i],)
+            disable_progress_bar=True,)
         
         all_rvs[star_i] = rv_fit_dict["rv"]
         all_fit_dicts.append(rv_fit_dict)

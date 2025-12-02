@@ -3,6 +3,7 @@
 import numpy as np
 import plumage.spectra_mike as sm
 import plumage.utils_mike as um
+import plumage.plotting_mike as pm
 from astropy.io import fits
 from PyAstronomy.pyasl import instrBroadGaussFast
 
@@ -126,7 +127,7 @@ template_spec_selected = np.stack(template_spec_selected)
 pass
 
 # Red
-all_rv_fit_dicts = sm.fit_all_rvs(
+rvs, all_rv_fit_dicts = sm.fit_all_rvs(
     wave_3D=wave_r_3D,
     spec_3D=spec_r_rv_norm_3D,
     sigma_3D=sigma_r_rv_norm_3D,
@@ -141,11 +142,20 @@ all_rv_fit_dicts = sm.fit_all_rvs(
     rv_min=-400,
     rv_max=400,
     delta_rv=1,
-    do_diagnostic_plots=True,
-    figsize=(16,4),
-    fig_save_path="plots/rv_diagnostics",
-    obj_names=obs_info["object"].values,
     interpolation_method="cubic",)
+
+# -----------------------------------------------------------------------------
+# RV diagnostics
+# -----------------------------------------------------------------------------
+# Blue
+pass
+
+# Red
+pm.plot_all_cc_rv_diagnostics(
+    all_rv_fit_dicts=all_rv_fit_dicts,
+    obj_names=obs_info["object"].values,
+    figsize=(16,4),
+    fig_save_path="plots/rv_diagnostics",)
 
 # -----------------------------------------------------------------------------
 # Save

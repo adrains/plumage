@@ -3,7 +3,9 @@
 import os
 import warnings
 import numpy as np
+from tqdm import tqdm
 import matplotlib.pyplot as plt
+import astropy.constants as const
 from numpy.polynomial.polynomial import Polynomial
 
 def plot_flux_calibration(
@@ -268,3 +270,171 @@ def plot_flux_calibration(
         plot_folder, "flux_cal_result_{}.pdf".format(plot_label))
 
     plt.savefig(plot_fn)
+
+
+def plot_cc_rv_diagnostic(
+    rv_fit_dict,
+    obj_name,
+    figsize=(16,4),
+    fig_save_path="plots/rv_diagnostics",):
+    """Diagnostic plotting function for cross-correlation RV fits with one
+    panel displaying the CCF, and another the overlapping spectra.
+
+    Parameters
+    ----------
+    rv_fit_dict: dict
+        Dictionary with keys ['rv', 'bcor', 'rv_steps', 'cross_corrs', 
+        'wave_template', 'spec_template', 'calc_template_flux', 
+        'wave_telluric', 'trans_telluric', 'wave_2D', 'spec_2D', 'orders', 
+        'order_excluded'] as output from spectra_mike.fit_rv().
+
+    obj_name: str
+        Name of the stars to use as the title of the plot and when saving.
+
+    figsize: float tuple, default: (16,4)
+        Figure size of diagnostic plot.
+
+    fig_save_path: str, default: "plots/rv_diagnostics"
+        Path to save diagnostic figure to.
+    """
+    # -------------------------------------------------------------------------
+    # Unpacking dict
+    # -------------------------------------------------------------------------
+    rv = rv_fit_dict["rv"]
+    bcor = rv_fit_dict["bcor"]
+    rv_steps = rv_fit_dict["rv_steps"]
+    cross_corrs = rv_fit_dict["cross_corrs"]
+    calc_template_flux = rv_fit_dict["calc_template_flux"]
+
+    wave_template = rv_fit_dict["wave_template"]
+    spec_template = rv_fit_dict["spec_template"]
+    
+    wave_telluric = rv_fit_dict["wave_telluric"]
+    trans_telluric = rv_fit_dict["trans_telluric"]
+
+    wave_2D = rv_fit_dict["wave_2D"]
+    spec_2D = rv_fit_dict["spec_2D"]
+    orders = rv_fit_dict["orders"]
+
+    order_excluded = rv_fit_dict["order_excluded"]
+
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_2D.shape
+
+    # -------------------------------------------------------------------------
+    # Plotting
+    # -------------------------------------------------------------------------
+    plt.close("all")
+    fig, (cc_axis, spec_axis) = plt.subplots(2,1, figsize=figsize)
+    plt.subplots_adjust(hspace=0.4,)
+
+    # Plot cross correlation fit
+    cc_axis.plot(rv_steps, cross_corrs, linewidth=0.2)
+    cc_axis.set_title(obj_name)
+    cc_axis.set_xlabel("RV (km/s)")
+    cc_axis.set_ylabel("Cross Correlation")
+
+    # Compute best fit template and plot spectral fit
+    template_flux = calc_template_flux(
+        wave_template * (1-(rv-bcor)/(const.c.si.value/1000)))
+
+    # Plot per-order science spectrum
+    for order_i in range(n_order):
+        # Skip missing orders
+        if np.nansum(wave_2D[order_i]) == 0:
+            continue
+        
+        # For M-dwarfs with continuum suppression, we want to scale the
+        # science flux so it fits over the template for readability.
+        wl_mask = np.logical_and(
+            wave_template > np.nanmin(wave_2D[order_i]),
+            wave_template < np.nanmax(wave_2D[order_i]),)
+        continuum_scale = np.mean(spec_template[wl_mask])
+
+        spec_axis.plot(
+            wave_2D[order_i],
+            spec_2D[order_i] * continuum_scale,
+            linewidth=0.5,
+            alpha=0.5,
+            c="r",
+            label="science" if order_i == 0 else None,)
+
+        spec_axis.text(
+            np.nanmean(wave_2D[order_i]),
+            1.5,
+            s="{}".format(orders[order_i]),
+            color="r" if order_excluded[order_i] else "k",
+            fontsize="x-small",
+            horizontalalignment="center",)
+
+    # Template flux
+    spec_axis.plot(
+        wave_template,
+        template_flux,
+        linewidth=0.5,
+        alpha=0.5,
+        c="b",
+        label="template")
+    
+    # Telluric transmission
+    spec_axis.plot(
+        wave_telluric,
+        trans_telluric,
+        linewidth=0.5,
+        alpha=0.5,
+        c="k",
+        label="telluric")
+
+    leg = spec_axis.legend(ncol=3)
+
+    for legobj in leg.legendHandles:
+        legobj.set_linewidth(1.5)
+    
+    spec_axis.set_xlabel("Wavelength (nm)")
+    spec_axis.set_ylabel("Flux (cont norm)")
+
+    spec_axis.set_xlim(np.nanmin(wave_2D)*0.99, np.nanmax(wave_2D)*1.01)
+    spec_axis.set_ylim(0,2)
+    plt.tight_layout()
+
+    fig_name = os.path.join(fig_save_path, "rv_diagnostic")
+    plt.savefig("{}_{}.pdf".format(fig_name, obj_name))
+    plt.savefig("{}_{}.png".format(fig_name, obj_name), dpi=200)
+
+
+def plot_all_cc_rv_diagnostics(
+    all_rv_fit_dicts,
+    obj_names,
+    figsize,
+    fig_save_path,):
+    """Calls plot_cc_rv_diagnostic() in a loop for many RV fit diagnostics.
+
+    Parameters
+    ----------
+    all_rv_fit_dicts: list of dicts
+        List of dicts with keys ['rv', 'bcor', 'rv_steps', 'cross_corrs', 
+        'wave_template', 'spec_template', 'calc_template_flux', 
+        'wave_telluric', 'trans_telluric', 'wave_2D', 'spec_2D', 'orders', 
+        'order_excluded'] as output from spectra_mike.fit_rv(), of shape 
+        [n_star].
+
+    obj_names: 1D str list
+        Names of the stars to use as the title of the plot and when saving, of
+        shape [n_star].
+
+    figsize: float tuple, default: (16,4)
+        Figure size of diagnostic plot.
+
+    fig_save_path: str, default: "plots/rv_diagnostics"
+        Path to save diagnostic figure to.
+    """
+    n_stars = len(all_rv_fit_dicts)
+
+    desc = "Plotting RV diagnostics"
+
+    for star_i in tqdm(range(n_stars), desc=desc, leave=False):
+        plot_cc_rv_diagnostic(
+            rv_fit_dict=all_rv_fit_dicts[star_i],
+            obj_name=obj_names[star_i],
+            figsize=figsize,
+            fig_save_path=fig_save_path,)
