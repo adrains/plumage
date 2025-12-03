@@ -1654,7 +1654,7 @@ def fit_atmospheric_transmission(
 
         scale_H2O = params[0]
         scale_O2 = params[1]
-        poly_coeff_fitted = params[2]
+        poly_coeff_fitted = params[2:]
 
     # Add in dummy polynomial coeff if necessary
     if n_useful_orders != n_order:

@@ -15,6 +15,7 @@ np.set_printoptions(linewidth=150)
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
+"""
 spphot_rvs = {
     "5709390701922940416":205.94,       # Gaia DR3
     "3510294882898890880":144.52,       # Gaia DR3 (+40 km/s needed)
@@ -27,6 +28,7 @@ spphot_rvs = {
     "6477295296414847232":-44.77844,    # Gaia DR3
     "1779546757669063552":-14.7757635,  # Gaia DR3
 }
+"""
 
 stellar_templates = {
     "5709390701922940416":"templates/template_HD74000_250624_norm.fits",  # 6211, 4.155, -1.98
@@ -45,7 +47,7 @@ stellar_templates = {
 calspec_templates = {
     "5709390701922940416":"data/flux_standards/hd074000_stis_007.txt",
     "3510294882898890880":"data/flux_standards/hd111980_stis_007.txt",
-    "22745910577134848":"data/flux_standards/ksi2ceti_stis_008.txt",
+    #"22745910577134848":"data/flux_standards/ksi2ceti_stis_008.txt",
     "4201781696994073472":"data/flux_standards/gj7541a_stis_004.txt",
     "5164707970261890560":"data/flux_standards/hd022049.dat",
     "4376174445988280576":"data/flux_standards/bd02d3375_stis_008.txt",
@@ -96,18 +98,38 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 8
-optimise_order_overlap = True
-fit_for_telluric_scale_terms = False
+poly_order = 5
+optimise_order_overlap = False
+fit_for_telluric_scale_terms = True
 do_convolution = True
 resolving_power_during_fit = 500
 run_on_order_subset = False
 order_subset = [50, 51, 52, 53, 54]
 
+# Settings for polynomial 'blaze correction'
+do_flat_field_blaze_corr = True
+flat_norm_poly_order = 7
+poly_coef_csv_path = "data/"
+set_px_to_nan_beyond_domain = True
+
 # Import MIKE spectra
 wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
     path=path, label=label, arm=arm)
-obs_info = pum.load_fits_table("OBS_TAB", "KM",)
+obs_info = pum.load_fits_table("OBS_TAB", "KM_noflat",)
+
+# [Optional] Normalise by flat fields
+if do_flat_field_blaze_corr:
+    spec, sigma = \
+        psm.normalise_mike_all_spectra_by_norm_flat_field(
+            wave_3D=wave,
+            spec_3D=spec,
+            sigma_3D=sigma,
+            orders=orders,
+            arm="r",
+            poly_order=flat_norm_poly_order,
+            base_path=poly_coef_csv_path,
+            set_px_to_nan_beyond_domain=set_px_to_nan_beyond_domain,)
+
 
 # [Optional] Run on subset of orders for testing
 if run_on_order_subset:
@@ -118,7 +140,7 @@ if run_on_order_subset:
     sigma = sigma[:,order_mask]
     orders = orders[order_mask]
 
-is_spphot = obs_info["is_spphot"]
+is_spphot = obs_info["is_spphot"].values
 wave_sp = wave[is_spphot]
 spec_sp = spec[is_spphot]
 sigma_sp = sigma[is_spphot]
@@ -148,27 +170,21 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     plot_label = "{}_{}".format(
         obs_info_sp.loc[star_i]["ut_date"], source_id)
 
-    rv = spphot_rvs[source_id]
-    bcor = obs_info_sp.loc[star_i]["bcor"]
-    airmass = obs_info_sp.loc[star_i]["airmass"]
+    rv = star_data["rv_r"]
+    bcor = star_data["bcor"]
+    airmass = star_data["airmass"]
 
     # ---------------------------
     # Import flux standard + convert to air wavelengths
     fs = np.loadtxt(calspec_templates[source_id])
-    wave_fs = pum.convert_vacuum_to_air_wl(fs[:,0])
+    wave_fs_vac = fs[:,0]
+    wave_fs_air = pum.convert_vacuum_to_air_wl(fs[:,0])
     spec_fs = fs[:,1] / np.nanmedian(fs[:,1])   # Relative flux calibration is fine
 
-    # Doppler shift to match barycentric velocity
-    interp_synth = interp1d(
-        x=wave_fs,
-        y=spec_fs,
-        bounds_error=False,
-        fill_value=1.0,
-        kind="cubic",)
-
     # Doppler shift
-    wave_fs_ds = wave_fs * (1-(-bcor)/(const.c.si.value/1000))
-    spec_fs_ds = interp_synth(wave_fs_ds)
+    wave_fs_ds_vac = wave_fs_vac * (1-(-bcor)/(const.c.si.value/1000))
+    wave_fs_ds_air = wave_fs_air * (1-(-bcor)/(const.c.si.value/1000))
+    #spec_fs_ds = interp_synth(wave_fs_ds)
 
     # ---------------------------
     # Import stellar template
@@ -176,16 +192,30 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     wave_synth = ff["WAVE"].data
     spec_synth = ff["SPEC"].data[0]
 
-    interp_synth = interp1d(
-        x=wave_synth,
-        y=spec_synth,
-        bounds_error=False,
-        fill_value=1.0,
-        kind="cubic",)
-
     # Doppler shift
     wave_synth_ds = wave_synth * (1-(rv-bcor)/(const.c.si.value/1000))
-    spec_synth_ds = interp_synth(wave_synth_ds)
+    #spec_synth_ds = interp_synth(wave_synth_ds)
+
+    # -------------------------------------------------------------------------
+    # TEMPORARY
+    # -------------------------------------------------------------------------
+    if False:
+        # Normalise flux to region between 6500-6600 A
+        norm_mask = np.logical_and(wave_fs_vac > 6500, wave_fs_vac < 6600)
+        norm_fac = np.nanmedian(spec_fs[norm_mask])
+
+        spec_synth_broad = instrBroadGaussFast(
+            wvl=wave_synth,
+            flux=spec_synth,
+            resolution=3000,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
+
+        axes.plot(wave_fs_ds_vac, spec_fs / norm_fac, label=source_id, alpha=0.75, c="r")
+        axes.plot(wave_fs_ds_air, spec_fs / norm_fac, label=source_id, alpha=0.75, c="k")
+        axes.plot(wave_synth, spec_synth_broad, label=source_id, alpha=0.75, c="b")
+        continue
 
     # ---------------------------
     # MIKE spectrum
@@ -207,10 +237,10 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         wave_telluric=wave_tt_vac,
         trans_H2O_telluric=trans_H2O_broad,
         trans_O2_telluric=trans_O2_broad,
-        wave_fluxed=wave_fs,
-        spec_fluxed=spec_fs_ds,
-        wave_synth=wave_synth,
-        spec_synth=spec_synth_ds,
+        wave_fluxed=wave_fs_ds_air,
+        spec_fluxed=spec_fs,
+        wave_synth=wave_synth_ds,
+        spec_synth=spec_synth,
         airmass=airmass,
         do_convolution=do_convolution,
         resolving_power_during_fit=resolving_power_during_fit,
