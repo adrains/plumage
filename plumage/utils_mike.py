@@ -287,6 +287,8 @@ def convert_vacuum_to_air_wl(wavelengths_vac,):
 def save_flux_calibration_poly_coeff(
     poly_order,
     poly_coeff,
+    wave_mins,
+    wave_maxes,
     orders,
     arm,
     save_path,
@@ -305,6 +307,13 @@ def save_flux_calibration_poly_coeff(
     poly_coeff: 2D float array
         Polynomial coefficient array, of shape [n_order, poly_order].
 
+    wave_mins, wave_maxes: 1D float array
+        Minimum and maximum wavelength values of each order respectively, of
+        shape [n_order]. To avoid poorly conditioned polynomial fits, we
+        rescaled the wavelength scale to [-1, 1] using the minimum and maximum
+        wavelengths of each order. This is equaivalent to the window and domain
+        parameters used in numpy's Polynomial module. 
+
     orders: 1D int array
         Echelle order numbers, of shape [n_order].
 
@@ -322,14 +331,16 @@ def save_flux_calibration_poly_coeff(
     fn = "flux_cal_coeff_{}_{}_{}.txt".format(arm, label, poly_order)
     path = os.path.join(save_path, fn)
     
-    # Concatenate together the orders and polynomial coefficient arrays
-    data = np.hstack((orders[:,None], poly_coeff))
+    # Concatenate together the orders, wave min/max and polynomial coefficients
+    data = np.hstack(
+        (orders[:,None], wave_mins[:,None], wave_maxes[:,None], poly_coeff))
 
     # Construct header and format array
-    header = ["order"] + ["coeff_{}".format(pc) for pc in range(poly_order)]
+    coef_cols = ["coeff_{}".format(pc) for pc in range(poly_order)]
+    header = ["order", "domain_min", "domain_max"] + coef_cols
     header = "\t".join(header)
  
-    fmt = ["%0.0f"] + ["%.18e" for pc in range(poly_order)]
+    fmt = ["%0.0f", "%0.8f", "%0.8f"] + ["%.18e" for pc in range(poly_order)]
 
     # Save
     np.savetxt(path, data, fmt=fmt, delimiter="\t", header=header,)
@@ -365,7 +376,14 @@ def load_flux_calibration_poly_coeff(
     -------
     orders: 1D int array
         Echelle order numbers, of shape [n_order].
-        
+    
+    wave_mins, wave_maxes: 1D float array
+        Minimum and maximum wavelength values of each order respectively, of
+        shape [n_order]. To avoid poorly conditioned polynomial fits, we
+        rescaled the wavelength scale to [-1, 1] using the minimum and maximum
+        wavelengths of each order. This is equaivalent to the window and domain
+        parameters used in numpy's Polynomial module. 
+
     poly_coeff: 2D float array
         Polynomial coefficient array, of shape [n_order, poly_order].
     """
@@ -378,7 +396,9 @@ def load_flux_calibration_poly_coeff(
 
     # Unpack
     orders = data[:,0].astype(int)
-    poly_coeff = data[:,1:]
+    wave_mins = data[:,1]
+    wave_maxes = data[:,2]
+    poly_coeff = data[:,3:]
 
     # Return
-    return orders, poly_coeff
+    return orders, wave_mins, wave_maxes, poly_coeff

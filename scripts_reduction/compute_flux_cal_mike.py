@@ -98,16 +98,16 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 5
+poly_order = 9
 optimise_order_overlap = False
-fit_for_telluric_scale_terms = True
+fit_for_telluric_scale_terms = False
 do_convolution = True
 resolving_power_during_fit = 500
 run_on_order_subset = False
 order_subset = [50, 51, 52, 53, 54]
 
 # Settings for polynomial 'blaze correction'
-do_flat_field_blaze_corr = True
+do_flat_field_blaze_corr = False
 flat_norm_poly_order = 7
 poly_coef_csv_path = "data/"
 set_px_to_nan_beyond_domain = True
@@ -155,7 +155,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Grab source ID
     source_id = star_data["source_id"]
 
-    if source_id != "4376174445988280576":
+    if source_id != "3510294882898890880":
         continue
 
     print("-"*160,
@@ -256,6 +256,8 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     pum.save_flux_calibration_poly_coeff(
         poly_order=poly_order,
         poly_coeff=fit_dict["poly_coef"],
+        wave_mins=fit_dict["wave_mins"],
+        wave_maxes=fit_dict["wave_maxes"],
         orders=orders,
         arm=arm,
         label=plot_label,

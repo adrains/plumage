@@ -53,7 +53,9 @@ def plot_flux_calibration(
     scale_H2O = fit_dict["scale_H2O"]
     scale_O2 = fit_dict["scale_O2"] 
     poly_coef = fit_dict["poly_coef"]
-    wave_means = fit_dict["wave_means"]
+    wave_mins = fit_dict["wave_mins"]
+    wave_maxes = fit_dict["wave_maxes"]
+    wave_deltas = wave_maxes - wave_mins
     wave_obs_2D = fit_dict["wave_obs_2D"]
     spec_obs_2D = fit_dict["spec_obs_2D"]
     sigma_obs_2D = fit_dict["sigma_obs_2D"]
@@ -112,8 +114,12 @@ def plot_flux_calibration(
         trans_H20 = np.exp(-scale_H2O * tau_H2O_2D[order_i])
         trans_O2 = np.exp(-scale_O2 * tau_O2_2D[order_i])
 
+        # Compute windowed wavelength scale
+        wave_ith_windowed = ((wave_ith - wave_mins[order_i]) 
+                             / wave_deltas[order_i] * 2 - 1)
+
         tf_poly = Polynomial(poly_coef[order_i])
-        smooth_tf = tf_poly(wave_ith-wave_means[order_i])
+        smooth_tf = tf_poly(wave_ith_windowed)
         
         # --------
         # Panel #1: cont norm synthetic stellar and telluric (O2, and H2) spec
@@ -217,8 +223,12 @@ def plot_flux_calibration(
             label="Fitted Transfer Function" if order_i == 0 else None,)
         
         # 'Corrected' spectrum
+        wave_ith_broad_windowed = \
+            ((wave_obs_2D_broad[order_i] - wave_mins[order_i])
+             / wave_deltas[order_i] * 2 - 1)
+
         tf_poly = Polynomial(poly_coef[order_i])
-        tf = tf_poly(wave_obs_2D_broad[order_i] - wave_means[order_i])
+        tf = tf_poly(wave_ith_broad_windowed)
 
         ax_tf.plot(
             wave_obs_2D_broad[order_i],
@@ -264,10 +274,11 @@ def plot_flux_calibration(
     ax_corr.set_xlabel("Wavelength (Å)")
 
     # Title
-    fig.suptitle(plot_label.replace("_", ", "))
+    n_coef = poly_coef.shape[1]
+    fig.suptitle(plot_label.replace("_", ", ") + "[order: {}]".format(n_coef))
 
     plot_fn = os.path.join(
-        plot_folder, "flux_cal_result_{}.pdf".format(plot_label))
+        plot_folder, "flux_cal_result_{}_o{}.pdf".format(plot_label, n_coef))
 
     plt.savefig(plot_fn)
 

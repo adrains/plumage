@@ -1581,14 +1581,25 @@ def fit_atmospheric_transmission(
     bounds_low = np.full((n_useful_orders, poly_order), -np.inf).flatten()
     bounds_high = np.full((n_useful_orders, poly_order), np.inf).flatten()
 
-    # To have a well-conditioned polynomial fit, we want to subtract the mean
-    # of each order from the wavelength scale before fitting. We'll need to
-    # keep track of these means later when using the transfer functions.
-    wave_means = np.nanmean(wave_obs_2D_new, axis=1)
-    wave_means_2D = np.broadcast_to(wave_means[:,None], wave_obs_2D_new.shape)
+    # To have a well-conditioned polynomial fit, we want to normalise the
+    # wavelength scale of each order to [-1, 1]. We accomplish this as:
+    #
+    #   wave_windowed = (wave - mins) / (maxes - mins) * 2 -1
+    #
+    # We need to keep track of the mins and maxes for later when using the
+    # transfer functions, as these are equivalent to the 'domain' tuple in
+    # numpy's Polynomial module.
+    wave_mins = np.nanmin(wave_obs_2D_new, axis=1)
+    wave_maxes = np.nanmax(wave_obs_2D_new, axis=1)
+    wave_delta = wave_maxes - wave_mins
+
+    wave_mins_2D = np.broadcast_to(wave_mins[:,None], wave_obs_2D_new.shape)
+    wave_delta_2D = np.broadcast_to(wave_delta[:,None], wave_obs_2D_new.shape)
+
+    wave_windowed = (wave_obs_2D_new - wave_mins_2D) / wave_delta_2D * 2 - 1
 
     args = (
-        wave_obs_2D_new[useful_orders] - wave_means_2D[useful_orders],
+        wave_windowed[useful_orders],
         spec_obs_2D_new[useful_orders],
         sigma_obs_2D_new[useful_orders],
         tau_H2O_2D[useful_orders],
@@ -1630,7 +1641,7 @@ def fit_atmospheric_transmission(
             np.full((n_useful_orders, poly_order), np.inf).flatten())
 
         args = (
-            wave_obs_2D_new[useful_orders] - wave_means_2D[useful_orders],
+            wave_windowed[useful_orders],
             spec_obs_2D_new[useful_orders],
             sigma_obs_2D_new[useful_orders],
             tau_H2O_2D[useful_orders],
@@ -1666,8 +1677,7 @@ def fit_atmospheric_transmission(
 
     # Compute final best-fit 'corrected' spectrum saving
     corr_spec, corr_sigma = correct_tellurics_and_apply_transfer_function(
-        wave_obs_2D=\
-            wave_obs_2D_new[useful_orders]-wave_means_2D[useful_orders],
+        wave_obs_2D=wave_windowed[useful_orders],
         spec_obs_2D=spec_obs_2D_new[useful_orders],
         sigma_obs_2D=sigma_obs_2D_new[useful_orders],
         tau_H2O_2D=tau_H2O_2D[useful_orders],
@@ -1682,7 +1692,8 @@ def fit_atmospheric_transmission(
     fit_dict["scale_H2O"] = scale_H2O
     fit_dict["scale_O2"] = scale_O2
     fit_dict["poly_coef"] = poly_coef
-    fit_dict["wave_means"] = wave_means
+    fit_dict["wave_mins"] = wave_mins
+    fit_dict["wave_maxes"] = wave_maxes
     fit_dict["wave_obs_2D"] = wave_obs_2D
     fit_dict["spec_obs_2D"] = spec_obs_2D
     fit_dict["spec_obs_2D"] = spec_obs_2D
@@ -1742,11 +1753,12 @@ def flux_calibrate_mike_spectrum(
         Path to extinction at observatory.
     """
     # Import polynomial coefficients
-    orders, poly_coeff = pum.load_flux_calibration_poly_coeff(
-        poly_order=poly_order,
-        arm=arm,
-        save_path=coeff_save_folder,
-        label=label,)
+    orders, wave_mins, wave_maxes, poly_coeff = \
+        pum.load_flux_calibration_poly_coeff(
+            poly_order=poly_order,
+            arm=arm,
+            save_path=coeff_save_folder,
+            label=label,)
     
     # Grab dimensions and sanity check
     (n_order, n_px) = wave_2D.shape
@@ -1768,6 +1780,13 @@ def flux_calibrate_mike_spectrum(
     spec_2D_fc = np.full_like(spec_2D, np.nan)
     sigma_2D_fc = np.full_like(sigma_2D, np.nan)
 
+    # Compute the [-1, 1 ] windowed wavelength scale for using the polynomials
+    wave_delta = wave_maxes - wave_mins
+    wave_mins_2D = np.broadcast_to(wave_mins[:,None], wave_2D.shape)
+    wave_delta_2D = np.broadcast_to(wave_delta[:,None], wave_2D.shape)
+
+    wave_windowed = (wave_2D - wave_mins_2D) / wave_delta_2D * 2 - 1
+
     # Flux calibrate
     for order_i in range(n_order):
         wave_1D = wave_2D[order_i]
@@ -1776,7 +1795,8 @@ def flux_calibrate_mike_spectrum(
 
         # Compute transfer function for this order
         tf_poly = Polynomial(poly_coeff[order_i])
-        flux_cal_tf = 10.0**(-0.4*tf_poly(wave_1D))
+        #flux_cal_tf = 10.0**(-0.4*tf_poly(wave_windowed[order_i]))
+        flux_cal_tf = 1 / tf_poly(wave_windowed[order_i])
 
         # Calculate extinction for object for this order
         obj_ext = 10.0**(-0.4*((airmass-1.0)*interp_extinction(wave_1D)))
