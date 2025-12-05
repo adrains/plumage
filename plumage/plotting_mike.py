@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import astropy.constants as const
+from astropy.stats import sigma_clip
 from numpy.polynomial.polynomial import Polynomial
 
 def plot_flux_calibration(
@@ -473,3 +474,76 @@ def plot_all_cc_rv_diagnostics(
             obj_name=obj_names[star_i],
             figsize=figsize,
             fig_save_path=fig_save_path,)
+        
+
+def plot_all_flux_calibrated_spectra(
+    wave_3D,
+    spec_3D,
+    sigma_3D,
+    object_ids,
+    figsize,
+    plot_folder,
+    plot_label,):
+    """Plots all flux normalised spectra in the 3D datacube, and normalises by
+    the sigma clipped maximum of each.
+
+    Plot is saved as <plot_folder>/all_flux_cal_<plot_label>.pdf.
+
+    Parameters
+    ----------
+    wave_3D, spec_3D, sigma_3D: 3D float array
+        Wavelengths scale, spectra, and uncertainties of shape 
+        [n_spec, n_order, n_px].
+
+    object_ids: 1D str list
+        List of object names of length [n_star] for labelling the plots.
+
+    figsize: float tuple
+        Two element tuple for the matplotlib figure size, e.g. (16,4).
+
+    plot_folder: str
+        Folder to save the plot to.
+
+    plot_label: str
+        Unique label to include in the plot filename.
+    """
+    # Grab dimensions for convenience
+    (n_star, n_order, n_px) = wave_3D.shape
+
+    # Normalise by (5 sigma) maximum of entire spectrum
+    spec_3D_norm = spec_3D.copy()
+
+    spec_maxes = np.nanmax(
+        sigma_clip(spec_3D_norm, sigma=5, axis=(1,2)), axis=(1,2)).data
+    spec_3D_norm /= np.broadcast_to(spec_maxes[:,None,None], spec_3D.shape)
+
+    # HACK: exclude the edges
+    spec_3D_norm[:,:,:5] = np.nan
+    spec_3D_norm[:,:,-5:] = np.nan
+    
+    wave_min = np.nanmin(wave_3D)
+    wave_max = np.nanmax(wave_3D)
+    wave_mid = (wave_max - wave_min)/2 + wave_min
+
+    plt.close("all")
+    fig, axes = plt.subplots(figsize=figsize,)
+
+    for star_i in range(n_star):
+        for order_i in range(n_order):
+            offset = 1 * star_i
+            axes.plot(
+                wave_3D[star_i, order_i],
+                spec_3D_norm[star_i, order_i]+offset,
+                c="r",
+                linewidth=0.5)
+            
+        axes.text(
+            x=wave_mid,
+            y=offset+0.75,
+            s=object_ids[star_i],
+            horizontalalignment="center",)
+        
+    axes.set_ylim(0, offset+1)
+    axes.set_xlabel("Wavelength (Å)")
+    plt.tight_layout()
+    plt.savefig("{}/all_flux_cal_{}.pdf".format(plot_folder, plot_label))

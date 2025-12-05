@@ -15,21 +15,6 @@ np.set_printoptions(linewidth=150)
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-"""
-spphot_rvs = {
-    "5709390701922940416":205.94,       # Gaia DR3
-    "3510294882898890880":144.52,       # Gaia DR3 (+40 km/s needed)
-    "22745910577134848":13.27,          # Gaia DR3
-    "4201781696994073472":np.nan,       # NA?
-    "5164707970261890560":16.60,        # 2023A&A...676A.129H
-    "4376174445988280576":-397.263,     # Gaia DR3
-    "5957698605530828032":100.840645,   # Gaia DR3
-    "6342346358822630400":-19.51975,    # Gaia DR3
-    "6477295296414847232":-44.77844,    # Gaia DR3
-    "1779546757669063552":-14.7757635,  # Gaia DR3
-}
-"""
-
 stellar_templates = {
     "5709390701922940416":"templates/template_HD74000_250624_norm.fits",  # 6211, 4.155, -1.98
     "3510294882898890880":"templates/template_HD111980_250624_norm.fits", # 5578, 3.89, -1.08
@@ -47,7 +32,7 @@ stellar_templates = {
 calspec_templates = {
     "5709390701922940416":"data/flux_standards/hd074000_stis_007.txt",
     "3510294882898890880":"data/flux_standards/hd111980_stis_007.txt",
-    #"22745910577134848":"data/flux_standards/ksi2ceti_stis_008.txt",
+    "22745910577134848":"data/flux_standards/ksi2ceti_stis_008.txt",
     "4201781696994073472":"data/flux_standards/gj7541a_stis_004.txt",
     "5164707970261890560":"data/flux_standards/hd022049.dat",
     "4376174445988280576":"data/flux_standards/bd02d3375_stis_008.txt",
@@ -98,7 +83,7 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 9
+poly_order = 7
 optimise_order_overlap = False
 fit_for_telluric_scale_terms = False
 do_convolution = True
@@ -116,6 +101,9 @@ set_px_to_nan_beyond_domain = True
 wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
     path=path, label=label, arm=arm)
 obs_info = pum.load_fits_table("OBS_TAB", "KM_noflat",)
+
+# Grab dimensions for convenience
+(n_star, n_order, n_px) = wave.shape
 
 # [Optional] Normalise by flat fields
 if do_flat_field_blaze_corr:
@@ -146,7 +134,13 @@ spec_sp = spec[is_spphot]
 sigma_sp = sigma[is_spphot]
 obs_info_sp = obs_info[is_spphot]
 
+# Grab dimensions for convenience
 n_spphot = np.sum(is_spphot)
+
+# Initialise arrays to hold all polynomial coefficients and the domain values
+spphot_poly_coeff = np.full((n_spphot, n_order, poly_order), np.nan)
+spphot_wave_mins = np.full((n_spphot, n_order,), np.nan)
+spphot_wave_maxes = np.full((n_spphot, n_order,), np.nan)
 
 # -----------------------------------------------------------------------------
 # Running on all SpPhot targets
@@ -154,9 +148,6 @@ n_spphot = np.sum(is_spphot)
 for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Grab source ID
     source_id = star_data["source_id"]
-
-    if source_id != "3510294882898890880":
-        continue
 
     print("-"*160,
           "{}/{} - Gaia DR3 {}".format(si+1, n_spphot, source_id),
@@ -184,7 +175,6 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Doppler shift
     wave_fs_ds_vac = wave_fs_vac * (1-(-bcor)/(const.c.si.value/1000))
     wave_fs_ds_air = wave_fs_air * (1-(-bcor)/(const.c.si.value/1000))
-    #spec_fs_ds = interp_synth(wave_fs_ds)
 
     # ---------------------------
     # Import stellar template
@@ -194,28 +184,6 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
 
     # Doppler shift
     wave_synth_ds = wave_synth * (1-(rv-bcor)/(const.c.si.value/1000))
-    #spec_synth_ds = interp_synth(wave_synth_ds)
-
-    # -------------------------------------------------------------------------
-    # TEMPORARY
-    # -------------------------------------------------------------------------
-    if False:
-        # Normalise flux to region between 6500-6600 A
-        norm_mask = np.logical_and(wave_fs_vac > 6500, wave_fs_vac < 6600)
-        norm_fac = np.nanmedian(spec_fs[norm_mask])
-
-        spec_synth_broad = instrBroadGaussFast(
-            wvl=wave_synth,
-            flux=spec_synth,
-            resolution=3000,
-            edgeHandling="firstlast",
-            maxsig=5,
-            equid=True,)
-
-        axes.plot(wave_fs_ds_vac, spec_fs / norm_fac, label=source_id, alpha=0.75, c="r")
-        axes.plot(wave_fs_ds_air, spec_fs / norm_fac, label=source_id, alpha=0.75, c="k")
-        axes.plot(wave_synth, spec_synth_broad, label=source_id, alpha=0.75, c="b")
-        continue
 
     # ---------------------------
     # MIKE spectrum
@@ -263,17 +231,58 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         label=plot_label,
         save_path=plot_folder,)
 
-"""
-# Flux calibrate arbitrary spectrum
-test_i = 6
+    # Save
+    spphot_poly_coeff[si] = fit_dict["poly_coef"]
+    spphot_wave_mins[si] = fit_dict["wave_mins"]
+    spphot_wave_maxes[si] = fit_dict["wave_maxes"]
 
-spec_fc, sigma_fc = psm.flux_calibrate_mike_spectrum(
-    wave_2D=wave[test_i],
-    spec_2D=spec[test_i],
-    sigma_2D=sigma[test_i],
-    airmass=obs_info.iloc[test_i]["airmass"],
+# -----------------------------------------------------------------------------
+# Compute mean of all polynomials
+# -----------------------------------------------------------------------------
+# Compute means
+poly_coef_mean = np.nanmean(spphot_poly_coeff, axis=0)
+wave_mins_mean = np.nanmean(spphot_wave_mins, axis=0)
+wave_maxes_mean = np.nanmean(spphot_wave_maxes, axis=0)
+
+fn_label = "{}x_SpPhot_mean".format(n_spphot)
+
+pum.save_flux_calibration_poly_coeff(
     poly_order=poly_order,
+    poly_coeff=poly_coef_mean,
+    wave_mins=wave_mins_mean,
+    wave_maxes=wave_maxes_mean,
+    orders=orders,
     arm=arm,
-    coeff_save_folder=plot_folder,
-    label=plot_label,)
-"""
+    label=fn_label,
+    save_path=plot_folder,)
+
+# -----------------------------------------------------------------------------
+# Flux calibrating everything
+# -----------------------------------------------------------------------------
+# TODO: move this to its own script
+# Flux calibrate all spectra
+spectra_fc = np.full_like(spec, np.nan)
+sigma_fc = np.full_like(spec, np.nan)
+
+for star_i in range(n_star):
+    spec_fc, sig_fc = psm.flux_calibrate_mike_spectrum(
+        wave_2D=wave[star_i],
+        spec_2D=spec[star_i],
+        sigma_2D=sigma[star_i],
+        airmass=obs_info.iloc[star_i]["airmass"],
+        poly_order=poly_order,
+        arm=arm,
+        coeff_save_folder=plot_folder,
+        label=fn_label,)
+
+    spectra_fc[star_i] = spec_fc
+    sigma_fc[star_i] = sig_fc
+
+ppltm.plot_all_flux_calibrated_spectra(
+    wave_3D=wave,
+    spec_3D=spectra_fc,
+    sigma_3D=sigma_fc,
+    object_ids=obs_info["object"].values,
+    figsize=(16,50),
+    plot_folder=plot_folder,
+    plot_label=arm,)
