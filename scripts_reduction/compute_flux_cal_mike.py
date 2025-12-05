@@ -153,11 +153,6 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
           "{}/{} - Gaia DR3 {}".format(si+1, n_spphot, source_id),
           "-"*160, sep="\n")
 
-    # Skip if we don't have a template stellar spectrum
-    if stellar_templates[source_id] is None:
-        print("Skipping")
-        continue
-
     plot_label = "{}_{}".format(
         obs_info_sp.loc[star_i]["ut_date"], source_id)
 
@@ -165,28 +160,41 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     bcor = star_data["bcor"]
     airmass = star_data["airmass"]
 
-    # ---------------------------
+    # -------------------------------------------------------------------------
+    # Flux standard spectrum
+    # -------------------------------------------------------------------------
     # Import flux standard + convert to air wavelengths
     fs = np.loadtxt(calspec_templates[source_id])
     wave_fs_vac = fs[:,0]
     wave_fs_air = pum.convert_vacuum_to_air_wl(fs[:,0])
-    spec_fs = fs[:,1] / np.nanmedian(fs[:,1])   # Relative flux calibration is fine
+
+    # HACK (?) Only do relative flux calibration
+    spec_fs = fs[:,1] / np.nanmedian(fs[:,1])
 
     # Doppler shift
     wave_fs_ds_vac = wave_fs_vac * (1-(-bcor)/(const.c.si.value/1000))
     wave_fs_ds_air = wave_fs_air * (1-(-bcor)/(const.c.si.value/1000))
 
-    # ---------------------------
-    # Import stellar template
-    ff = fits.open(stellar_templates[source_id])
-    wave_synth = ff["WAVE"].data
-    spec_synth = ff["SPEC"].data[0]
+    # -------------------------------------------------------------------------
+    # Synthetic template spectrum
+    # -------------------------------------------------------------------------
+    # HACK Make a dummy template if we don't have one--only used for plotting
+    if stellar_templates[source_id] is None:
+        print("No stellar template")
+        wave_synth = wave_fs_ds_air.copy()
+        spec_synth = np.ones_like(wave_synth)
+        
+    else:
+        ff = fits.open(stellar_templates[source_id])
+        wave_synth = ff["WAVE"].data
+        spec_synth = ff["SPEC"].data[0]
 
     # Doppler shift
     wave_synth_ds = wave_synth * (1-(rv-bcor)/(const.c.si.value/1000))
 
-    # ---------------------------
-    # MIKE spectrum
+    # -------------------------------------------------------------------------
+    # MIKE spectra
+    # -------------------------------------------------------------------------
     # Select spectrum and normalise to median, since we don't care to attempt
     # *absolute* flux calibration.
     med = np.nanmedian(spec_sp[si][1:])
@@ -278,11 +286,13 @@ for star_i in range(n_star):
     spectra_fc[star_i] = spec_fc
     sigma_fc[star_i] = sig_fc
 
+mm = np.argsort(obs_info["teff_template"].values)
+
 ppltm.plot_all_flux_calibrated_spectra(
-    wave_3D=wave,
-    spec_3D=spectra_fc,
-    sigma_3D=sigma_fc,
-    object_ids=obs_info["object"].values,
+    wave_3D=wave[mm],
+    spec_3D=spectra_fc[mm],
+    sigma_3D=sigma_fc[mm],
+    object_ids=obs_info["object"].values[mm],
     figsize=(16,50),
     plot_folder=plot_folder,
     plot_label=arm,)
