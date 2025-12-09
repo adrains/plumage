@@ -1058,7 +1058,7 @@ def calc_flux_correction_resid(
         numpy.polynomial.polynomial.Polynomial.
 
     wave_obs_2D, spec_obs_2D, sigma_obs_2D: 2D float array
-        Observed spectra of shape [n_order, n_px].
+        Observed wavelengh scale, spectra, and sigmas of shape [n_order, n_px].
 
     tau_H2O_2D, tau_O2_2D: 2D float array
         Telluric optical depths for H2O and O2 interpolated to be on the same
@@ -1121,10 +1121,11 @@ def calc_flux_correction_resid(
     # Compute residuals
     # -------------------------------------------------------------------------
     # Compute order-by-order residuals when comparing to the fluxed spectrum
-    fluxed_resid = (spec_fluxed_2D - spec_obs_2D_fluxed)**2 
-                  #/ sigma_obs_2D_cleaned**2)
+    fluxed_resid = ((spec_fluxed_2D - spec_obs_2D_fluxed)**2 
+                  / sigma_obs_2D_fluxed**2)
     
-    #fluxed_resid[do_interp_mask] = 0
+    # Extrapolated px have been flagged as NaNs in the input arrays, zero these
+    fluxed_resid[np.isnan(fluxed_resid)] = 0
 
     fluxed_resid = fluxed_resid.flatten()
 
@@ -1415,11 +1416,18 @@ def fit_atmospheric_transmission(
         
         # Mask edges. We can't just set these to NaN when smoothing, as the NaN
         # pixels will end up 'corrupting' neighbouring px up to 5 sigma away.
-        edge_px = np.logical_or(np.arange(n_px) < 5, np.arange(n_px) > n_px-5)
+        #edge_px = np.logical_or(np.arange(n_px) < 5, np.arange(n_px) > n_px-5)
 
-        wave_obs_2D = wave_obs_2D[:,~edge_px]
-        spec_obs_2D = spec_obs_2D[:,~edge_px]
-        sigma_obs_2D = sigma_obs_2D[:,~edge_px]
+        #wave_obs_2D = wave_obs_2D[:,~edge_px]
+        #spec_obs_2D = spec_obs_2D[:,~edge_px]
+        #sigma_obs_2D = sigma_obs_2D[:,~edge_px]
+
+        # Compute a bad px mask to exclude NaN, inf, or <= 0 fluxes or sigmas
+        bad_px_mask = np.any([
+            ~np.isfinite(spec_obs_2D),
+            ~np.isfinite(sigma_obs_2D),
+            spec_obs_2D <= 0,
+            sigma_obs_2D <= 0,], axis=0)
 
         # Compute new arrays with subsampled wavelength scale
         n_px_ss = wave_obs_2D[:,::wavelength_subsample_fac].shape[1]
@@ -1432,18 +1440,20 @@ def fit_atmospheric_transmission(
             if not useful_orders[order_i]:
                 continue
             
+            bpm = bad_px_mask[order_i]
+
             # Broaden spectra
             spec_broad = instrBroadGaussFast(
-                wvl=wave_obs_2D[order_i],
-                flux=spec_obs_2D[order_i],
+                wvl=wave_obs_2D[order_i][~bpm],
+                flux=spec_obs_2D[order_i][~bpm],
                 resolution=resolving_power_during_fit,
                 edgeHandling="firstlast",
                 maxsig=5,
                 equid=True,)
             
             sigma_broad = instrBroadGaussFast(
-                wvl=wave_obs_2D[order_i],
-                flux=sigma_obs_2D[order_i],
+                wvl=wave_obs_2D[order_i][~bpm],
+                flux=sigma_obs_2D[order_i][~bpm],
                 resolution=resolving_power_during_fit,
                 edgeHandling="firstlast",
                 maxsig=5,
@@ -1451,17 +1461,17 @@ def fit_atmospheric_transmission(
             
             # Subsample wavelength scale
             interp_spec_broad = interp1d(
-                x=wave_obs_2D[order_i],
+                x=wave_obs_2D[order_i][~bpm],
                 y=spec_broad,
                 bounds_error=False,
-                fill_value=1.0,
+                fill_value=np.nan,
                 kind="cubic",)
             
             interp_sigma_broad = interp1d(
-                x=wave_obs_2D[order_i],
+                x=wave_obs_2D[order_i][~bpm],
                 y=sigma_broad,
                 bounds_error=False,
-                fill_value=1.0,
+                fill_value=np.nan,
                 kind="cubic",)
 
             wave_obs_2D_new[order_i] = \
@@ -1533,33 +1543,6 @@ def fit_atmospheric_transmission(
     # our observations
     spec_fluxed_2D *= 10 ** (-0.4 * airmass * extinction_2D)
 
-    """
-    # -------------------------------------------------------------------------
-    # 0) Initial polynomial fit to *just* the 'corrected' MIKE spectra
-    # -------------------------------------------------------------------------
-    poly_coeff_init = np.zeros((n_useful_orders, poly_order))
-    poly_coeff_init[:,0] = 1
-
-    spec_obs_2D_corr_init, _ = correct_tellurics_and_apply_transfer_function(
-        wave_obs_2D_new[useful_orders],
-        spec_obs_2D_new[useful_orders],
-        sigma_obs_2D_new[useful_orders],
-        tau_H2O_2D[useful_orders],
-        tau_O2_2D[useful_orders],
-        scale_H2O=1.0,
-        scale_O2=1.0,
-        poly_coef=poly_coeff_init,)
-    
-    for order_i in range(n_useful_orders):
-        coef = polyfit(
-            x=wave_obs_2D_new[order_i],
-            y=spec_obs_2D_new[order_i],
-            deg=poly_order-1,)
-        
-        #calc_poly = Polynomial(coef)
-
-        poly_coeff_init[order_i] = 1/coef
-    """
     # -------------------------------------------------------------------------
     # 1) Initial fit without telluric scaling terms
     # -------------------------------------------------------------------------
