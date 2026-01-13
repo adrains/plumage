@@ -1121,8 +1121,8 @@ def calc_flux_correction_resid(
     # Compute residuals
     # -------------------------------------------------------------------------
     # Compute order-by-order residuals when comparing to the fluxed spectrum
-    fluxed_resid = ((spec_fluxed_2D - spec_obs_2D_fluxed)**2 
-                  / sigma_obs_2D_fluxed**2)
+    fluxed_resid = (spec_fluxed_2D - spec_obs_2D_fluxed)**2 
+                  #/ sigma_obs_2D_fluxed**2)
     
     # Extrapolated px have been flagged as NaNs in the input arrays, zero these
     fluxed_resid[np.isnan(fluxed_resid)] = 0
@@ -1296,6 +1296,8 @@ def fit_atmospheric_transmission(
     wave_synth,
     spec_synth,
     airmass,
+    scale_O2=1.0,
+    scale_H2O=1.0,
     do_convolution=False,
     resolving_power_during_fit=1150,
     wavelength_subsample_fac=20,
@@ -1329,6 +1331,9 @@ def fit_atmospheric_transmission(
 
     airmass: float
         Airmass of the target.
+
+    scale_O2, scale_H2O: float
+        Optical depth scale (i.e. multiplier) terms for O2 and H2O.
 
     do_convolution: boolean, default: False
         Whether to convolve all spectra to a lower resolving power before
@@ -1550,9 +1555,6 @@ def fit_atmospheric_transmission(
 
     # Special terms for initial fit
     do_tau_scaling_term_fit = False
-    #ptimise_order_overlap_on_initial_fit = False
-    scale_H2O = 1.0
-    scale_O2 = 1.0
 
     # Setup the list of parameters to pass to our fitting function
     poly_coeff_init = np.zeros((n_useful_orders, poly_order))
@@ -2109,7 +2111,7 @@ def fit_rv_cross_corr(
     rv_steps = np.arange(rv_min, rv_max, delta_rv)
 
     # Initialise our output vector of cross correlations
-    cross_corrs = np.full(rv_steps.shape, 0)
+    cross_corrs = np.full(rv_steps.shape, 0.0)
 
     desc = "Fitting RV"
 
@@ -2434,3 +2436,104 @@ def fit_all_rvs(
         all_fit_dicts.append(rv_fit_dict)
 
     return all_rvs, all_fit_dicts
+
+
+def fit_rv_for_flux_template(
+    calspec_temp_fn,
+    calspec_synth_fn,
+    resolving_power,
+    rv_min,
+    rv_max,
+    delta_rv,
+    interpolation_method="linear",):
+    """Function to fit the RV for a CALSPEC flux standard spectrum.
+
+    Parameters
+    ----------
+    calspec_temp_fn: string
+        Filename for the CALSPEC spectrum.
+
+    calspec_synth_fn: string
+        Filename for the synthetic spectrum we'll cross-correlate with.
+
+    rv_min, rv_max: float
+        Minimimum and maximum RV bounds for the cross-correlation.
+
+    delta_rv: float
+        RV step for the cross-correlation.
+
+    interpolation_method: str
+        Default interpolation method to use with scipy.interp1d. Can be one of: 
+        ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
+        'cubic', 'previous', or 'next'].
+
+    Returns
+    -------
+    rv_fit_dict: dict
+        Dictionary with keys ['rv', 'bcor', 'rv_steps', 'cross_corrs', 
+        'wave_template', 'spec_template', 'calc_template_flux', 
+        'wave_telluric', 'trans_telluric', 'wave_2D', 'spec_2D', 'orders', 
+        'order_excluded'].
+    """
+    # Import CALSPEC template
+    fs = np.loadtxt(calspec_temp_fn)
+    wave_fs_air = pum.convert_vacuum_to_air_wl(fs[:,0])
+
+    spec_fs = fs[:,1]
+    sigma_fs = fs[:,2]
+
+    # Mask UV
+    include_wl_mask = np.logical_and(wave_fs_air > 3400, wave_fs_air < 8500)
+    wave_fs_air = wave_fs_air[include_wl_mask]
+    spec_fs = spec_fs[include_wl_mask]
+    sigma_fs = sigma_fs[include_wl_mask]
+
+    # Normalise by continuum
+    spec_cont = instrBroadGaussFast(
+        wvl=wave_fs_air,
+        flux=spec_fs,
+        resolution=10,
+        edgeHandling="firstlast",
+        maxsig=5,
+        equid=True,)
+
+    sigma_fs /= spec_cont
+    spec_fs /= spec_cont
+
+    # Import CALSPEC *synthetic* template
+    with fits.open(calspec_synth_fn) as calspec_fits:
+        wave_synth = calspec_fits["WAVE"].data
+        spec_synth = calspec_fits["SPEC"].data[0]
+
+    # Convolve the synthetic template to lower resolution
+    spec_synth_broad = instrBroadGaussFast(
+        wvl=wave_synth,
+        flux=spec_synth,
+        resolution=resolving_power,
+        edgeHandling="firstlast",
+        maxsig=5,
+        equid=True,)
+
+    # Create dummy telluric arrays
+    wave_telluric = np.arange(wave_fs_air.min()*0.5, wave_fs_air.max()*2, 0.5)
+    trans_telluric = np.ones_like(wave_telluric)
+
+    rv_fit_dict = fit_rv(
+        wave_2D=wave_fs_air[None,:],
+        spec_2D=spec_fs[None,:],
+        sigma_2D=sigma_fs[None,:],
+        orders=[0],
+        wave_telluric=wave_telluric,
+        trans_telluric=trans_telluric,
+        wave_template=wave_synth,
+        spec_template=spec_synth_broad,
+        bcor=0,
+        segment_contamination_threshold=0,
+        px_absorption_threshold=0,
+        rv_min=rv_min,
+        rv_max=rv_max,
+        delta_rv=delta_rv,
+        interpolation_method=interpolation_method,
+        disable_progress_bar=False,)
+    
+    return rv_fit_dict

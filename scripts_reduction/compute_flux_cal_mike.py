@@ -7,7 +7,6 @@ import plumage.plotting_mike as ppltm
 from PyAstronomy.pyasl import instrBroadGaussFast
 from astropy.io import fits
 import astropy.constants as const
-from scipy.interpolate import interp1d
 
 # Update for line breaks
 np.set_printoptions(linewidth=150)
@@ -40,6 +39,36 @@ calspec_templates = {
     "6342346358822630400":"data/flux_standards/hd185975_stis_008.txt",
     "6477295296414847232":"data/flux_standards/hd200654_stis_008.txt",
     "1779546757669063552":"data/flux_standards/hd209458_stisnic_008.txt",}
+
+# Fitted via scripts_reduction/calc_rv_for_calspec_template.py
+calspec_rvs = {
+    "5709390701922940416":178,
+    "3510294882898890880":133,
+    "22745910577134848":10,
+    "4201781696994073472":0,        # WD
+    "5164707970261890560":-82,
+    "4376174445988280576":-442,
+    "5957698605530828032":80,
+    "6342346358822630400":-79,
+    "6477295296414847232":-85,
+    "1779546757669063552":-72,
+}
+
+# Initial guess scale terms
+flux_standard_tau_scale_terms = {
+    ("6477295296414847232", "2025-07-02"):(1.1, 1.2),
+    ("22745910577134848",   "2021-11-22"):(1.2, 0.6),
+    ("4376174445988280576", "2025-07-02"):(1.1, 1.1),
+    ("6342346358822630400", "2025-07-02"):(1.3, 1.6),   # problem ?
+    ("4201781696994073472", "2025-07-02"):(1.1, 1.1),
+    ("1779546757669063552", "2025-07-02"):(1.2, 1.5),   # problem ?
+    ("5164707970261890560", "2025-07-02"):(1.3, 1.6),   # problem ?
+    ("5957698605530828032", "2025-07-02"):(1.1, 1.0),
+    ("3510294882898890880", "2025-05-19"):(1.1, 1.2),
+    ("3510294882898890880", "2025-05-20"):(1.1, 0.9),
+    ("5709390701922940416", "2025-05-19"):(1.3, 1.4),
+
+}
 
 # Telluric transmission
 # https://github.com/mzechmeister/viper/tree/master/lib/atmos
@@ -83,16 +112,22 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 7
+poly_order = 8
 optimise_order_overlap = False
 fit_for_telluric_scale_terms = False
 do_convolution = True
-resolving_power_during_fit = 500
+resolving_power_during_fit = 1000
 run_on_order_subset = False
 order_subset = [50, 51, 52, 53, 54]
 
+# Cleaning
+clean_input_spectra = True
+edge_px_to_mask = 100
+sigma_clip_blaze_corr_spectra = False
+sigma_upper = 5
+
 # Settings for polynomial 'blaze correction'
-do_flat_field_blaze_corr = False
+do_flat_field_blaze_corr = True
 flat_norm_poly_order = 7
 poly_coef_csv_path = "data/"
 set_px_to_nan_beyond_domain = True
@@ -104,6 +139,24 @@ obs_info = pum.load_fits_table("OBS_TAB", "KM_noflat",)
 
 # Grab dimensions for convenience
 (n_star, n_order, n_px) = wave.shape
+
+# [Optional] Clean spectra
+if clean_input_spectra:
+    bad_px_mask = np.any(a=[spec <= 0, sigma <= 0,], axis=0,)
+
+    if edge_px_to_mask > 0:
+        bad_px_mask[:,:,:edge_px_to_mask] = np.nan
+        bad_px_mask[:,:,-edge_px_to_mask:] = np.nan
+
+    spec[bad_px_mask] = np.nan
+    sigma[bad_px_mask] = np.nan
+
+    # Clean order #71 (bluest order) by trimming the edges.
+    o71 = int(np.argwhere(orders == 71))
+    o71_clip_mask = np.logical_or(wave[:,o71] < 4818, wave[:,o71] > 4880)
+
+    for star_i in range(n_star):
+        spec[star_i,o71,o71_clip_mask[star_i]] = np.nan
 
 # [Optional] Normalise by flat fields
 if do_flat_field_blaze_corr:
@@ -117,7 +170,6 @@ if do_flat_field_blaze_corr:
             poly_order=flat_norm_poly_order,
             base_path=poly_coef_csv_path,
             set_px_to_nan_beyond_domain=set_px_to_nan_beyond_domain,)
-
 
 # [Optional] Run on subset of orders for testing
 if run_on_order_subset:
@@ -148,6 +200,7 @@ spphot_wave_maxes = np.full((n_spphot, n_order,), np.nan)
 for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Grab source ID
     source_id = star_data["source_id"]
+    ut_date = star_data["ut_date"]
 
     print("-"*160,
           "{}/{} - Gaia DR3 {}".format(si+1, n_spphot, source_id),
@@ -160,6 +213,10 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     bcor = star_data["bcor"]
     airmass = star_data["airmass"]
 
+    # Grab initial guess tau scaling terms
+    tau_scale_O2 = flux_standard_tau_scale_terms[(source_id, ut_date)][0]
+    tau_scale_H2O = flux_standard_tau_scale_terms[(source_id, ut_date)][1]
+
     # -------------------------------------------------------------------------
     # Flux standard spectrum
     # -------------------------------------------------------------------------
@@ -171,9 +228,11 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # HACK (?) Only do relative flux calibration
     spec_fs = fs[:,1] / np.nanmedian(fs[:,1])
 
+    cs_rv = calspec_rvs[source_id]
+
     # Doppler shift
-    wave_fs_ds_vac = wave_fs_vac * (1-(-bcor)/(const.c.si.value/1000))
-    wave_fs_ds_air = wave_fs_air * (1-(-bcor)/(const.c.si.value/1000))
+    wave_fs_ds_vac = wave_fs_vac * (1-(cs_rv-bcor)/(const.c.si.value/1000))
+    wave_fs_ds_air = wave_fs_air * (1-(cs_rv-bcor)/(const.c.si.value/1000))
 
     # -------------------------------------------------------------------------
     # Synthetic template spectrum
@@ -218,6 +277,8 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         wave_synth=wave_synth_ds,
         spec_synth=spec_synth,
         airmass=airmass,
+        scale_O2=tau_scale_O2,
+        scale_H2O=tau_scale_H2O,
         do_convolution=do_convolution,
         resolving_power_during_fit=resolving_power_during_fit,
         poly_order=poly_order,

@@ -7,6 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import astropy.constants as const
 from astropy.stats import sigma_clip
+from scipy.interpolate import interp1d
 from numpy.polynomial.polynomial import Polynomial
 
 def plot_flux_calibration(
@@ -257,6 +258,10 @@ def plot_flux_calibration(
     ax_comp.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
     ax_tf.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
     ax_corr.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+
+    # Scale
+    ax_obs.set_yscale("log")
+    ax_tf.set_yscale("log")
 
     # Axis Labels
     ax_temp.set_ylabel(r"Transmission", fontsize=fontsize)
@@ -536,14 +541,129 @@ def plot_all_flux_calibrated_spectra(
                 spec_3D_norm[star_i, order_i]+offset,
                 c="r",
                 linewidth=0.5)
-            
+        
+        snr = np.nanmedian(spec_3D[star_i] / sigma_3D[star_i])
+        txt = "{} [SNR ~ {:0.0f}]".format(object_ids[star_i], snr)
+
         axes.text(
             x=wave_mid,
             y=offset+0.75,
-            s=object_ids[star_i],
+            s=txt,
             horizontalalignment="center",)
         
     axes.set_ylim(0, offset+1)
     axes.set_xlabel("Wavelength (Å)")
     plt.tight_layout()
     plt.savefig("{}/all_flux_cal_{}.pdf".format(plot_folder, plot_label))
+
+
+def plot_telluric_scale_terms(
+    wave_2D,
+    spec_2D,
+    wave_tt,
+    trans_tt,
+    test_tt_scale,
+    plot_label,
+    species,
+    wave_min,
+    wave_max,):
+    """Function to plot telluric 'correction' using different optical depth
+    scaling terms for H2O and O2 to inform which to use when flux calibrating.
+    Plots are saved as:
+
+    plots/telluric_scale_diagnostics/telluric_scale_<plot_label>_<species>.png
+
+    Parameters
+    ----------
+    wave_2D, spec_2D, sigma_2D: 2D float array
+        Wavelengths scale, spectra, and uncertainties of shape [n_order, n_px].
+
+    wave_tt, trans_tt: 1D float array
+        Telluric wavelength scale and transmission vectors, this will either
+        apply to H2O or O2.
+
+    test_tt_scale: 1D float array
+        Array of test values for optical depth scaling.
+
+    plot_label: string
+        Unique label for the plot filename and plot super title.
+
+    species: string
+        Species label, either H2O or O2.
+
+    wave_min, wave_max: float
+        Minimum and maximum wavelengths to show on the plot.
+    """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_2D.shape
+
+    # Create interpolator for telluric transmission
+    interp_trans_tt = interp1d(
+        x=wave_tt,
+        y=trans_tt,
+        bounds_error=False,
+        fill_value=1.0,
+        kind="cubic",)
+
+    # Interpolate telluric transmission onto observed wavelength scale as tau
+    tau_tt_2D = np.full_like(wave_2D, np.nan)
+
+    for order_i in range(n_order):
+        wave_ith = wave_2D[order_i]
+        tau_tt_2D[order_i] = -np.log(interp_trans_tt(wave_ith))
+
+    plt.close("all")
+    fig, axes = plt.subplots(
+        nrows=len(test_tt_scale), figsize=(16,12), sharex=True, sharey=True)
+
+    fig.subplots_adjust(
+        left=0.05,
+        bottom=0.03,
+        right=0.995,
+        top=0.95,
+        hspace=0.01)
+
+    # Loop over all orders
+    for order_i in range(n_order):
+        wave_1D = wave_2D[order_i]
+
+        # Don't plot any orders outside the wavelength range
+        if (np.nansum(wave_1D > wave_min) == 0
+            or np.nansum(wave_1D < wave_max) == 0):
+            continue
+        
+        # For all test optical depth scaling terms, 'correct' the telluric
+        # transmission and plot.
+        for od_scale_i, od_scale in enumerate(test_tt_scale):
+            # Compute telluric transmission
+            trans_tt_2D = np.exp(-od_scale * tau_tt_2D[order_i])
+            
+            # 'Correct' telluric absorption
+            spec_corr = spec_2D[order_i] / trans_tt_2D
+
+            lbl = "{:0.2f}".format(od_scale)
+
+            # Plot before and after
+            axes[od_scale_i].plot(
+                wave_1D, spec_2D[order_i], c="k", linewidth=0.5)
+            axes[od_scale_i].plot(wave_1D, spec_corr, c="r", linewidth=0.5,)
+
+            axes[od_scale_i].set_yscale("log")
+
+            axes[od_scale_i].text(
+                x=0.5,
+                y=0.15,
+                s=lbl,
+                c="b",
+                fontsize="small",
+                horizontalalignment="center",
+                transform=axes[od_scale_i].transAxes,
+                bbox=dict(facecolor="b", alpha=0.1),)
+
+    axes[od_scale_i].set_xlim(wave_min, wave_max)
+
+    fig.suptitle("{} -- {}".format(plot_label, species))
+
+    fn = "telluric_scale_{}_{}.png".format(plot_label, species)
+
+    plt.savefig("plots/telluric_scale_diagnostics/{}".format(fn), dpi=300)
