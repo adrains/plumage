@@ -1,6 +1,7 @@
 """Utilities functions to work with MIKE spectra.
 """
 import os
+import warnings
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table
@@ -402,3 +403,115 @@ def load_flux_calibration_poly_coeff(
 
     # Return
     return orders, wave_mins, wave_maxes, poly_coeff
+
+
+def output_snr_for_spreadsheet(source_ids, obs_dict,):
+    """Extracts exposure times and SNR values for the blue and red arms, and
+    formats such that this can be directly copied and pasted into the MIKE
+    target spreadsheet (assuming, of course, that source_ids is in order).
+
+    Prints one row per star, formatted and tab separated as:
+        <source_id> <exps_b> <snrs_b> <exps_r> <snrs_r>
+
+    Where exps_b, snrs_b, exps_r, and snrs_r are either integers or lists of
+    integers in the case the target has been observed multiple times.
+
+    Parameters
+    ----------
+    source_ids: str list
+        List of source_ids.
+
+    obs_dict: dict
+        Dictionary containing the compiled MIKE data as output by 
+        plumage.spectra_mike.collate_mike_obs, with the following keys:
+            'obs_info' - pandas DataFrame with info from fits headers
+            'orders_b' - blue echelle orders, shape [n_order]
+            'wave_b'   - blue wavelength scales, shape [n_star, n_order, n_px]
+            'spec_b'   - blue spectra, shape [n_star, n_order, n_px]
+            'sigma_b'  - blue uncertainties, shape [n_star, n_order, n_px]
+            'orders_r' - red echelle orders, shape [n_order]
+            'wave_r'   - red wavelength scales, shape [n_star, n_order, n_px]
+            'spec_r'   - red spectra, shape [n_star, n_order, n_px]
+            'sigma_r'  - red uncertainties, shape [n_star, n_order, n_px]
+    """
+    # Initialise lists to store compiled values
+    exps_b = []
+    exps_r = []
+    snrs_b = []
+    snrs_r = []
+
+    # Loop over all expected source_ids and check against observations
+    for sid in source_ids:
+        # Find the index/indices corresponding to this star
+        ii = np.argwhere(obs_dict["obs_info"]["source_id"].values == sid)
+
+        # If we didn't find the star, use default values and continue
+        if len(ii) == 0:
+            exps_b.append(0)
+            exps_r.append(0)
+            snrs_r.append(0)
+            snrs_b.append(0)
+            continue
+
+        ii = ii.flatten()
+        
+        # Initialise lists for just this star
+        exp_bs = []
+        exp_rs = []
+        snr_bs = []
+        snr_rs = []
+        
+        # Loop over all indices and extract exposure times and SNRs
+        for iii in ii:
+            exp_b = obs_dict["obs_info"]["exp_time_b"][iii]
+            exp_r = obs_dict["obs_info"]["exp_time_r"][iii]
+
+            if np.isnan(exp_b):
+                exp_b = 0
+            if np.isnan(exp_r):
+                exp_r = 0
+            
+            exp_bs.append(int(exp_b))
+            exp_rs.append(int(exp_r))
+            
+            with warnings.catch_warnings():
+                msg1 = "divide by zero encountered in true_divide"
+                msg2 = "invalid value encountered in true_divide"
+                msg3 = "Mean of empty slice"
+                warnings.filterwarnings(action='ignore', message=msg1)
+                warnings.filterwarnings(action='ignore', message=msg2)
+                warnings.filterwarnings(action='ignore', message=msg3)
+
+                spec_b = obs_dict["spec_b"][iii]
+                sigma_b = obs_dict["sigma_b"][iii]
+                snr_b = spec_b/sigma_b
+                mm_b = np.isfinite(snr_b)
+                med_b = np.nanmedian(snr_b[mm_b])
+                
+                # Account for NaNs
+                if np.isnan(med_b):
+                    med_b = 0
+                
+                snr_bs.append(int(med_b))
+                
+                spec_r = obs_dict["spec_r"][iii]
+                sigma_r = obs_dict["sigma_r"][iii]
+                snr_r = spec_r / sigma_r
+                mm_r = np.isfinite(snr_r)
+                snr_rs.append(int(np.nanmedian(snr_r[mm_r])))
+        
+        exps_b.append(exp_bs)
+        exps_r.append(exp_rs)    
+        snrs_b.append(snr_bs)
+        snrs_r.append(snr_rs)
+
+    # Print tab-separated row per star, and format to remove []
+    print("source_id\texps_b\tsnrs_b\texps_r\tsnrs_r")
+
+    for sid_i, sid in enumerate(source_ids):
+        print_str = "\t".join(
+            (sid, str(exps_b[sid_i]), str(snrs_b[sid_i]), str(exps_r[sid_i]), 
+             str(snrs_r[sid_i]),))
+        print_str = print_str.replace("[", "").replace("]", "")
+
+        print(print_str)

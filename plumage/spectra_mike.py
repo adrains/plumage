@@ -738,17 +738,27 @@ def load_all_mike_fits(
     blue_dict = {}
     red_dict = {}
 
+    # Initialise array to keep track of stars without crossmatch information
+    stars_missing_cm = []
+
     # Loop over all objects
     for obj in unique_objs:
-        # Crossmatch ID and replace with Gaia DR3 source id
-        if obj not in id_cm_df.index:
-            print("\nMissing crossmatch info for {}".format(obj))
-            continue
+        # Strip spaces out
+        obj_str = obj.replace(" ", "")
 
-        sid = id_cm_df.loc[obj]["source_id"]
-        kind = id_cm_df.loc[obj]["kind"]
-        is_spphot = id_cm_df.loc[obj]["is_sphot"]
-        teff_template = id_cm_df.loc[obj]["teff_template"]
+        # Make a note of stars without a valid crossmatch and continue
+        if obj_str not in id_cm_df.index:
+            # Find filename of missing object
+            fits_i = np.argwhere(obj_names == obj)[0]
+            missing_star_info = (obj, ut_dates[fits_i], fits_files[fits_i])
+            stars_missing_cm.append(missing_star_info)
+            continue
+        
+        # Crossmatch ID and replace with Gaia DR3 source id
+        sid = id_cm_df.loc[obj_str]["source_id"]
+        kind = id_cm_df.loc[obj_str]["kind"]
+        is_spphot = id_cm_df.loc[obj_str]["is_sphot"]
+        teff_template = id_cm_df.loc[obj_str]["teff_template"]
 
         # Also loop over dates observed
         ut_dates_obj = set(ut_dates[obj_names == obj])
@@ -796,6 +806,14 @@ def load_all_mike_fits(
             # per night) to allow for duplicate targets.
             blue_dict[(sid, ut_date)] = obj_dict_b
             red_dict[(sid, ut_date)] = obj_dict_r
+
+    # Alert on missing stars
+    if len(stars_missing_cm) > 0:
+        print("\nThe following stars are missing a valid crossmatch:")
+        for (obj, date, fn) in stars_missing_cm:
+            print("\t{:<15}\t{}\t{}".format(obj, date, fn))
+    else:
+        print("\nAll observations crossmatched successfully!")
 
     return blue_dict, red_dict
 
@@ -947,7 +965,7 @@ def collate_mike_obs(blue_dict, red_dict):
         "orders_b":orders_b,
         "wave_b":wave_b,
         "spec_b":spec_b,
-        "sigma_b":sigma_r,
+        "sigma_b":sigma_b,
         "orders_r":orders_r,
         "wave_r":wave_r,
         "spec_r":spec_r,
