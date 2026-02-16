@@ -1319,6 +1319,7 @@ def fit_atmospheric_transmission(
     do_convolution=False,
     resolving_power_during_fit=1150,
     wavelength_subsample_fac=20,
+    sci_edge_handling=None,
     fit_for_telluric_scale_terms=False,
     poly_order=4,
     optimise_order_overlap=False,
@@ -1366,6 +1367,13 @@ def fit_atmospheric_transmission(
 
     wavelength_subsample_fac: int, default: 20
         Factor to subsample the wavelength scale by after broadening.
+
+    sci_edge_handling: str, default: None
+        How edges are handled when doign Gaussian smoothing via PyAstronomy's
+        instBroadGaussFast function. This can either be set to None or
+        'firstlast'.
+
+        https://pyastronomy.readthedocs.io/en/latest/pyaslDoc/aslDoc/broad.html
 
     fit_for_telluric_scale_terms: boolean, default: False
         If True we do a second fit after the first to optimise the telluric
@@ -1470,7 +1478,7 @@ def fit_atmospheric_transmission(
                 wvl=wave_obs_2D[order_i][~bpm],
                 flux=spec_obs_2D[order_i][~bpm],
                 resolution=resolving_power_during_fit,
-                edgeHandling="firstlast",
+                edgeHandling=sci_edge_handling,
                 maxsig=5,
                 equid=True,)
             
@@ -1478,7 +1486,7 @@ def fit_atmospheric_transmission(
                 wvl=wave_obs_2D[order_i][~bpm],
                 flux=sigma_obs_2D[order_i][~bpm],
                 resolution=resolving_power_during_fit,
-                edgeHandling="firstlast",
+                edgeHandling=sci_edge_handling,
                 maxsig=5,
                 equid=True,)
             
@@ -1503,6 +1511,13 @@ def fit_atmospheric_transmission(
                 interp_spec_broad(wave_obs_2D_new[order_i])
             sigma_obs_2D_new[order_i] = \
                 interp_sigma_broad(wave_obs_2D_new[order_i])
+
+        # Clip smoothed edges
+        # TODO: formalise
+        edge_px_trim = 20
+        wave_obs_2D_new = wave_obs_2D_new[:, edge_px_trim:-edge_px_trim]
+        spec_obs_2D_new = spec_obs_2D_new[:, edge_px_trim:-edge_px_trim]
+        sigma_obs_2D_new = sigma_obs_2D_new[:, edge_px_trim:-edge_px_trim]
 
     else:
         wave_obs_2D_new = wave_obs_2D.copy()
@@ -2463,7 +2478,7 @@ def fit_rv_for_flux_template(
     rv_min,
     rv_max,
     delta_rv,
-    interpolation_method="linear",):
+    interpolation_method="cubic",):
     """Function to fit the RV for a CALSPEC flux standard spectrum.
 
     Parameters
@@ -2495,13 +2510,13 @@ def fit_rv_for_flux_template(
     """
     # Import CALSPEC template
     fs = np.loadtxt(calspec_temp_fn)
-    wave_fs_air = pum.convert_vacuum_to_air_wl(fs[:,0])
+    wave_fs_air = fs[:,0] #pum.convert_vacuum_to_air_wl(fs[:,0])
 
     spec_fs = fs[:,1]
     sigma_fs = fs[:,2]
 
     # Mask UV
-    include_wl_mask = np.logical_and(wave_fs_air > 3400, wave_fs_air < 8500)
+    include_wl_mask = np.logical_and(wave_fs_air > 3400, wave_fs_air < 5000)
     wave_fs_air = wave_fs_air[include_wl_mask]
     spec_fs = spec_fs[include_wl_mask]
     sigma_fs = sigma_fs[include_wl_mask]
@@ -2510,7 +2525,7 @@ def fit_rv_for_flux_template(
     spec_cont = instrBroadGaussFast(
         wvl=wave_fs_air,
         flux=spec_fs,
-        resolution=10,
+        resolution=100,
         edgeHandling="firstlast",
         maxsig=5,
         equid=True,)
@@ -2555,3 +2570,11 @@ def fit_rv_for_flux_template(
         disable_progress_bar=False,)
     
     return rv_fit_dict
+
+# -----------------------------------------------------------------------------
+# Order stitching
+# -----------------------------------------------------------------------------
+def combine_echelle_orders():
+    """
+    """
+    pass

@@ -11,7 +11,7 @@ from astropy.io import fits
 # Telluric transmission
 # https://github.com/mzechmeister/viper/tree/master/lib/atmos
 telluric_template = "data/viper_stdAtmos_vis.fits"
-resolving_power = 46000
+resolving_power = 500
 
 # -----------------------------------------------------------------------------
 # Prepare telluric template
@@ -47,19 +47,13 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 8
-optimise_order_overlap = False
-fit_for_telluric_scale_terms = False
 do_convolution = True
-resolving_power_during_fit = 1000
 run_on_order_subset = False
 order_subset = [50, 51, 52, 53, 54]
 
 # Cleaning
 clean_input_spectra = True
 edge_px_to_mask = 100
-sigma_clip_blaze_corr_spectra = False
-sigma_upper = 5
 
 # Settings for polynomial 'blaze correction'
 do_flat_field_blaze_corr = True
@@ -124,10 +118,36 @@ obs_info_sp = obs_info[is_spphot]
 # Grab dimensions for convenience
 n_spphot = np.sum(is_spphot)
 
-# Initialise arrays to hold all polynomial coefficients and the domain values
-spphot_poly_coeff = np.full((n_spphot, n_order, poly_order), np.nan)
-spphot_wave_mins = np.full((n_spphot, n_order,), np.nan)
-spphot_wave_maxes = np.full((n_spphot, n_order,), np.nan)
+# -----------------------------------------------------------------------------
+# [Optional] Convolve science spectra
+# -----------------------------------------------------------------------------
+if do_convolution:
+    for star_i in range(n_spphot):
+        # Compute a bad px mask to exclude NaN, inf, or <= 0 fluxes or sigmas
+        bad_px_mask = np.any([
+            ~np.isfinite(spec_sp[star_i]),
+            ~np.isfinite(sigma_sp[star_i]),
+            spec_sp[star_i] <= 0,
+            sigma_sp[star_i] <= 0,], axis=0)
+
+        for order_i in range(n_order):
+            bpm = bad_px_mask[order_i]
+
+            if np.nansum(spec[star_i, order_i][~bpm]) == 0:
+                continue
+
+            # Broaden spectra
+            spec_broad = instrBroadGaussFast(
+                wvl=wave[star_i, order_i][~bpm],
+                flux=spec_sp[star_i, order_i][~bpm],
+                resolution=resolving_power,
+                edgeHandling="firstlast",
+                maxsig=5,
+                equid=True,)
+
+            spec_sp[star_i, order_i][~bpm] = spec_broad
+
+# --------
 
 # -----------------------------------------------------------------------------
 # Running on all SpPhot targets
@@ -145,7 +165,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
 
     plot_label = "{}_{}".format(source_id, ut_date)
 
-    test_O2_scale = np.arange(0.5,2.0,0.1)
+    test_O2_scale = np.arange(0.4,1.5,0.1)
 
     ppltm.plot_telluric_scale_terms(
         wave_2D=wave_obs_2D,
@@ -155,10 +175,10 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         test_tt_scale=test_O2_scale,
         plot_label=plot_label,
         species="O2",
-        wave_min=7590,
-        wave_max=7700,)
+        wave_min=7490,
+        wave_max=7800,)
     
-    test_H2O_scale = np.arange(0.5,2.0,0.1)
+    test_H2O_scale = np.arange(0.4,1.5,0.1)
 
     ppltm.plot_telluric_scale_terms(
         wave_2D=wave_obs_2D,
@@ -168,7 +188,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         test_tt_scale=test_H2O_scale,
         plot_label=plot_label,
         species="H2O",
-        wave_min=8125,
-        wave_max=8250,)
+        wave_min=8075,
+        wave_max=8300,)
     
     print('"{}", "{}"'.format(source_id, ut_date))

@@ -663,8 +663,16 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
     return data
 
 
-def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
+def save_fits_image_hdu(
+    data,
+    extension,
+    label,
+    fn_base="spectra",
+    path="spectra",
+    arm="r"):
     """Saves/updates the data from specified fits image HDU.
+
+    The existing file is <path>/<fn_base>_<label>.fits.
 
     Parameters
     ----------
@@ -685,6 +693,9 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
     
+    fn_base: string, default: "spectra"
+        Base string of filename.
+
     path: string
         Path to save the fits file to
 
@@ -706,6 +717,9 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
         "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
         "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
         "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
+        "wave_3D":("WAVE_3D_", float),      # MIKE
+        "spec_3D":("SPEC_3D_", float),      # MIKE
+        "sigma_3D":("SIGMA_3D_", float),    # MIKE
     }
 
     if extension not in valid_ext.keys():
@@ -723,7 +737,7 @@ def save_fits_image_hdu(data, extension, label, path="spectra", arm="r"):
     extname = valid_ext[extension][0] + arm
 
     # Load in the fits file
-    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+    fits_path = os.path.join(path, "{}_{}.fits".format(fn_base, label))
 
     with fits.open(fits_path, mode="update") as fits_file: 
         # First check if the HDU already exists

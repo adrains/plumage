@@ -245,6 +245,8 @@ def plot_flux_calibration(
             wave_ith[plot_mask],
             spec_ith[plot_mask]*smooth_tf[plot_mask],
             linewidth=0.5,
+            c="r" if order_i % 2 == 0 else "k",
+            alpha=0.8,
             label="MIKE Spectrum (Fluxed)" if order_i == 0 else None,)
     
     # Legends
@@ -293,7 +295,8 @@ def plot_cc_rv_diagnostic(
     rv_fit_dict,
     obj_name,
     figsize=(16,4),
-    fig_save_path="plots/rv_diagnostics",):
+    fig_save_path="plots/rv_diagnostics",
+    run_in_wavelength_scale_debug_mode=False,):
     """Diagnostic plotting function for cross-correlation RV fits with one
     panel displaying the CCF, and another the overlapping spectra.
 
@@ -313,6 +316,12 @@ def plot_cc_rv_diagnostic(
 
     fig_save_path: str, default: "plots/rv_diagnostics"
         Path to save diagnostic figure to.
+
+    run_in_wavelength_scale_debug_mode: boolean, default: False
+        If True, instead of plotting the offset of the observed spectrum from a
+        template stellar spectrum, we plot the offset of the observed spectrum
+        from a template *telluric* spectrum and zoom in on a region with H2O
+        region.
     """
     # -------------------------------------------------------------------------
     # Unpacking dict
@@ -372,8 +381,11 @@ def plot_cc_rv_diagnostic(
     # Panel #2
     # ------------------------------------------------
     # Compute best fit template and plot spectral fit
-    template_flux = calc_template_flux(
-        wave_template * (1-(rv-bcor)/(const.c.si.value/1000)))
+    if run_in_wavelength_scale_debug_mode:
+        template_flux = calc_template_flux(wave_template)
+    else:
+        template_flux = calc_template_flux(
+            wave_template * (1-(rv-bcor)/(const.c.si.value/1000)))
 
     # Plot per-order science spectrum
     for order_i in range(n_order):
@@ -396,13 +408,14 @@ def plot_cc_rv_diagnostic(
             c="r",
             label="science" if order_i == 0 else None,)
 
-        spec_axis.text(
-            np.nanmean(wave_2D[order_i]),
-            1.5,
-            s="{}".format(orders[order_i]),
-            color="r" if order_excluded[order_i] else "k",
-            fontsize="x-small",
-            horizontalalignment="center",)
+        if not run_in_wavelength_scale_debug_mode:
+            spec_axis.text(
+                np.nanmean(wave_2D[order_i]),
+                1.5,
+                s="{}".format(orders[order_i]),
+                color="r" if order_excluded[order_i] else "k",
+                fontsize="x-small",
+                horizontalalignment="center",)
 
     # Template flux
     spec_axis.plot(
@@ -436,6 +449,10 @@ def plot_cc_rv_diagnostic(
 
     spec_axis.set_xlim(np.nanmin(wave_2D)*0.99, np.nanmax(wave_2D)*1.01)
     spec_axis.set_ylim(0,2)
+
+    if run_in_wavelength_scale_debug_mode:
+        spec_axis.set_xlim(8270, 8295)
+
     plt.tight_layout()
 
     fig_name = os.path.join(fig_save_path, "rv_diagnostic")
@@ -447,7 +464,8 @@ def plot_all_cc_rv_diagnostics(
     all_rv_fit_dicts,
     obj_names,
     figsize,
-    fig_save_path,):
+    fig_save_path,
+    run_in_wavelength_scale_debug_mode=False,):
     """Calls plot_cc_rv_diagnostic() in a loop for many RV fit diagnostics.
 
     Parameters
@@ -468,6 +486,12 @@ def plot_all_cc_rv_diagnostics(
 
     fig_save_path: str, default: "plots/rv_diagnostics"
         Path to save diagnostic figure to.
+
+    run_in_wavelength_scale_debug_mode: boolean, default: False
+        If True, instead of plotting the offset of the observed spectrum from a
+        template stellar spectrum, we plot the offset of the observed spectrum
+        from a template *telluric* spectrum and zoom in on a region with H2O
+        region.
     """
     n_stars = len(all_rv_fit_dicts)
 
@@ -478,7 +502,9 @@ def plot_all_cc_rv_diagnostics(
             rv_fit_dict=all_rv_fit_dicts[star_i],
             obj_name=obj_names[star_i],
             figsize=figsize,
-            fig_save_path=fig_save_path,)
+            fig_save_path=fig_save_path,
+            run_in_wavelength_scale_debug_mode=\
+                run_in_wavelength_scale_debug_mode,)
         
 
 def plot_all_flux_calibrated_spectra(
@@ -486,11 +512,13 @@ def plot_all_flux_calibrated_spectra(
     spec_3D,
     sigma_3D,
     object_ids,
+    is_spphot_1D,
     figsize,
     plot_folder,
     plot_label,):
     """Plots all flux normalised spectra in the 3D datacube, and normalises by
-    the sigma clipped maximum of each.
+    the sigma clipped maximum of each. We annotate flux standards with a blue
+    star symbol.
 
     Plot is saved as <plot_folder>/all_flux_cal_<plot_label>.pdf.
 
@@ -502,6 +530,9 @@ def plot_all_flux_calibrated_spectra(
 
     object_ids: 1D str list
         List of object names of length [n_star] for labelling the plots.
+
+    is_spphot_1D: 1D bool list
+        Whether or not the given spectrum belongs to a flux standard.
 
     figsize: float tuple
         Two element tuple for the matplotlib figure size, e.g. (16,4).
@@ -539,8 +570,9 @@ def plot_all_flux_calibrated_spectra(
             axes.plot(
                 wave_3D[star_i, order_i],
                 spec_3D_norm[star_i, order_i]+offset,
-                c="r",
-                linewidth=0.5)
+                c="r" if order_i % 2 == 0 else "k",
+                alpha=0.75,
+                linewidth=0.2)
         
         snr = np.nanmedian(spec_3D[star_i] / sigma_3D[star_i])
         txt = "{} [SNR ~ {:0.0f}]".format(object_ids[star_i], snr)
@@ -551,6 +583,18 @@ def plot_all_flux_calibrated_spectra(
             s=txt,
             horizontalalignment="center",)
         
+        if is_spphot_1D[star_i]:
+
+            txt = r"$\star$ {} $\star$".format(" " * len(txt))
+
+            axes.text(
+                x=wave_mid,
+                y=offset+0.75,
+                s=txt,
+                horizontalalignment="center",
+                fontsize="xx-large",
+                c="dodgerblue",)
+            
     axes.set_ylim(0, offset+1)
     axes.set_xlabel("Wavelength (Å)")
     plt.tight_layout()
