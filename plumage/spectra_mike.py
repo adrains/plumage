@@ -239,8 +239,9 @@ def unify_wavelength_scale_per_exp(exp_dict,):
             # Save the new array back to the list
             exp_dict[spec_key][exp_i] = spec_array_new
 
-        # Update the orders
+        # Update the orders and dispersion
         exp_dict["orders"][exp_i] = orders_ref
+        exp_dict["dispersion"][exp_i] = exp_dict["dispersion"][ref_exp_i]
 
     # All done, everything has been updated in place
 
@@ -264,8 +265,8 @@ def unify_wavelength_scales_global(info_dict, return_new_shape=False,):
     info_dict: dict
         Dictionary representation of MIKE fits files (either for the blue or
         red arm), with (source_id, date) keys linked to a dictionary containing
-        relevant header keywords, order numbers, the wavelength scale, fluxes,
-        and uncertanties.
+        relevant header keywords, order numbers, order dispersion, the 
+        wavelength scale, fluxes, and uncertanties.
 
     return_new_shape: bool, default: False
         Whether or not to return the adopted shape, [n_order, n_px].
@@ -317,6 +318,11 @@ def unify_wavelength_scales_global(info_dict, return_new_shape=False,):
                 # Save the new array back to the list
                 info_dict[obj][ak] = vec_new
 
+            # Update the dispersion too
+            disp_new = np.full(n_order, np.nan)
+            disp_new[matched_orders] = info_dict[obj]["dispersion"]
+            info_dict[obj]["dispersion"] = disp_new
+
             # Update order list
             info_dict[obj]["orders"] = unique_order_nums
 
@@ -362,11 +368,34 @@ def load_single_mike_fits(fn):
         # ---------------------------------------------------------------------
         # Reconstruct wavelength scale
         # ---------------------------------------------------------------------
-        # *Annoyingly* MIKE saves the wavelength information from each order
-        # as a concatenated and wrapped set of miscellaneous strings right at
-        # the end of the header. These are labelled 'WAT2_0XX' where these
-        # contain 'wtype=multispec specX = "<>"'. There is one specX = "<>" for
-        # each echelle order, where an example <> is: 
+        # MIKE saves the wavelength information from each order in the IRAF
+        # 'multi-fits' format, which is a method of mapping a physical to a
+        # spectral world coordinate system. See the following for an overview:
+        #
+        #     https://iraf.readthedocs.io/en/latest/tasks/sptable/xonedspec/
+        #     specwcs.html#s_5__multispec_spectral_world_coordinate_system
+        # 
+        # Each order can be described as follows:
+        # 
+        #   specN = ap beam dtype w1 dw nw z aplow aphigh [functions_i]
+        #
+        # Where 'ap' is the aperture number, 'beam' is the beam number, 'dtype'
+        # is the dispersion type (-1 is not in dispersion coords, 0 is linear 
+        # dispersion, 1 is log-linear dispersion, 2 is nonlinear dispersion), 
+        # 'w1' is the dispersion coordinate of the first physical pixel, 'dw'
+        # is the average dispersion per physical pixel (an exact value for
+        # linear and log-linear dispersion), 'nw' is the number of valid px,
+        # 'z' is the doppler factor, and 'aplow' and 'aphigh' are the aperture
+        # limits. There may then be additional values after this to provide the 
+        # coefficents for the various available nonlinear dispersion functions.
+        #
+        # For MIKE data, we expect linear dispersion and no doppler factor, so
+        # the terms we need to extract are simplified. However, complexity is
+        # introduced by the fact that this list of terms per-order is stored as
+        # a concatenated and wrapped set of strings right at the end of the 
+        # header. These are labelled 'WAT2_0XX' where these contain 
+        # 'wtype=multispec specX = "ap beam dtype w1 dw nw z aplow aphigh"'. 
+        # There is one specX = "<>" for each echelle order, for example: 
         # 
         #   '37 1 0 9148.4828539850878 0.065204998854824225 4096 0.000000 \
         #    2022.391862 2030.116138'
@@ -376,8 +405,7 @@ def load_single_mike_fits(fn):
         # we need to perform an awkward reconstruction of each order while
         # knowing something about the structure we expect. Fortunately, we ony
         # care about elements 0 (order number), 3 (min wavelength), and 4 
-        # (delta wavelength), so we just have to make sure up to there is
-        # correct:
+        # (dispersion), so we just have to make sure up to there is correct.
 
         # Check how many misc string header entries we need to parse
         for wi in range(1, 1000):
@@ -469,6 +497,7 @@ def load_single_mike_fits(fn):
 
         # Store arrays
         data_dict["orders"] = orders
+        data_dict["dispersion"] = wave_delta
         data_dict["wave"] = waves
         data_dict["spec_sky"] = data[0]
         data_dict["spec_star"] = data[1]
@@ -569,7 +598,7 @@ def load_and_combine_single_star(filenames, plot_folder, normalise_by_flat):
     if normalise_by_flat:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning) 
-            # Normalise flat, setting zero sensitivity pixels to nan to avoid inf
+            # Normalise flat, set zero sensitivity pixels to nan to avoid inf
             flat = np.stack(all_exp_dict["spec_flat"])
             flat[flat == 0] = np.nan
 
@@ -668,8 +697,9 @@ def load_and_combine_single_star(filenames, plot_folder, normalise_by_flat):
     # Add the reference barycentric velocity
     obj_dict["BCOR"] = all_exp_dict["BCOR"][ref_exp]
 
-    # Finally add the order numbers
+    # Finally add the order numbers and dispersion
     obj_dict["orders"] = all_exp_dict["orders"][ref_exp]
+    obj_dict["dispersion"] = all_exp_dict["dispersion"][ref_exp]
 
     return all_exp_dict, obj_dict
 
@@ -836,10 +866,12 @@ def collate_mike_obs(blue_dict, red_dict):
         Dictionary containing the compiled MIKE data, with the following keys:
             'obs_info' - pandas DataFrame with info from fits headers
             'orders_b' - blue echelle orders, shape [n_order]
+            'disp_b'   - blue spectral dispersion, shape [n_star, n_order]
             'wave_b'   - blue wavelength scales, shape [n_star, n_order, n_px]
             'spec_b'   - blue spectra, shape [n_star, n_order, n_px]
             'sigma_b'  - blue uncertainties, shape [n_star, n_order, n_px]
             'orders_r' - red echelle orders, shape [n_order]
+            'disp_r'   - red spectral dispersion, shape [n_star, n_order]
             'wave_r'   - red wavelength scales, shape [n_star, n_order, n_px]
             'spec_r'   - red spectra, shape [n_star, n_order, n_px]
             'sigma_r'  - red uncertainties, shape [n_star, n_order, n_px]
@@ -856,9 +888,11 @@ def collate_mike_obs(blue_dict, red_dict):
     (n_order_b, n_px_b) = unify_wavelength_scales_global(blue_dict, True)
     (n_order_r, n_px_r) = unify_wavelength_scales_global(red_dict, True)
 
-    #(n_order_b, n_px_b) = blue_dict[blue_dict.keys()]
+    # Store dispersion in 2D array of shape [n_obs, n_order]
+    disp_b = np.full((n_obj, n_order_b,), np.nan)
+    disp_r = np.full((n_obj, n_order_r,), np.nan)
 
-    # Store all spectra into 2x 3D arrays of shape [n_obs, n_rder, n_px]
+    # Store all spectra into 2x 3D arrays of shape [n_obs, n_order, n_px]
     wave_b = np.full((n_obj, n_order_b, n_px_b), np.nan)
     wave_r = np.full((n_obj, n_order_r, n_px_r), np.nan)
 
@@ -874,12 +908,14 @@ def collate_mike_obs(blue_dict, red_dict):
             spec_b[obj_i] = blue_dict[obj]["spec_star_norm"]
             sigma_b[obj_i] = blue_dict[obj]["sigma_star_norm"]
             orders_b = blue_dict[obj]["orders"]
+            disp_b[obj_i] = blue_dict[obj]["dispersion"]
 
         if red_dict[obj] is not None:
             wave_r[obj_i] = red_dict[obj]["wave"]
             spec_r[obj_i] = red_dict[obj]["spec_star_norm"]
             sigma_r[obj_i] = red_dict[obj]["sigma_star_norm"]
             orders_r = red_dict[obj]["orders"]
+            disp_r[obj_i] = red_dict[obj]["dispersion"]
 
     # -------------------------------------------------------------------------
     # Create DataFrame by combining B/R info
@@ -963,10 +999,12 @@ def collate_mike_obs(blue_dict, red_dict):
     obs_dict = {
         "obs_info":obs_info,
         "orders_b":orders_b,
+        "disp_b":disp_b,
         "wave_b":wave_b,
         "spec_b":spec_b,
         "sigma_b":sigma_b,
         "orders_r":orders_r,
+        "disp_r":disp_r,
         "wave_r":wave_r,
         "spec_r":spec_r,
         "sigma_r":sigma_r,}
