@@ -39,11 +39,11 @@ order_subset = [50, 51, 52, 53, 54]
 # Import MIKE spectra
 # -----------------------------------------------------------------------------
 # Blue arm
-wave_b_3D, spec_b_3D, sigma_b_3D, orders_b = um.load_3D_spec_from_fits(
+wave_b_3D, spec_b_3D, sigma_b_3D, orders_b, disp_b = um.load_3D_spec_from_fits(
     path=path, label=label, arm="b")
 
 # Red arm
-wave_r_3D, spec_r_3D, sigma_r_3D, orders_r = um.load_3D_spec_from_fits(
+wave_r_3D, spec_r_3D, sigma_r_3D, orders_r, disp_r = um.load_3D_spec_from_fits(
     path=path, label=label, arm="r")
 
 # Observational info

@@ -114,8 +114,9 @@ wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
 path= "spectra"
 arm = "r"
 label = "KM_noflat"
-poly_order = 5
-optimise_order_overlap = True
+poly_order = 2
+optimise_order_overlap = False
+sci_edge_handling = "firstlast"
 fit_for_telluric_scale_terms = False
 do_convolution = True
 resolving_power_during_fit = 500
@@ -135,7 +136,7 @@ poly_coef_csv_path = "data/"
 set_px_to_nan_beyond_domain = True
 
 # Import MIKE spectra
-wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
+wave, spec, sigma, orders, disp = pum.load_3D_spec_from_fits(
     path=path, label=label, arm=arm)
 obs_info = pum.load_fits_table("OBS_TAB", "KM_noflat",)
 
@@ -283,6 +284,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
         scale_H2O=tau_scale_H2O,
         do_convolution=do_convolution,
         resolving_power_during_fit=resolving_power_during_fit,
+        sci_edge_handling=sci_edge_handling,
         poly_order=poly_order,
         optimise_order_overlap=optimise_order_overlap,
         fit_for_telluric_scale_terms=fit_for_telluric_scale_terms)

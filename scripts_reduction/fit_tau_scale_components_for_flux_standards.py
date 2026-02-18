@@ -62,7 +62,7 @@ poly_coef_csv_path = "data/"
 set_px_to_nan_beyond_domain = True
 
 # Import MIKE spectra
-wave, spec, sigma, orders = pum.load_3D_spec_from_fits(
+wave, spec, sigma, orders, disp = pum.load_3D_spec_from_fits(
     path=path, label=label, arm=arm)
 obs_info = pum.load_fits_table("OBS_TAB", "KM_noflat",)
 

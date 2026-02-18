@@ -142,30 +142,33 @@ def save_fits_from_dict(obs_dict, label, path="spectra"):
 
 
 def load_3D_spec_from_fits(label, arm="r", path="spectra"):
-    """TODO 
+    """Reads in the wavelength scale, fluxes, uncertainties, order numbering, 
+    and order dispersions associated with a given MIKE arm.
     
-    File will be loaded from {path}/spectra_{label}.fits
+    File will be loaded from {path}/mike_spectra_{label}.fits
 
     Parameters
     ----------
     label: string
-        Unique label (e.g. std, TESS) for the resulting fits file.
+        Unique label for the fits file.
     
-    path: string
-        Path to save the fits file to. Defaults to spectra/
+    arm: str, default: 'r'
+        Spectrograph arm to import data for, either 'b' or 'r'.
+        
+    path: string, default: 'spectra'
+        Path to load the fits file from.
 
     Returns 
     -------
-    spectra_b: float array
-        3D numpy array containing blue arm spectra of form 
-        [N_ob, wl/spec/sigma, value].
+    wave, spec, sigma: 3D float array
+        3D float arrays of shape [n_obs, n_order, n_px] corresponding to the
+        wavelength scale, spectra, or sigmas of the given spectral arm.
 
-    spectra_r: float array
-        3D numpy array containing red arm spectra of form 
-        [N_ob, wl/spec/sigma, value].
+    orders: 1D float array
+        Order numbering corresponding to this arm, of shape [n_order].
     
-    observations: pandas dataframe
-        Dataframe containing information about each observation.
+    disp: 2D float array
+        Order dispersion for this arm, of shape [n_obs, n_order].
     """
     # Load in the fits file
     fits_path = os.path.join(path,  "mike_spectra_{}.fits".format(label))
@@ -174,14 +177,16 @@ def load_3D_spec_from_fits(label, arm="r", path="spectra"):
     spec_hdu = "SPEC_3D_{}".format(arm.upper())
     sigma_hdu = "SIGMA_3D_{}".format(arm.upper())
     order_hdu = "ORDERS_{}".format(arm.upper())
+    disp_hdu = "DISP_{}".format(arm.upper())
     
     with fits.open(fits_path) as fits_file:
         wave = fits_file[wave_hdu].data
         spec = fits_file[spec_hdu].data
         sigma = fits_file[sigma_hdu].data
         orders = fits_file[order_hdu].data
+        disp = fits_file[disp_hdu].data
 
-    return wave, spec, sigma, orders
+    return wave, spec, sigma, orders, disp
 
 
 def load_fits_table(
@@ -192,14 +197,16 @@ def load_fits_table(
     set_index_col=False,):
     """Loads in the data from specified fits table HDU.
 
+    File will be loaded from {path}/mike_spectra_{label}.fits
+
     Parameters
     ----------
     extension: string
-        Which fits table extension to save. Currently either 'OBS_TAB' or 
-        'TRANSIT_FITS'
+        Which fits table extension to load. Currently either 'OBS_TAB',
+        'CANNON_INFO', or 'CANNON_MODEL'.
 
     label: string
-        Unique label (e.g. std, TESS) for the resulting fits file.
+        Unique label for the fits file.
     
     path: string
         Path to save the fits file to.
@@ -208,6 +215,9 @@ def load_fits_table(
         Sublabel of the extension. At the moment only applicable to the 
         'CANNON_MODEL' extension to note the specifics of the model.
 
+    set_index_col: boolean, default: False
+        Whether to reset the index column for the dataframe.
+        
     Returns
     -------
     obs_pd: pandas dataframe
