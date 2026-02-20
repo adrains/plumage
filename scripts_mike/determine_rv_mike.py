@@ -1,4 +1,8 @@
-"""Script to perform RV fits to MIKE spectra.
+"""Script to perform RV fits to MIKE spectra to a) correct for slight
+wavelength scale offsets relative to the telluric frame, and b) determine the
+systemic velocity of each star.
+
+TODO: fully implement the blue arm
 """
 import numpy as np
 import plumage.spectra_mike as sm
@@ -7,47 +11,29 @@ import plumage.utils as pu
 import plumage.plotting_mike as pm
 from astropy.io import fits
 import astropy.constants as const
-from PyAstronomy.pyasl import instrBroadGaussFast
+import stannon.utils as su
 
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-# Details of observed fits file to import
-path= "spectra"
-label = "KM_noflat"
-
-# Settings for polynomial 'blaze correction'
-flat_norm_poly_order = 7
-poly_coef_csv_path = "data/"
-set_px_to_nan_beyond_domain = True
-
-# Adjustment polynomial to put the 'blaze corrected' spectra to the 'continuum'
-continuum_adust_poly_order = 1
-
-# Telluric settings
-telluric_template_fits = "data/viper_stdAtmos_vis.fits"
-resolving_power = 46000
-telluric_contamination_threshold = 0.1
-
-# Stellar template
-rv_template_fn = "templates/template_MIKE_R_44000_251121.fits"
-
-run_on_order_subset = False
-order_subset = [50, 51, 52, 53, 54]
+# Import our settings object, which stores settings detailed in a YAML file.
+mike_settings = "scripts_mike/mike_reduction_settings.yml"
+ms = su.load_yaml_settings(mike_settings)
 
 # -----------------------------------------------------------------------------
 # Import MIKE spectra
 # -----------------------------------------------------------------------------
 # Blue arm
 wave_b_3D, spec_b_3D, sigma_b_3D, orders_b, disp_b = um.load_3D_spec_from_fits(
-    path=path, label=label, arm="b")
+    path=ms.fits_folder, label=ms.fits_label, arm="b")
 
 # Red arm
 wave_r_3D, spec_r_3D, sigma_r_3D, orders_r, disp_r = um.load_3D_spec_from_fits(
-    path=path, label=label, arm="r")
+    path=ms.fits_folder, label=ms.fits_label, arm="r")
 
 # Observational info
-obs_info = um.load_fits_table("OBS_TAB", label=label,)
+obs_info = um.load_fits_table(
+    "OBS_TAB", path=ms.fits_folder, label=ms.fits_label,)
 
 # Grab dimensions for convenience
 (n_star, n_order, n_px) = wave_b_3D.shape
@@ -75,9 +61,9 @@ spec_r_bc_3D, sigma_r_bc_3D = \
         sigma_3D=sigma_r_3D,
         orders=orders_r,
         arm="r",
-        poly_order=flat_norm_poly_order,
-        base_path=poly_coef_csv_path,
-        set_px_to_nan_beyond_domain=set_px_to_nan_beyond_domain,)
+        poly_order=ms.poly_order_for_rv_flat_norm,
+        base_path=ms.poly_coef_for_rv_path,
+        set_px_to_nan_beyond_domain=ms.set_px_to_nan_beyond_domain,)
 
 # -----------------------------------------------------------------------------
 # Additional normalisation by low-order polynomial
@@ -96,20 +82,14 @@ spec_r_rv_norm_3D, sigma_r_rv_norm_3D = \
 # -----------------------------------------------------------------------------
 # Telluric reference
 # -----------------------------------------------------------------------------
-with fits.open(telluric_template_fits) as tt:
-    wave_telluric = tt[1].data["lambda"]
-    trans_telluric = tt[1].data["H2O"] * tt[1].data["O2"]
-
-trans_H2O_broad = instrBroadGaussFast(
-    wvl=wave_telluric,
-    flux=trans_telluric,
-    resolution=resolving_power,
-    edgeHandling="firstlast",
-    maxsig=5,
-    equid=True,)
-
-# Convert telluric wavelength scale to air wavelengths to match MIKE
-wave_telluric_vac = um.convert_vacuum_to_air_wl(wave_telluric)
+# Import telluric tranmission spectrum convolved to science resolving power and
+# converted from vacuum to air wavelengths.
+wave_telluric_vac, _, _, trans_telluric = \
+    sm.read_and_broaden_telluric_transmission(
+        telluric_template=ms.telluric_template_fits,
+        resolving_power=ms.mike_resolving_power_r,
+        do_convert_vac_to_air=True,
+        wave_scale_new=None,)
 
 # Grab length for convenience later
 n_px_tt = len(wave_telluric_vac)
@@ -117,8 +97,8 @@ n_px_tt = len(wave_telluric_vac)
 # -----------------------------------------------------------------------------
 # Import template spectra
 # -----------------------------------------------------------------------------
-# Import template HACK
-with fits.open(rv_template_fn) as ref_fits:
+# Import template TODO: move all this into a function
+with fits.open(ms.rv_stellar_template_fn) as ref_fits:
     wave_ref = ref_fits["WAVE"].data
     spec_ref_2D = ref_fits["SPEC"].data
     teffs_ref = ref_fits["PARAMS"].data["teff"]
@@ -160,16 +140,16 @@ rvs_tt_r, all_rv_fit_dicts_tt = sm.fit_all_rvs(
     bcors=np.zeros(n_star),                             # No barycentric RV
     segment_contamination_threshold=0.0,                # No telluric masking
     px_absorption_threshold=0.0,                        # No telluric masking
-    rv_min=-20,
-    rv_max=20,
-    delta_rv=0.1,
+    rv_min=ms.wavelength_scale_adjustment_cc_bounds[0],
+    rv_max=ms.wavelength_scale_adjustment_cc_bounds[1],
+    delta_rv=ms.wavelength_scale_adjustment_cc_delta,
     interpolation_method="cubic",)
 
 pm.plot_all_cc_rv_diagnostics(
     all_rv_fit_dicts=all_rv_fit_dicts_tt,
     obj_names=fit_labels_tt,
     figsize=(16,4),
-    fig_save_path="plots/rv_diagnostics",
+    fig_save_path=ms.rv_diagnostic_folder,
     run_in_wavelength_scale_debug_mode=True,)
 
 # Duplicate original wavelength scale for safety
@@ -187,8 +167,8 @@ pu.save_fits_image_hdu(
     data=wave_r_3D,
     extension="wave_3D",
     fn_base="mike_spectra",
-    label=label,
-    path="spectra",)
+    label=ms.fits_label,
+    path=ms.fits_folder,)
 
 # -----------------------------------------------------------------------------
 # Cross-correlation with *stellar* spectrum for systemic RV
@@ -208,18 +188,18 @@ rvs_r, all_rv_fit_dicts = sm.fit_all_rvs(
     wave_template=wave_ref,
     spec_template=template_spec_selected,
     bcors=obs_info["bcor"].values,
-    segment_contamination_threshold=0.99,
-    px_absorption_threshold=0.9,
-    rv_min=-400,
-    rv_max=400,
-    delta_rv=0.5,
+    segment_contamination_threshold=ms.segment_contamination_threshold,
+    px_absorption_threshold=ms.px_absorption_threshold,
+    rv_min=ms.stellar_systemic_rv_cc_bounds[0],
+    rv_max=ms.stellar_systemic_rv_cc_bounds[1],
+    delta_rv=ms.stellar_systemic_rv_cc_delta,
     interpolation_method="cubic",)
 
 pm.plot_all_cc_rv_diagnostics(
     all_rv_fit_dicts=all_rv_fit_dicts,
     obj_names=fit_labels,
     figsize=(16,4),
-    fig_save_path="plots/rv_diagnostics",)
+    fig_save_path=ms.rv_diagnostic_folder,)
 
 # -----------------------------------------------------------------------------
 # Save RV back to DataFrame
@@ -235,5 +215,5 @@ pu.save_fits_table(
     extension="OBS_TAB",
     dataframe=obs_info,
     fn_base="mike_spectra",
-    label=label,
-    path="spectra",)
+    label=ms.fits_label,
+    path=ms.fits_folder,)

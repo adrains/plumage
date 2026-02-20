@@ -1,0 +1,96 @@
+# This file contains settings used when preparing MIKE spectra, which are used
+# by the following scripts:
+#
+# 1) scripts_mike/import_spectra_mike.py   --> spectra import to 1x fits
+# 2) scripts_mike/determine_rv_mike.py     --> wavelength scale corr, RV calc
+# 3) scripts_mike/compute_flux_cal_mike.py --> relative flux cal poly fit
+# 4) scripts_mike/prepare_mike_spectra.py  --> preparing spectra for Cannon
+#
+# YAML specifications: https://yaml.org/spec/1.2.2/
+
+# -----------------------------------------------------------------------------
+# Global settings
+# -----------------------------------------------------------------------------
+# As we step through each script in this series, we continue to save to and
+# load from a single fits file, adding HDUs as necessary. This fits file is
+# referenced as <path>/mike_spectra_<label>.fits via the following:
+fits_label: "KM_noflat"
+fits_folder: "spectra/"
+
+# Adopted native resolution of MIKE per spectrograph arm
+mike_resolving_power_r: 46000
+
+# -----------------------------------------------------------------------------
+# Importing MIKE spectra
+#  - scripts_mike/import_spectra_mike.py
+# -----------------------------------------------------------------------------
+# Location on disk containing CARPY multi-fits format MIKE spectra
+reduction_folder: "spectra/mike_MK_unnormalised/"
+
+# Location to save diagnostic plots of extracted spectra
+reduction_diagnostic_folder: "spectra/mike_MK_unnormalised/diagnostics_import/"
+
+# Whether to use the flat field 'normalised' spectra
+normalise_multifits_by_flat: False
+
+# -----------------------------------------------------------------------------
+# Correcting wavelength scale offsets, calculating RVs
+#  - scripts_mike/determine_rv_mike.py
+# -----------------------------------------------------------------------------
+# We crudely (and temporarily) 'flatten' our science spectra prior to RV
+# fitting in two steps. The first is by dividing each order by a polynomial
+# previously fitted to the flat field response of that order, and the second is
+# to divide by a low order polynomial to mostly remove the 'SED' of the star.
+
+# Precomputed flat field polynomial coefficients are saved as:
+#   <path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv"
+poly_order_for_rv_flat_norm: 7
+poly_coef_for_rv_path: "data/"
+
+# Polynomials are initially fit to data rescaled by a 'window' and 'domain',
+# and if this term is set to True we mask out and wavelengths beyond the domain
+# bounds as these can be considered unconstrained.
+set_px_to_nan_beyond_domain: True
+
+# Adjustment polynomial to put the 'blaze corrected' spectra to the 'continuum'
+continuum_adust_poly_order: 1
+
+# Viper synthetic telluric transmission for H2O and O2, sourced from:
+#  https://github.com/mzechmeister/viper/tree/master/lib/atmos 
+telluric_template_fits: "data/viper_stdAtmos_vis.fits"
+
+# Continuum normalised template stellar spectra
+rv_stellar_template_fn: "templates/template_MIKE_R_44000_251121.fits"
+
+# CC RV bounds and step size (km/s) for wavelength scale correction
+wavelength_scale_adjustment_cc_bounds: [-20, 20]
+wavelength_scale_adjustment_cc_delta: 0.1
+
+# CC RV bounds and step size (km/s) for stellar systemic velocity determination
+stellar_systemic_rv_cc_bounds: [-400, 400]
+stellar_systemic_rv_cc_delta: 0.5
+
+#  If the median flux value for the model telluric transmission of a spectral 
+# segment is below this we consider the *entire segment* too contaminated for
+# use when RV fitting. A value of 1 in this case  would be entirely continuum
+# (and be the most restrictive), and a value of 0 would be the most permissive.
+segment_contamination_threshold: 0.99
+
+# Similar to segment_contamination_threshold, but it operates on a *per pixel*
+# level on the model telluric spectrum rather than a per segment level.
+px_absorption_threshold: 0.90
+
+# Location to save diagnostic plots for RV diagnostics
+rv_diagnostic_folder: "spectra/mike_MK_unnormalised/diagnostics_rv/"
+
+# -----------------------------------------------------------------------------
+# Determining flux calibration transfer functions for MIKE spectra
+#  - scripts_mike/compute_flux_cal_mike.py
+# -----------------------------------------------------------------------------
+# TODO
+
+# -----------------------------------------------------------------------------
+# Prepare MIKE spectra for use with the Cannon
+#  - scripts_mike/prepare_mike_spectra.py
+# -----------------------------------------------------------------------------
+# TODO

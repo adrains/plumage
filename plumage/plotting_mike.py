@@ -456,6 +456,10 @@ def plot_cc_rv_diagnostic(
 
     plt.tight_layout()
 
+    # Save plot
+    if not os.path.isdir(fig_save_path):
+        os.mkdir(fig_save_path)
+
     fig_name = os.path.join(fig_save_path, "rv_diagnostic")
     plt.savefig("{}_{}.pdf".format(fig_name, obj_name))
     plt.savefig("{}_{}.png".format(fig_name, obj_name), dpi=200)
