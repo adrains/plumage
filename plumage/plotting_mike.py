@@ -4,6 +4,7 @@ import os
 import warnings
 import numpy as np
 from tqdm import tqdm
+import plumage.spectra_mike as sm
 import matplotlib.pyplot as plt
 import astropy.constants as const
 from astropy.stats import sigma_clip
@@ -711,3 +712,182 @@ def plot_telluric_scale_terms(
     fn = "telluric_scale_{}_{}.png".format(plot_label, species)
 
     plt.savefig("plots/telluric_scale_diagnostics/{}".format(fn), dpi=300)
+
+
+def plot_pseudocontinuum_normalisation_diagnostics(
+    obs_info,
+    wave_1D,
+    spec_2D,
+    spec_2D_norm,
+    sigma_2D_norm,
+    continua_2D,
+    telluric_template="data/viper_stdAtmos_vis.fits",
+    trans_mask_threshold=0.95,
+    resolving_power_science=46000,
+    figsize=(16,6),
+    arm="r",
+    plot_folder="plots",):
+    """Creates two panel diagnostic plots of 1) science spectra, masked 
+    spectral regions, and fitted pseudocontinuum; and 2) pseudocontinuum
+    normalised spectra with uncertainties and overplotted telluric transmission
+    for each science observation. Figures saved as PDFs to:
+
+        <plot_folder>/cont_norm_<date>_<arm_><source_id>.pdf
+
+    Parameters
+    ----------
+    obs_info: pandas dataframe
+        Dataframe containing information about each observation.
+
+    wave_1D: 1D float array
+        1D wavelength scale for spec_2D and sigma_2D, of shape [n_px].
+    
+    spec_2D: 2D float array
+        2D unnormalised spectra of shape [n_obs, n_px].
+
+    spec_2D_norm, sigma_2D_norm, continua_2D: 2D float arrays
+        Pseudeocontinuum normalised science spectra and uncertainties, as well
+        as the pseudocontinuum itself, of shape [n_obs, n_px].
+
+    telluric_template: str, default: 'data/viper_stdAtmos_vis.fits'
+        Location of VIPER fits telluric transmission templates.
+
+    trans_mask_threshold: float, default: 0.95
+        Transmission threshold below which we consider a pixel too telluric
+        contaminated to be included in the smoothing, i.e. 0.95 means that
+        telluric lines of depth up to 5% are acceptable.
+
+    resolving_power_science: float, default: 46000
+        Resolving power of the science spectrum.
+
+    figsize: float tuple
+        Size of the figure to pass to plt.subplots().
+
+    arm: str
+        Spectrograph arm, either 'b' or 'r', used for selecting the appropriate
+        SNR value from obs_info and for the figure filenames.
+
+    plot_folder: str
+        Filepath to save figures to.
+    """
+    # Grab dimensions for convenience
+    (n_obs, n_px) = spec_2D_norm.shape
+
+    # Import telluric spectrum, smoothed to the resolving power and wavelength
+    # sampling of the science spectrum
+    _, _, _, trans_telluric = sm.read_and_broaden_telluric_transmission(
+        telluric_template=telluric_template,
+        resolving_power=resolving_power_science,
+        do_convert_vac_to_air=True,
+        wave_scale_new=wave_1D,)
+    
+    is_telluric_affected = trans_telluric < trans_mask_threshold
+    
+    # -------------------------------------------------------------------------
+    # Diagnostic plotting
+    # -------------------------------------------------------------------------
+    desc = "Plotting pseudocontinuum normalisation diagnostics"
+
+    for obs_i in tqdm(range(n_obs), leave=False, desc=desc):
+        plt.close("all")
+        fig, axes = plt.subplots(nrows=2, sharex=True, figsize=figsize,)
+
+        # ----------------------------
+        # Panel 1: pseudocontinuum fit
+        # ----------------------------
+        # Plot science spectrum (masking out telluric affected px)
+        spec_1D_masked = spec_2D[obs_i].copy()
+        spec_1D_masked[is_telluric_affected] = np.nan
+
+        axes[0].plot(
+            wave_1D,
+            spec_1D_masked,
+            linewidth=0.5,
+            c="k",
+            label="Science",)
+        
+        # Plot masked pixels
+        spec_1D_ta = spec_2D[obs_i].copy()
+        spec_1D_ta[~is_telluric_affected] = np.nan
+
+        axes[0].plot(
+            wave_1D,
+            spec_1D_ta,
+            linewidth=0.5,
+            c="r",
+            label="Science (Masked)",)
+        
+        # Plot the pseudocontinuum
+        axes[0].plot(
+            wave_1D,
+            continua_2D[obs_i],
+            linewidth=1.0,
+            c="g",
+            label="Pseudocontinuum",)
+
+        leg_1 = axes[0].legend(loc="upper center", ncol=3, fontsize="small")
+
+        for legobj in leg_1.legendHandles:
+            legobj.set_linewidth(1.5)
+
+        # -------------------------------------------
+        # Panel 2: pseudocontinuum normalised spectra
+        # -------------------------------------------
+        # Plot the uncertainties
+        axes[1].fill_between(
+            wave_1D,
+            spec_2D_norm[obs_i]+sigma_2D_norm[obs_i]/2, 
+            spec_2D_norm[obs_i]-sigma_2D_norm[obs_i]/2, 
+            alpha=0.5,
+            color="r")
+        
+        # Plot the pseudocontinuum normalised science spectrum
+        axes[1].plot(
+            wave_1D,
+            spec_2D_norm[obs_i],
+            linewidth=0.5,
+            c="k",
+            label="Science (Normalised)")
+
+        # Overplot the telluric transmission
+        axes[1].plot(
+            wave_1D,
+            trans_telluric,
+            linewidth=0.5,
+            c="b",
+            alpha=0.5,
+            label="Telluric Transmission",)
+        
+        leg_2 = axes[1].legend(loc="upper center", ncol=2, fontsize="small")
+
+        for legobj in leg_2.legendHandles:
+            legobj.set_linewidth(1.5)
+
+        # -------------------------------------------
+        # Final plot setup + saving
+        # -------------------------------------------
+        axes[1].set_xlabel(r"Wavelength (${\rm \AA}$)")
+
+        title = "{} ({}, SNR~{:0.0f})".format(
+            obs_info.iloc[obs_i]["source_id"],
+            obs_info.iloc[obs_i]["ut_date"],
+            obs_info.iloc[obs_i]["snr_{}".format(arm)],)
+
+        fig.suptitle(title)
+
+        axes[1].set_xlim(wave_1D[0]*0.995, wave_1D[-1]*1.005)
+
+        plt.tight_layout()
+
+        # Save plot
+        if not os.path.isdir(plot_folder):
+            os.mkdir(plot_folder)
+
+        fn = "cont_norm_{}_{}_{}.pdf".format(
+            obs_info.iloc[obs_i]["ut_date"],
+            arm,
+            obs_info.iloc[obs_i]["source_id"])
+
+        plot_fn = os.path.join(plot_folder, fn)
+
+        plt.savefig("{}.pdf".format(plot_fn))

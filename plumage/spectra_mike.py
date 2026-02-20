@@ -2610,9 +2610,404 @@ def fit_rv_for_flux_template(
     return rv_fit_dict
 
 # -----------------------------------------------------------------------------
+# Tellurics
+# -----------------------------------------------------------------------------
+def read_and_broaden_telluric_transmission(
+    telluric_template,
+    resolving_power,
+    do_convert_vac_to_air=True,
+    wave_scale_new=None,
+    interpolation_method="linear",):
+    """Imports VIPER telluric spectrum, broadens to the science resolution, and
+    (optionally) converts to air wavelengths and regrids the wavelength scale.
+
+    Parameters
+    ----------
+    telluric_template: str
+        Location of VIPER fits telluric transmission templates.
+
+    resolving_power: float
+        Resolving power of the science spectrum to convolve the tellurics to.
+
+    do_convert_vac_to_air: boolean, default: True
+        Whether to convert the from vacuum to air wavelengths.
+
+    wave_scale_new: 1D float array, default: None
+        If not None, we interpolate the telluric transmission spectrum onto
+        this new wavelength scale.
+
+    interpolation_method: str, default: "linear"
+        Default interpolation method to use with scipy.interp1d. Can be one of: 
+        ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
+        'cubic', 'previous', or 'next'].
+
+    Returns
+    -------
+    wave_tt: 1D float array
+        Wavelength scale for telluric transmission, equal to wave_scale_new if
+        provided.
+
+    trans_H2O_broad, trans_O2_broad, trans_all_broad: 1D float array
+        Telluric H2O transnmission, O2 tranmission, and combined transmission.
+    """
+    with fits.open(telluric_template) as tt:
+        wave_tt = tt[1].data["lambda"]
+        trans_H2O = tt[1].data["H2O"]
+        trans_O2 = tt[1].data["O2"]
+
+    trans_H2O_broad = instrBroadGaussFast(
+        wvl=wave_tt,
+        flux=trans_H2O,
+        resolution=resolving_power,
+        edgeHandling="firstlast",
+        maxsig=5,
+        equid=True,)
+
+    trans_O2_broad = instrBroadGaussFast(
+        wvl=wave_tt,
+        flux=trans_O2,
+        resolution=resolving_power,
+        edgeHandling="firstlast",
+        maxsig=5,
+        equid=True,)
+
+    # Convert telluric wavelength scale to air wavelengths to match MIKE
+    if do_convert_vac_to_air:
+        wave_tt = pum.convert_vacuum_to_air_wl(wave_tt)
+
+    # If we've been provided a new wavelength scale, do the regridding here
+    if wave_scale_new is not None:
+        calc_trans_H2O = interp1d(
+            x=wave_tt,
+            y=trans_H2O_broad,
+            kind=interpolation_method,
+            bounds_error=False,
+            assume_sorted=True,
+            fill_value=1.0,)
+        
+        calc_trans_O2 = interp1d(
+            x=wave_tt,
+            y=trans_O2_broad,
+            kind=interpolation_method,
+            bounds_error=False,
+            assume_sorted=True,
+            fill_value=1.0,)
+        
+        wave_tt = wave_scale_new
+        trans_H2O_broad = calc_trans_H2O(wave_scale_new)
+        trans_O2_broad = calc_trans_O2(wave_scale_new)
+
+    # Combine
+    trans_all_broad = trans_H2O_broad * trans_O2_broad
+
+    return wave_tt, trans_H2O_broad, trans_O2_broad, trans_all_broad
+
+
+# -----------------------------------------------------------------------------
 # Order stitching
 # -----------------------------------------------------------------------------
-def combine_echelle_orders():
+def combine_echelle_orders_for_single_obs(
+    wave_2D,
+    spec_2D,
+    sigma_2D,
+    disp,
+    wave_min=None,
+    wave_max=None,
+    wave_delta=None):
+    """Linearly interpolates spectra onto a common wavelength scale and stiches
+    together overlapping echelle orders into a single contiguous 1D spectrum.
+
+    We use SMHR's functions as a reference for what we're trying to do here:
+        https://github.com/andycasey/smhr/blob/master/smh/specutils/spectrum.py
+
+    SMHR makes it look more complicated because it's being very general and
+    accounting for different kinds of broadening, but really all we want to do
+    is to find the minimum dispersion across all orders, find the minimum and
+    maximum wavelengths, and then compute a uniform wavelength scale from those
+    three numbers. Then we resample each order separately onto this wavelength
+    scale, and we can do a weighted averaged to collapse the overlapping orders.
+
+    Parameters
+    ----------
+    wave_2D, spec_2D, sigma_2D: 2D float array
+        2D float arrays of shape [n_order, n_px] corresponding to the
+        wavelength scale, spectra, or sigmas for a given star.
+
+    disp: 1D float array
+        Dispersion for each order, of shape [n_order].
+
+    wave_min, wave_max, wave_delta: float, default: None
+        Minimum, maximum, and step size for the new linearly interpolated
+        wavelength scale. If not provided, we take these from the data.
+
+    Returns
+    -------
+    wave_1D, spec_1D, sigma_1D: 1D float array
+        Stitched together wavelength scale, fluxes, and sigmas.
     """
+    # Grab dimensions for convenience
+    (n_order, n_px) = wave_2D.shape
+
+    # If we've not been provided the bounds and sampling for the new wavelength
+    # scale, grab it from the data.
+    if wave_min is None or wave_max is None or wave_delta is None:
+        wave_min = np.nanmin(wave_2D)
+        wave_max = np.nanmax(wave_2D)
+        wave_delta = np.nanmin(disp)
+
+    # Create the new wavelength scale
+    wave_1D = np.arange(wave_min, wave_max, wave_delta)
+
+    n_px_new = wave_1D.size
+
+    # Initialise the interpolated flux and sigma arrays
+    spec_2D_regridded = np.zeros((n_order, n_px_new))
+    sigma_2D_regridded = np.zeros((n_order, n_px_new))
+
+    for order_i in range(n_order):
+        spec_2D_regridded[order_i] = np.interp(
+            x=wave_1D,
+            xp=wave_2D[order_i],
+            fp=spec_2D[order_i],
+            left=0,
+            right=0)
+        
+        sigma_2D_regridded[order_i] = np.interp(
+            x=wave_1D,
+            xp=wave_2D[order_i],
+            fp=sigma_2D[order_i],
+            left=0,
+            right=0)
+
+    # Mask out bad pixels so they don't compromise the co-adding
+    is_bad_px = np.any((
+        ~np.isfinite(spec_2D_regridded),     # nonfinite fluxes
+        ~np.isfinite(sigma_2D_regridded),    # nonfinite sigmas
+        sigma_2D_regridded == 0), axis=0)    # sigma = 0
+
+    spec_2D_regridded[is_bad_px] = 0
+    sigma_2D_regridded[is_bad_px] = 1E20
+
+    # Compute inverse variances for convenience
+    ivar_2D = sigma_2D_regridded**-2
+    
+    # Compute weighted sum using the same method as SMHR
+    numerator = np.nansum(spec_2D_regridded * ivar_2D, axis=0)
+    denominator = np.nansum(ivar_2D, axis=0)
+
+    spec_1D = numerator/denominator
+    sigma_1D = denominator**-0.5
+
+    # Set pixels with fluxes <= 0 to NaN
+    has_bad_flux = spec_1D <= 0
+    spec_1D[has_bad_flux] = np.nan
+    sigma_1D[has_bad_flux] = np.nan
+
+    return wave_1D, spec_1D, sigma_1D
+
+
+def combine_echelle_orders_for_all_observations(
+    wave_3D,
+    spec_3D,
+    sigma_3D,
+    disp_2D,
+    create_global_wavelength_scale=True,):
+    """Calls combine_echelle_orders_for_single_obs once each for a set of
+    observations to stitch them all together onto a uniform wavelength scale.
+
+    Parameters
+    ----------
+    wave_3D, spec_3D, sigma_3D: 3D float array
+        2D float arrays of shape [n_obs, n_order, n_px] corresponding to the
+        wavelength scale, spectra, or sigmas for all observations.
+
+    disp_2D: 2D float array
+        Dispersion for each order, of shape [n_obs, n_order].
+
+    create_global_wavelength_scale: boolean, default: True
+        Whether or not to adopt a global wavelength scale for all observations,
+        or create them independently for all observations.
+
+    Returns
+    -------
+    wave_1D, spec_1D, sigma_1D: 1D float array
+        Stitched together wavelength scale, fluxes, and sigmas.
     """
-    pass
+    # Grab dimensions for convenience
+    (n_obs, n_order, n_px) = wave_3D.shape
+
+    if create_global_wavelength_scale:
+        wave_min = np.nanmin(wave_3D)
+        wave_max = np.nanmax(wave_3D)
+        wave_delta = np.nanmin(disp_2D)
+    else:
+        raise Exception("Currently unsupported!")
+    
+        wave_min = None
+        wave_max = None
+        wave_delta = None
+
+    desc = "Stitching spectra together"
+
+    spec_2D = []
+    sigma_2D = []
+
+    for obs_i in tqdm(range(n_obs), leave=False, desc=desc):
+        w_1D, f_1D, s_1D = combine_echelle_orders_for_single_obs(
+            wave_2D=wave_3D[obs_i],
+            spec_2D=spec_3D[obs_i],
+            sigma_2D=sigma_3D[obs_i],
+            disp=disp_2D[obs_i],
+            wave_min=wave_min,
+            wave_max=wave_max,
+            wave_delta=wave_delta,)
+        
+        wave_1D = w_1D
+        spec_2D.append(f_1D)
+        sigma_2D.append(s_1D)
+
+    spec_2D = np.stack(spec_2D)
+    sigma_2D = np.stack(sigma_2D)
+
+    return wave_1D, spec_2D, sigma_2D
+
+
+def pseudocontinuum_normalise_spectra(
+    wave_1D,
+    spec_2D,
+    sigma_2D,
+    resolving_power_smoothed=100,
+    telluric_template="data/viper_stdAtmos_vis.fits",
+    resolving_power_science=46000,
+    trans_mask_threshold=0.95,
+    interpolation_method="linear",):
+    """Pseudocontinuum normalises a 1D spectrum by dividing through by a low-
+    resolution smoothed version of the spectrum. This normalisation is intended
+    to be solely a function of stellar parameters, so we must mask telluric
+    affected regions in the science spectrum before computing the 'continuum'.
+    Additionally, we must pad the edges of the science spectrum with 'mirrored'
+    copies of the science spectrum to avoid edge effects.
+
+    Parameters
+    ----------
+    wave_1D: 1D float array
+        1D wavelength scale for spec_2D and sigma_2D, of shape [n_px].
+    
+    spec_2D, sigma_2D: 2D float array
+        2D spectra and sigma arrays of shape [n_obs, n_px].
+
+    resolving_power_smoothed: float, default: 100
+        Resolving power of the smoothing pseudocontinuum.
+
+    telluric_template: str, default: 'data/viper_stdAtmos_vis.fits'
+        Location of VIPER fits telluric transmission templates.
+
+    resolving_power_science: float, default: 46000
+        Resolving power of the science spectrum.
+
+    trans_mask_threshold: float, default: 0.95
+        Transmission threshold below which we consider a pixel too telluric
+        contaminated to be included in the smoothing, i.e. 0.95 means that
+        telluric lines of depth up to 5% are acceptable.
+
+    interpolation_method: str, default: "linear"
+        Default interpolation method to use with scipy.interp1d. Can be one of: 
+        ['linear', 'nearest', 'nearest-up', 'zero', 'slinear', 'quadratic',
+        'cubic', 'previous', or 'next'].
+
+    Returns
+    -------
+    spec_2D_norm, sigma_2D_norm, continua_2D: 2D float arrays
+        Pseudeocontinuum normalised science spectra and uncertainties, as well
+        as the pseudocontinuum itself, of shape [n_obs, n_px].
+    """
+    # Grab dimensions for convenience
+    (n_obs, n_px) = spec_2D.shape
+
+    # Initalise output continuum array
+    continua_2D = np.ones_like(spec_2D)
+
+    # Import telluric spectrum, smoothed to the resolving power and wavelength
+    # sampling of the science spectrum
+    _, _, _, trans_telluric = read_and_broaden_telluric_transmission(
+        telluric_template=telluric_template,
+        resolving_power=resolving_power_science,
+        do_convert_vac_to_air=True,
+        wave_scale_new=wave_1D,)
+
+    desc = "Pseudocontinuum normalising"
+
+    for obs_i in tqdm(range(n_obs), leave=False, desc=desc):
+        # ---------------------------------------------------------------------
+        # Pad science spectra to avoid edge effects
+        # ---------------------------------------------------------------------
+        # We want to mirror the ends of our science spectra and sigmas
+        # before smoothing to prevent edge effects.
+        n_px_padded_per_side = 4000
+
+        # Extend wavelength scale
+        wave_delta = np.nanmedian(np.diff(wave_1D))
+        wave_min =  wave_1D[0]
+        wave_max =  wave_1D[-1]
+
+        assert(~np.isnan(wave_min))
+        assert(~np.isnan(wave_max))
+        assert(~np.isnan(wave_delta))
+
+        wave_b_end = (wave_min-wave_delta) - n_px_padded_per_side*wave_delta
+        wave_r_end = (wave_max+wave_delta) + n_px_padded_per_side*wave_delta
+
+        # Pad wavelength scale and spectra
+        wave_1D_padded = np.pad(
+            array=wave_1D,
+            pad_width=n_px_padded_per_side,
+            mode="linear_ramp",
+            end_values=(wave_b_end, wave_r_end),)
+        
+        spec_1D_padded = np.pad(
+            array=spec_2D[obs_i],
+            pad_width=n_px_padded_per_side,
+            mode="symmetric",)
+        
+        trans_telluric_padded = np.pad(
+            array=trans_telluric,
+            pad_width=n_px_padded_per_side,
+            mode="symmetric",)
+
+        # ---------------------------------------------------------------------
+        # Mask telluric regions
+        # ---------------------------------------------------------------------
+        is_telluric_contaminated = trans_telluric_padded < trans_mask_threshold
+        is_finite = np.isfinite(spec_1D_padded)
+        is_masked = np.logical_or(is_telluric_contaminated, ~is_finite)
+        
+        wave_1D_padded_masked = wave_1D_padded[~is_masked]
+        spec_1D_padded_masked = spec_1D_padded[~is_masked]
+
+        # ---------------------------------------------------------------------
+        # Compute pseudocontinuum
+        # ---------------------------------------------------------------------
+        continua_1D = instrBroadGaussFast(
+            wvl=wave_1D_padded_masked,
+            flux=spec_1D_padded_masked,
+            resolution=resolving_power_smoothed,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
+        
+        # Interpolate this back to full wavelength scale
+        calc_continuum = interp1d(
+            x=wave_1D_padded_masked,
+            y=continua_1D,
+            kind=interpolation_method,
+            bounds_error=False,
+            assume_sorted=True,
+            fill_value=np.nan,)
+        
+        continua_2D[obs_i] = calc_continuum(wave_1D)
+
+    # Pseudocontinuum normalise spectra and return
+    spec_2D_norm = spec_2D / continua_2D
+    sigma_2D_norm = sigma_2D / continua_2D
+
+    return spec_2D_norm, sigma_2D_norm, continua_2D

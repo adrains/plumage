@@ -83,29 +83,12 @@ plot_folder = "spectra/mike_MK_unnormalised/flux_calibration/"
 # -----------------------------------------------------------------------------
 # Prepare telluric template
 # -----------------------------------------------------------------------------
-with fits.open(telluric_template) as tt:
-    wave_tt = tt[1].data["lambda"]
-    trans_H2O = tt[1].data["H2O"]
-    trans_O2 = tt[1].data["O2"]
-
-trans_H2O_broad = instrBroadGaussFast(
-    wvl=wave_tt,
-    flux=trans_H2O,
-    resolution=resolving_power,
-    edgeHandling="firstlast",
-    maxsig=5,
-    equid=True,)
-
-trans_O2_broad = instrBroadGaussFast(
-    wvl=wave_tt,
-    flux=trans_O2,
-    resolution=resolving_power,
-    edgeHandling="firstlast",
-    maxsig=5,
-    equid=True,)
-
-# Convert telluric wavelength scale to air wavelengths to match MIKE
-wave_tt_vac = pum.convert_vacuum_to_air_wl(wave_tt)
+wave_tt_vac, trans_H2O_broad, trans_O2_broad, trans_telluric = \
+    psm.read_and_broaden_telluric_transmission(
+        telluric_template=telluric_template,
+        resolving_power=resolving_power,
+        do_convert_vac_to_air=True,
+        wave_scale_new=None,)
 
 # -----------------------------------------------------------------------------
 # Import + settings
@@ -319,6 +302,9 @@ wave_maxes_mean = np.nanmean(spphot_wave_maxes, axis=0)
 
 fn_label = "{}x_SpPhot_mean".format(n_spphot)
 
+# TODO combine coefficients with the blaze
+pass
+
 pum.save_flux_calibration_poly_coeff(
     poly_order=poly_order,
     poly_coeff=poly_coef_mean,
@@ -328,37 +314,3 @@ pum.save_flux_calibration_poly_coeff(
     arm=arm,
     label=fn_label,
     save_path=plot_folder,)
-
-# -----------------------------------------------------------------------------
-# Flux calibrating everything
-# -----------------------------------------------------------------------------
-# TODO: move this to its own script
-# Flux calibrate all spectra
-spectra_fc = np.full_like(spec, np.nan)
-sigma_fc = np.full_like(spec, np.nan)
-
-for star_i in range(n_star):
-    spec_fc, sig_fc = psm.flux_calibrate_mike_spectrum(
-        wave_2D=wave[star_i],
-        spec_2D=spec[star_i],
-        sigma_2D=sigma[star_i],
-        airmass=obs_info.iloc[star_i]["airmass"],
-        poly_order=poly_order,
-        arm=arm,
-        coeff_save_folder=plot_folder,
-        label=fn_label,)
-
-    spectra_fc[star_i] = spec_fc
-    sigma_fc[star_i] = sig_fc
-
-mm = np.argsort(obs_info["teff_template"].values)
-
-ppltm.plot_all_flux_calibrated_spectra(
-    wave_3D=wave[mm],
-    spec_3D=spectra_fc[mm],
-    sigma_3D=sigma_fc[mm],
-    object_ids=obs_info["object"].values[mm],
-    is_spphot_1D=obs_info["is_spphot"].values[mm],
-    figsize=(16,50),
-    plot_folder=plot_folder,
-    plot_label=arm,)
