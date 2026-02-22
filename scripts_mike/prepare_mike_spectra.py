@@ -34,59 +34,38 @@ import numpy as np
 import plumage.spectra_mike as sm
 import plumage.utils_mike as um
 import plumage.plotting_mike as ppltm
+import stannon.utils as su
 
-# -----------------------------------------------------------------------------
-# Settings, TODO: move all of this to a yaml file
 # -----------------------------------------------------------------------------
 # Settings
-path= "spectra"
-arm = "r"
-label = "KM_noflat"
-
-plot_folder_fc = "spectra/mike_MK_unnormalised/flux_calibration/"
-plot_folder_cn = "spectra/mike_MK_unnormalised/continuum_normalisation/"
-
-# Settings for polynomial 'blaze correction'
-do_flat_field_blaze_corr = True
-flat_norm_poly_order = 7
-poly_coef_csv_path = "data/"
-set_px_to_nan_beyond_domain = True
-
-# Orders to drop
-do_drop_orders = True
-orders_to_drop = [37, 70, 71]
-
-# Settings for flux cal file
-poly_order = 5
-fn_label = "12x_SpPhot_mean"
-
-# Pseudocontinuum resolution
-pc_resolution = 50
-
-# Tellurics
-telluric_template = "data/viper_stdAtmos_vis.fits"
-resolving_power = 46000
+# -----------------------------------------------------------------------------
+# Import our settings object, which stores settings detailed in a YAML file.
+mike_settings = "scripts_mike/mike_reduction_settings.yml"
+ms = su.load_yaml_settings(mike_settings)
 
 # -----------------------------------------------------------------------------
 # Import
 # -----------------------------------------------------------------------------
 wave, spec, sigma, orders, disp = um.load_3D_spec_from_fits(
-    path=path, label=label, arm=arm)
+    path=ms.fits_folder, label=ms.fits_label, arm=ms.spec_prep_arm)
 obs_info = um.load_fits_table("OBS_TAB", "KM_noflat",)
 
 (n_obs, n_order, n_px) = wave.shape
 
-if do_flat_field_blaze_corr:
+# Normalise by the fitted 'blaze' (i.e. the lamp spectrum).TODO: these
+# coefficients should be added to the flux calibration ones for simplicity.
+if ms.spec_prep_do_flat_field_blaze_corr:
     spec, sigma = \
         sm.normalise_mike_all_spectra_by_norm_flat_field(
             wave_3D=wave,
             spec_3D=spec,
             sigma_3D=sigma,
             orders=orders,
-            arm="r",
-            poly_order=flat_norm_poly_order,
-            base_path=poly_coef_csv_path,
-            set_px_to_nan_beyond_domain=set_px_to_nan_beyond_domain,)
+            arm=ms.spec_prep_arm,
+            poly_order=ms.spec_prep_blaze_corr_poly_order,
+            base_path=ms.spec_prep_blaze_corr_poly_coef_path,
+            set_px_to_nan_beyond_domain=\
+                ms.spec_prep_blaze_corr_set_px_to_nan_beyond_domain,)
 
 # -----------------------------------------------------------------------------
 # Flux calibrating everything
@@ -101,10 +80,10 @@ for star_i in range(n_obs):
         spec_2D=spec[star_i],
         sigma_2D=sigma[star_i],
         airmass=obs_info.iloc[star_i]["airmass"],
-        poly_order=poly_order,
-        arm=arm,
-        coeff_save_folder=plot_folder_fc,
-        label=fn_label,)
+        poly_order=ms.spec_prep_flux_cal_poly_order,
+        arm=ms.spec_prep_arm,
+        coeff_save_folder=ms.spec_prep_flux_cal_folder,
+        label=ms.spec_prep_flux_cal_poly_order_fn_label,)
 
     spectra_fc[star_i] = spec_fc
     sigma_fc[star_i] = sig_fc
@@ -118,15 +97,15 @@ ppltm.plot_all_flux_calibrated_spectra(
     object_ids=obs_info["object"].values[mm],
     is_spphot_1D=obs_info["is_spphot"].values[mm],
     figsize=(16,50),
-    plot_folder=plot_folder_fc,
-    plot_label=arm,)
+    plot_folder=ms.spec_prep_flux_cal_folder,
+    plot_label=ms.spec_prep_arm,)
 
 # -----------------------------------------------------------------------------
 # Combine MIKE orders
 # -----------------------------------------------------------------------------
 # [Optional] Drop orders known to have problems
-if do_drop_orders:
-    dropped_orders_mask = np.isin(orders, orders_to_drop)
+if ms.spec_prep_do_drop_orders:
+    dropped_orders_mask = np.isin(orders, ms.spec_prep_orders_to_drop)
 
 else:
     dropped_orders_mask = np.full(orders.shape, False)
@@ -150,7 +129,7 @@ spec_2D_norm, sigma_2D_norm, continua_2D = \
         wave_1D,
         spec_2D,
         sigma_2D,
-        resolving_power_smoothed=pc_resolution,)
+        resolving_power_smoothed=ms.pseudocontinuum_smoothing_resolution,)
 
 # Plot continuum normalisation diagnostics
 ppltm.plot_pseudocontinuum_normalisation_diagnostics(
@@ -160,8 +139,8 @@ ppltm.plot_pseudocontinuum_normalisation_diagnostics(
     spec_2D_norm=spec_2D_norm,
     sigma_2D_norm=sigma_2D_norm,
     continua_2D=continua_2D,
-    arm="r",
-    plot_folder=plot_folder_cn)
+    arm=ms.spec_prep_arm,
+    plot_folder=ms.plot_folder_cn)
 
 # -----------------------------------------------------------------------------
 # RV shift to restframe

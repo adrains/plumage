@@ -34,6 +34,17 @@ reduction_diagnostic_folder: "spectra/mike_MK_unnormalised/diagnostics_import/"
 normalise_multifits_by_flat: False
 
 # -----------------------------------------------------------------------------
+# Fitting a polynomial to the normalised flat field for blaze 'correction'
+#   - scripts_mike/fit_polynomial_to_mike_norm_flat.py
+# -----------------------------------------------------------------------------
+# Precomputed flat field polynomial coefficients are saved as:
+#   <path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv"
+norm_flat_fit_poly_order: 7
+norm_flat_fit_ref_spec: "spectra/mike_MK_unnormalised/ej131red_multi.fits"
+norm_flat_fit_arm: "r"
+norm_flat_fit_save_path: "data/"
+
+# -----------------------------------------------------------------------------
 # Correcting wavelength scale offsets, calculating RVs
 #  - scripts_mike/determine_rv_mike.py
 # -----------------------------------------------------------------------------
@@ -93,4 +104,29 @@ rv_diagnostic_folder: "spectra/mike_MK_unnormalised/diagnostics_rv/"
 # Prepare MIKE spectra for use with the Cannon
 #  - scripts_mike/prepare_mike_spectra.py
 # -----------------------------------------------------------------------------
-# TODO
+# Arm that we are preparing. TODO: loop over both arms.
+spec_prep_arm: "r"
+
+# Precomputed flat field polynomial coefficients are saved as:
+#   <path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv"
+spec_prep_do_flat_field_blaze_corr: True
+spec_prep_blaze_corr_poly_order: 7
+spec_prep_blaze_corr_poly_coef_path: "data/"
+spec_prep_blaze_corr_set_px_to_nan_beyond_domain: True
+
+# Settings for flux cal file
+spec_prep_flux_cal_poly_order: 5
+spec_prep_flux_cal_poly_order_fn_label: "12x_SpPhot_mean"
+spec_prep_flux_cal_folder: "spectra/mike_MK_unnormalised/flux_calibration/"
+
+# Folder for saving continuum normalisation plots
+plot_folder_cn: "spectra/mike_MK_unnormalised/continuum_normalisation/"
+
+# Combining MIKE orders. Here we can decide whether we want to drop any orders
+# so we don't have to deal with them at future stages of the analysis, e.g. for
+# orders that are consistently missing for some stars.
+spec_prep_do_drop_orders: True
+spec_prep_orders_to_drop: [37, 70, 71]
+
+# Pseudocontinuum resolution
+pseudocontinuum_smoothing_resolution: 50

@@ -9,28 +9,21 @@ import numpy as np
 import pandas as pd
 import plumage.spectra_mike as sm
 import matplotlib.pyplot as plt
+import stannon.utils as su
 from numpy.polynomial.polynomial import Polynomial
 
 # -----------------------------------------------------------------------------
 # Settings
 # -----------------------------------------------------------------------------
-# This is the multi-fits file used during the flat field fit
-ref_spec = "spectra/mike_MK_unnormalised/ej131red_multi.fits"
-
-# Polynomial oder for the fitting
-poly_order = 7
-
-# Arm of the spectrograph fitted so we can label the saved file accordingly
-arm = "r"
-
-# Folder to save to
-base_path = "data/"
+# Import our settings object, which stores settings detailed in a YAML file.
+mike_settings = "scripts_mike/mike_reduction_settings.yml"
+ms = su.load_yaml_settings(mike_settings)
 
 # -----------------------------------------------------------------------------
 # Observation settings
 # -----------------------------------------------------------------------------
 # Import the reference spectrum
-data_dict = sm.load_single_mike_fits(ref_spec)
+data_dict = sm.load_single_mike_fits(ms.norm_flat_fit_ref_spec)
 
 # Import the wavelength scale, normalised flat spectra, and order numbers
 wave = data_dict["wave"]
@@ -47,7 +40,7 @@ is_zero = flat == 0
 (n_order, n_px) = wave.shape
 
 # Initialise output array to save fitted polynomial coefficients
-poly_coef = np.zeros((n_order, poly_order+1))
+poly_coef = np.zeros((n_order, ms.norm_flat_fit_poly_order+1))
 
 # Keep track of the polynomial domains that we use when fitting. These are the
 # min and max extent of the non-zero pixels, beyond which we should not
@@ -70,7 +63,7 @@ for order_i in range(n_order):
     poly = Polynomial.fit(
         x=ww,
         y=fl,
-        deg=poly_order,
+        deg=ms.norm_flat_fit_poly_order,
         domain=(domain_min[order_i], domain_max[order_i]),)
     
     poly_coef[order_i] = poly.coef
@@ -87,25 +80,30 @@ for order_i in range(n_order):
         poly(ww),
         linewidth=0.5,
         c="r",
-        label="Fit (order: {})".format(poly_order) if order_i == 0 else None)
+        label="Fit (order: {})".format(
+            ms.norm_flat_fit_poly_order) if order_i == 0 else None)
 
 leg = axes.legend()
 axes.set_xlabel("Wavelength (Å)")
 axes.set_ylabel("Normalised Flat")
 plt.tight_layout()
-plt.savefig("plots/order_fit_{}_order_{}.pdf".format(arm, poly_order))
+plt.savefig("plots/order_fit_{}_order_{}.pdf".format(
+    ms.norm_flat_fit_arm, ms.norm_flat_fit_poly_order))
 
 # -----------------------------------------------------------------------------
 # Saving
 # -----------------------------------------------------------------------------
 # Create DataFrame
-coef_cols = ["coef_{}".format(oi) for oi in range(0, poly_order+1, 1)]
+coef_cols = [
+    "coef_{}".format(oi) for oi in range(0, ms.norm_flat_fit_poly_order+1, 1)]
 cols = coef_cols + ["domain_min", "domain_max"]
 
 data = np.hstack((poly_coef, domain_min[:, None], domain_max[:, None]))
 
-df = pd.DataFrame(index=pd.Index(orders, name="orders"), data=data, columns=cols)
+df = pd.DataFrame(
+    index=pd.Index(orders, name="orders"), data=data, columns=cols)
 
 # Save the results to a CSV
-fn = "mike_norm_flat_poly_coef_{}_{}.csv".format(poly_order, arm)
-df.to_csv(os.path.join(base_path, fn))
+fn = "mike_norm_flat_poly_coef_{}_{}.csv".format(
+    ms.norm_flat_fit_poly_order, ms.norm_flat_fit_arm)
+df.to_csv(os.path.join(ms.norm_flat_fit_save_path, fn))
