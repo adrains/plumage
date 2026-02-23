@@ -717,6 +717,7 @@ def save_fits_image_hdu(
         "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
         "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
         "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
+        "stellar_frame_telluric_trans":("STELLAR_FRAME_T_TRANS_", float),
         "wave_3D":("WAVE_3D_", float),      # MIKE
         "spec_3D":("SPEC_3D_", float),      # MIKE
         "sigma_3D":("SIGMA_3D_", float),    # MIKE

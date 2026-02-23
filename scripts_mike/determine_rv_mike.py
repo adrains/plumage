@@ -214,6 +214,6 @@ obs_info["rv_wave_corr_r"] = rvs_tt_r
 pu.save_fits_table(
     extension="OBS_TAB",
     dataframe=obs_info,
-    fn_base="mike_spectra",
+    fn_base=ms.fits_fn_base,
     label=ms.fits_label,
     path=ms.fits_folder,)

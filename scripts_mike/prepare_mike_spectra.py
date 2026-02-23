@@ -1,21 +1,22 @@
 """Script to prepare reduced MIKE spectra for further analysis with the Cannon.
 
 Things this script does
-    1) Flux calibrate MIKE spectra (+save)
-    2) Combine MIKE orders onto uniform wavelength scale (+save)
-        - This includes an RV correction
-        - TODO: also, saving RV shifted tellurics as bad px mask?
-    3) [Optional] Smoothing to constant resolution (+save)
-    4) Continuum normalise MIKE spectra (+save)
+    1) Flux calibrate MIKE spectra.
+    2) Combine MIKE orders onto uniform wavelength scale.
+    3) [Optional] Smoothing to constant resolution (TODO).
+    4) Continuum normalise MIKE spectra.
+    5) Shift spectra, sigmas, and telluric transmission to stellar restframe.
+    6) Save back to fits file.
 
 Standard Process
 ----------------
-This script is 5) in the following series of scripts to work with MIKE data:
-    1) scripts_reduction/import_spectra_mike.py
-    2) scripts_reduction/determine_rv_mike.py
-    3) scripts_reduction/fit_tau_scale_components_for_flux_standards.py
-    4) scripts_reduction/compute_flux_cal_mike.py
-    5) scripts_mike/prepare_mike_spectra.py
+This script is 6) in the following series of scripts to work with MIKE data:
+    1) scripts_mike/import_spectra_mike.py
+    2) scripts_mike/fit_polynomial_to_mike_norm_flat.py
+    3) scripts_mike/determine_rv_mike.py
+    4) scripts_mike/fit_tau_scale_components_for_flux_standards.py
+    5) scripts_mike/compute_flux_cal_mike.py
+    6) scripts_mike/prepare_mike_spectra.py
 
 Then we move onto standard Cannon scripts:
     1) scripts_cannon/assess_literature_systematics.py 
@@ -27,11 +28,14 @@ And synthetic spectra comparison (to be run on MSO servers):
     1) scripts_synth/get_lit_param_synth.py
 
 Related MIKE files
-    - scripts_mike/mike_reduction_settings.yml  TODO!
+    - scripts_mike/mike_reduction_settings.yml
     - data/mike_info.tsv
+    - data/mike_flux_standard_template_info.tsv
 """
 import numpy as np
+import plumage.spectra as ps
 import plumage.spectra_mike as sm
+import plumage.utils as pu
 import plumage.utils_mike as um
 import plumage.plotting_mike as ppltm
 import stannon.utils as su
@@ -143,12 +147,74 @@ ppltm.plot_pseudocontinuum_normalisation_diagnostics(
     plot_folder=ms.plot_folder_cn)
 
 # -----------------------------------------------------------------------------
-# RV shift to restframe
+# RV shift science spectra to stellar restframe
 # -----------------------------------------------------------------------------
-pass
+# Shift the red arm science spectra into the stellar frame
+spec_rf_r, e_spec_rf_r = ps.correct_all_rvs(
+    wl_old=wave_1D,
+    spectra=spec_2D_norm,
+    e_spectra=sigma_2D_norm,
+    observations=obs_info,
+    wl_new=wave_1D,
+    rv_col_name="rv_{}".format(ms.spec_prep_arm),)
 
 # -----------------------------------------------------------------------------
-# Wrapping up
+# Create 2D array of telluric transmission and shift to stellar rest frame
 # -----------------------------------------------------------------------------
-# Saving back to file, etc
-pass
+# Import 1D telluric transmission
+_, _, _, trans_telluric = sm.read_and_broaden_telluric_transmission(
+        telluric_template=ms.telluric_template_fits,
+        resolving_power=ms.mike_resolving_power_r,
+        do_convert_vac_to_air=True,
+        wave_scale_new=wave_1D,)
+
+# Tile this to 2D--the same shape as our spectra
+trans_2D = np.tile(trans_telluric, n_obs).reshape(spec_2D_norm.shape)
+
+# Shift the tellurics into the stellar frame to later use them as a bad px mask
+trans_2D_rf_star, _ = ps.correct_all_rvs(
+    wl_old=wave_1D,
+    spectra=trans_2D,
+    e_spectra=np.ones_like(trans_2D),
+    observations=obs_info,
+    wl_new=wave_1D,
+    rv_col_name="rv_{}".format(ms.spec_prep_arm),)
+
+# -----------------------------------------------------------------------------
+# Save pseudocontinuum normalised stellar frame spectra back to file
+# -----------------------------------------------------------------------------
+# Wavelength scale
+pu.save_fits_image_hdu(
+    data=wave_1D,
+    extension="rest_frame_wave",
+    label=ms.fits_label,
+    fn_base=ms.fits_fn_base,
+    path=ms.fits_folder,
+    arm=ms.spec_prep_arm,)
+
+# Science spectra
+pu.save_fits_image_hdu(
+    data=spec_rf_r,
+    extension="rest_frame_spec_norm",
+    label=ms.fits_label,
+    fn_base=ms.fits_fn_base,
+    path=ms.fits_folder,
+    arm=ms.spec_prep_arm,)
+
+# Science spectral uncertainties
+pu.save_fits_image_hdu(
+    data=e_spec_rf_r,
+    extension="rest_frame_sigma_norm",
+    label=ms.fits_label,
+    fn_base=ms.fits_fn_base,
+    path=ms.fits_folder,
+    arm=ms.spec_prep_arm,)
+
+# Stellar frame telluric transmission
+pu.save_fits_image_hdu(
+    data=trans_2D_rf_star,
+    extension="stellar_frame_telluric_trans",
+    label=ms.fits_label,
+    fn_base=ms.fits_fn_base,
+    path=ms.fits_folder,
+    arm=ms.spec_prep_arm,)

@@ -1589,10 +1589,8 @@ def correct_rv(
 
     Parameters
     ----------
-    sci_spectra: float array
-        2D numpy array containing spectra of form [wl/spec/sigma, flux].
-    
-    TODO
+    wl_old, spectrum, e_spectrum: 1D float array
+        Wavelength scale, spectra, and uncertainties of shape [N_px_old].
 
     bcor: float
         Barycentric velocity in km/s
@@ -1600,14 +1598,14 @@ def correct_rv(
     rv: float array
         Fitted radial velocity in km/s
 
-    wl_new: float array
-        New wavelength scale to regrid the spectra onto once in the rest frame
+    wl_new: 1D float array
+        New wavelength scale to regrid to onto once in the rest frame, of shape
+        [N_px_new].
 
     Returns
     -------
-    rest_frame_spec: float array
-        2D numpy array containing spectra of form [wl/spec/sigma, flux] now
-        in the rest frame
+    spec_rf, e_spec_rf: 1Dfloat array
+        Spectra and uncertainties shifted to restframe, of shape [N_px_new].
     """
     # Setup the interpolation
     calc_spec = interp1d(wl_old, spectrum, kind="linear",
@@ -1622,8 +1620,6 @@ def correct_rv(
     spec_rf = calc_spec(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
     e_spec_rf = calc_sigma(wl_new * (1+(rv-bcor)/(const.c.si.value/1000)))
 
-    #rest_frame_spec = np.stack([wl_new, rest_frame_spec, rest_frame_sigma])
-
     return spec_rf, e_spec_rf
 
 
@@ -1632,48 +1628,54 @@ def correct_all_rvs(
     spectra,
     e_spectra,
     observations,
-    wl_new):
-    """
+    wl_new,
+    rv_col_name="rv",):
+    """Shifts an array of [N_obs, N_px] spectra and uncertainties to the rest
+    frame, and optionally regrids onto a new wavelength scale.
+
     Parameters
     ----------
-    sci_spectra: float array
-        3D numpy array containing spectra of form [N_ob, wl/spec/sigma, flux].
-    
-    TODO
+    wl_old: 1D float array
+        Wavelength scale for spectra and uncertainties, of shape [n_px].
 
-    TODO
+    spectra, e_spectra: 2D float array
+        Spectra and uncertainties to be shifted to restframe, of shape 
+        [N_obs, N_px].
 
     observations: pandas dataframe
         Dataframe containing information about each observation.
 
     wl_new: float array
-        New wavelength scale to regrid the spectra onto once in the rest frame
+        New wavelength scale to regrid to onto once in the rest frame, of shape
+        [N_px_new].
+    
+    rv_col_name: str, default: 'rv'
+        Column name for the radial velocity in the dataframe.
 
     Returns
     -------
-    rest_frame_spectra: float array
-        3D numpy array containing spectra of form [star, wl/spec/sigma, flux] 
-        now in the rest frame
-
-    TODO
+    spectra_rf, e_spectra_rf: 2D float array
+        Spectra and uncertainties shifted to restframe, of shape 
+        [N_obs, N_px_new].
     """
-    #Initialise
-    spectra_rf = []
-    e_spectra_rf = []
+    # Grab dinemsions for convenience
+    (n_obs, n_px_old) = spectra.shape
+    n_px_new = wl_new.size
+
+    # Initialise output arrays
+    spectra_rf = np.full((n_obs, n_px_new), np.nan)
+    e_spectra_rf = np.full((n_obs, n_px_new), np.nan)
 
     for star_i, (spectrum, e_spectrum) in enumerate(zip(spectra, e_spectra)):
         bcor = observations.iloc[star_i]["bcor"]
-        rv = observations.iloc[star_i]["rv"]
+        rv = observations.iloc[star_i][rv_col_name]
         
         # Perform RV correction
         spec_rf, e_spec_rf = correct_rv(
             wl_old, spectrum, e_spectrum, bcor, rv, wl_new)
         
         # Save results
-        spectra_rf.append(spec_rf)
-        e_spectra_rf.append(e_spec_rf)
-
-    spectra_rf = np.stack(spectra_rf)
-    e_spectra_rf = np.stack(e_spectra_rf)
+        spectra_rf[star_i] = spec_rf
+        e_spectra_rf[star_i] = e_spec_rf
 
     return spectra_rf, e_spectra_rf

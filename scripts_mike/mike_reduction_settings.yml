@@ -13,8 +13,9 @@
 # -----------------------------------------------------------------------------
 # As we step through each script in this series, we continue to save to and
 # load from a single fits file, adding HDUs as necessary. This fits file is
-# referenced as <path>/mike_spectra_<label>.fits via the following:
+# referenced as <path>/<fn_base>_<label>.fits via the following:
 fits_label: "KM_noflat"
+fits_fn_base: "mike_spectra"
 fits_folder: "spectra/"
 
 # Adopted native resolution of MIKE per spectrograph arm
