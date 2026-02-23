@@ -286,6 +286,10 @@ def plot_flux_calibration(
     n_coef = poly_coef.shape[1]
     fig.suptitle(plot_label.replace("_", ", ") + "[order: {}]".format(n_coef))
 
+    # Saving
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
     plot_fn = os.path.join(
         plot_folder, "flux_cal_result_{}_o{}.pdf".format(plot_label, n_coef))
 

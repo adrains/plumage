@@ -98,7 +98,55 @@ rv_diagnostic_folder: "spectra/mike_MK_unnormalised/diagnostics_rv/"
 # Determining flux calibration transfer functions for MIKE spectra
 #  - scripts_mike/compute_flux_cal_mike.py
 # -----------------------------------------------------------------------------
-# TODO
+# Tab separated file summarising the templates, RVs, and O2/H2O optical depth
+# scaling terms (per night) for each flux standard.
+flux_cal_std_info_fn: "data/mike_flux_standard_template_info.tsv"
+
+# Arm that we are flux calibrating. TODO: loop over both arms.
+flux_cal_arm: "r"
+
+# Whether to clean input spectra by masking edge px and NaNs.
+flux_cal_clean_input_spectra: True
+flux_cal_edge_px_to_mask: 100
+
+# Settings for doing a 'blaze' correction using the normalised flat lamp
+# spectra before doing the flux calibration itself.
+flux_cal_do_flat_field_blaze_corr: True
+flux_cal_blaze_corr_poly_order: 7
+flux_cal_blaze_corr_poly_coef_path: "data/"
+flux_cal_blaze_corr_set_px_to_nan_beyond_domain: True
+
+# Debugging settings to speed things up by only running on a subset of orders.
+flux_cal_run_on_order_subset: False
+flux_cal_order_subset: [50, 51, 52, 53, 54]
+
+# Polynomial order for the flux calibration.
+flux_cal_poly_order: 2
+
+# Whether to include the difference between overlapping orders in the
+# minimisation in an attempt to optimise overlap (True) or to just treat each
+# order separately (False).
+flux_cal_optimise_order_overlap: False
+
+# How edges are handled when doign Gaussian smoothing via PyAstronomy's
+# instBroadGaussFast function. This can either be set to None or 'firstlast'.
+# https://pyastronomy.readthedocs.io/en/latest/pyaslDoc/aslDoc/broad.html
+flux_cal_sci_edge_handling: "firstlast"
+
+# Whether to simultaneously fit for the telluric opacity scaling terms, one for
+# each of O2 and H2O, or leave this as fixed values.
+flux_cal_fit_for_telluric_scale_terms: False
+
+# Whether to convolve all spectra to a lower resolving power before fitting.
+# This has the effect of better matching our MIKE spectra to the CALSPEC fluxed
+# spectra, and smoothing out deep lines likely to either cause residuals or
+# complications if just masking them. However, this introduces edge effects due
+# to the broad smoothing needed and finite length of the MIKE echelle orders.
+flux_cal_do_convolution: True
+flux_cal_resolving_power_during_fit: 500
+
+# Folder to save diagnostic plots.
+flux_cal_plot_folder: "spectra/mike_MK_unnormalised/diagnostics_flux_cal/"
 
 # -----------------------------------------------------------------------------
 # Prepare MIKE spectra for use with the Cannon
@@ -117,10 +165,10 @@ spec_prep_blaze_corr_set_px_to_nan_beyond_domain: True
 # Settings for flux cal file
 spec_prep_flux_cal_poly_order: 5
 spec_prep_flux_cal_poly_order_fn_label: "12x_SpPhot_mean"
-spec_prep_flux_cal_folder: "spectra/mike_MK_unnormalised/flux_calibration/"
+spec_prep_flux_cal_folder: "spectra/mike_MK_unnormalised/diagnostics_flux_cal/"
 
 # Folder for saving continuum normalisation plots
-plot_folder_cn: "spectra/mike_MK_unnormalised/continuum_normalisation/"
+plot_folder_cn: "spectra/mike_MK_unnormalised/diagnostics_cont_norm/"
 
 # Combining MIKE orders. Here we can decide whether we want to drop any orders
 # so we don't have to deal with them at future stages of the analysis, e.g. for
