@@ -404,10 +404,13 @@ def save_fits(spectra_b, spectra_r, observations, label, path="spectra"):
 def load_fits_table(
     extension,
     label,
+    fn_base="spectra",
     path="spectra",
     ext_label="",
     do_use_dr3_id=False,):
     """Loads in the data from specified fits table HDU.
+
+    The file is loaded from <path>/<fn_base>_<label>.fits.
 
     Parameters
     ----------
@@ -418,6 +421,9 @@ def load_fits_table(
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
     
+    fn_base: string, default: "spectra"
+        Base string of filename.
+
     path: string
         Path to save the fits file to.
 
@@ -459,7 +465,7 @@ def load_fits_table(
         ext_full = extension
 
     # Load in the fits file
-    fits_path = os.path.join(path, "spectra_{}.fits".format(label))
+    fits_path = os.path.join(path, "{}_{}.fits".format(fn_base, label))
 
     with fits.open(fits_path, mode="readonly") as fits_file:
         if ext_full in fits_file:
@@ -760,28 +766,68 @@ def save_fits_image_hdu(
 # Loading in literature info (e.g. photometry)
 # ----------------------------------------------------------------------------- 
 def load_info_cat(
-    path="data/tess_info.tsv", 
-    clean=True,
-    only_observed=False, 
-    use_plx_systematic=True, 
-    in_paper=True,
+    path, 
+    make_observed_col_bool_on_yes=True,
+    only_import_observed=False,
+    only_import_in_paper=True,
     use_mann_code_for_masses=True,
-    do_extinction_correction=True,
-    do_skymapper_crossmatch=True,
-    skymapper_phot_path="data/rains_all_gaia_ids_matchfinal.csv",
-    unresolved_equal_mass_binary_list=[],
-    unresolved_equal_mass_binary_mag_diff=0.75,
-    dustmap="leike_glatzle_ensslin_2020",
     gdr="",
     has_2mass=True,
-    do_use_mann_15_JHK=False,):
-    """
+    do_use_mann_15_JHK=False,
+    m15_fn="data/mann15_all_dr3.tsv",
+    do_calculate_gaia_mag_uncertainties=False,):
+    """Function to import a data catalogue of containing Gaia and 2MASS data
+    for our science targets, and prepare a pandas DataFrame.
 
-    Incorporates the systematic offset in Gaia DR2 by subtracting the offset
-    from the parallax, then adding its uncertainty in quadrature. This makes 
-    the parallax *bigger*.
+    Note: this function is no longer compatible with the code from Rains+2021,
+    and legacy parameters have been removed.
 
-    https://ui.adsabs.harvard.edu/abs/2018ApJ...862...61S/abstract
+    Parameters
+    ----------
+    path: str
+        Filepath to the catalogue, either a TSV file or a pre-imported fits.
+
+    make_observed_col_bool_on_yes: bool, default: True
+        If True, we replace the contents of the 'observed' column with True
+        where the existing values are 'yes' and False otherwise.
+
+    only_import_observed: bool, default: False
+        If True, removes all stars where 'observed' == False.
+
+    only_import_in_paper: bool, default: True
+        If True, removes stars where 'in_paper' == False.
+
+    use_mann_code_for_masses: bool, default: True
+        If True, uses https://github.com/awmann/M_-M_K- for computing M_star to
+        properly take into account posteriors. If False, simply uses the
+        empirical relations from Mann+19.
+
+     gdr: str, default: ""
+        String expected to be at the end of all Gaia columns to represent the
+        Gaia data release, e.g. 'dr3' means that we expect 'BP_mag_dr3' as a 
+        column name.
+
+    has_2mass: bool, default: True
+        If False, we don't continue to do anything in this function that
+        requires a 2MASS magnitude and return early.
+
+    do_use_mann_15_JHK: bool, default: False
+        If True, we swap out saturated 2MASS photometry for those targets with
+        spectrophotometrically integrated 2MASS magnitudes from Mann+2015.
+
+    m15_fn: str, default: "data/mann15_all_dr3.tsv"
+        Filepath to the catalogue from Mann+2015 to crossmatch with if we want
+        to adopt their JHKs band photometry but haven't already done the
+        crossmatch ourselves.
+
+    do_calculate_gaia_mag_uncertainties: bool, default: False
+        Whether to calculate the Gaia G, BP, and RP magnitude uncertainties
+        from the Gaia fluxes.
+
+    Returns
+    -------
+    info_cat: pandas DataFrame
+        DataFrame containing our stellar catalogue.
     """
     # We'll maintain compatability between DR2 and DR3 data, but it requires a
     # bit of extra work
@@ -807,18 +853,20 @@ def load_info_cat(
             comment="#",
             dtype={"source_id":str, "source_id_dr2":str, "source_id_dr3":str})
 
-    # Clean
-    if clean:
+    # Convert 'observed' column properly to boolean
+    if make_observed_col_bool_on_yes:
         info_cat["observed"] = info_cat["observed"] == "yes"
     
     # Set the index to be source_id
     info_cat.set_index(sid_drx, inplace=True)
 
-    if only_observed:
-        info_cat = info_cat[info_cat["observed"]]
+    # Don't import stars that haven't been observed
+    if only_import_observed:
+        info_cat = info_cat[info_cat["observed"].values]
     
-    if in_paper and "in_paper" in info_cat.columns:
-        info_cat = info_cat[info_cat["in_paper"]]
+    # Don't import stars that aren't marked as 'in_paper' True
+    if only_import_in_paper and "in_paper" in info_cat.columns:
+        info_cat = info_cat[info_cat["in_paper"].values]
 
     # Make boolean for blended 2MASS photometry
     if "blended_2mass" in info_cat:
@@ -830,47 +878,34 @@ def load_info_cat(
     if "wife_obs" not in info_cat:
         info_cat["wife_obs"] = 1
 
-    # Set Gaia dup column to be boolean (weird fix to this breaking is doing
-    # it in multiple steps)
-    #dup1 = info_cat["dup{}".format(gdr)].values.astype(int)
-    #dup2 = dup1.astype(bool)
+    # Set Gaia dup column to be boolean
     info_cat["dup{}".format(gdr)] = info_cat["dup{}".format(gdr)].astype(bool)
 
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Crossmatch SkyMapper photometry
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Currently SkyMapper photometry is in a different table, so need to
-    # crossmatch on import
-    if do_skymapper_crossmatch:
-        skymapper_phot = pd.read_csv( 
-            skymapper_phot_path,
-            sep=",",
-            dtype={sid_drx:str},
-            header=0)
-        skymapper_phot.set_index(sid_drx, inplace=True)  
+    # -------------------------------------------------------------------------
+    # Compute Gaia magnitude uncertainties
+    # -------------------------------------------------------------------------
+    if do_calculate_gaia_mag_uncertainties:
+        g_flux = info_cat["phot_g_mean_flux{}".format(gdr)]
+        g_error = info_cat["phot_g_mean_flux_error{}".format(gdr)]
+        e_G_mag = ((-2.5/np.log(10)*g_error/g_flux)**2+0.00279017**2)**0.5
+        info_cat["e_G_mag{}".format(gdr)] = e_G_mag
 
-        info_cat = info_cat.join(
-            skymapper_phot,
-            sid_drx,
-            how="left",
-            rsuffix="_") 
+        bp_flux = info_cat["phot_bp_mean_flux{}".format(gdr)]
+        bp_error = info_cat["phot_bp_mean_flux_error{}".format(gdr)]
+        e_BP_mag = ((-2.5/np.log(10)*bp_error/bp_flux)**2+0.00279017**2)**0.5
+        info_cat["e_BP_mag{}".format(gdr)] = e_BP_mag
 
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        rp_flux = info_cat["phot_rp_mean_flux{}".format(gdr)]
+        rp_error = info_cat["phot_rp_mean_flux_error{}".format(gdr)]
+        e_RP_mag = ((-2.5/np.log(10)*rp_error/rp_flux)**2+0.00279017**2)**0.5
+        info_cat["e_RP_mag{}".format(gdr)] = e_RP_mag
+
+    # -------------------------------------------------------------------------
     # Distance, absolute magnitudes, and colours
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Stassun & Torres systematic offsets
-    if use_plx_systematic:
-        plx_off = -0.082    # mas
-        e_plx_off = 0.033   # mas
-
-        # Incorporate the systematic
-        plx = info_cat["plx{}".format(gdr)] - plx_off
-        e_plx = np.sqrt(info_cat["e_plx{}".format(gdr)]**2 + e_plx_off**2)
-    
-    # Not using offsets
-    else:
-        plx = info_cat["plx{}".format(gdr)]
-        e_plx = info_cat["e_plx{}".format(gdr)]
+    # -------------------------------------------------------------------------
+    # Grab parallax information for convenience 
+    plx = info_cat["plx{}".format(gdr)]
+    e_plx = info_cat["e_plx{}".format(gdr)]
 
     # Compute distance
     info_cat["dist"] = 1000 / plx
@@ -880,19 +915,38 @@ def load_info_cat(
     if not has_2mass:
         return info_cat
 
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # -------------------------------------------------------------------------
     # Swapping in Mann+15 photometry
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # -------------------------------------------------------------------------
     # For stars in Mann+15 with non-AAA 2MASS photometry, we'll adopt the
     # Mann+2015 values as these won't be saturated for use with our photometric
     # relations.
     if do_use_mann_15_JHK:
+        # Magnitudes and uncertainties we're interested in
+        mags = ["J_mag", "H_mag", "K_mag"]
+        e_mags = ["e_J_mag", "e_H_mag", "e_K_mag"]
+        
+        # If there's not already M15 information in the file, do a crossmatch
+        if "K_mag_m15" not in info_cat.columns.values:
+            # Import M15 catalogue
+            m15_df = pd.read_csv(
+                m15_fn,
+                delimiter="\t",
+                dtype={"source_id":str, "source_id_dr3":str},)
+            m15_df.rename(columns={"source_id":"source_id_dr3"}, inplace=True)
+            m15_df.set_index("source_id_dr3", inplace=True)
+
+            icj = info_cat.join(m15_df, on="source_id_dr3", rsuffix="_m15")
+
+            # Add crossmatched Mann+15 magnitudes to our original DataFrame
+            for mag, e_mag in zip(mags, e_mags):
+                info_cat["{}_m15".format(mag)] = icj["{}_m15".format(mag)]
+                info_cat["{}_m15".format(e_mag)] = icj["{}_m15".format(e_mag)]
+
+        # Determine which stars need to have their photometry swapped.
         swap_mask = np.logical_and(
             info_cat["Qflg"] != "AAA",               # Stars w/ saturated 2MASS
             ~np.isnan(info_cat["K_mag_m15"].values)) # Stars w/ M+15 photometry
-        
-        mags = ["J_mag", "H_mag", "K_mag"]
-        e_mags = ["e_J_mag", "e_H_mag", "e_K_mag"]
 
         for mag, e_mag in zip(mags, e_mags):
             # Grab 2MASS columns
@@ -921,42 +975,9 @@ def load_info_cat(
         # And add in a boolean for good measure
         info_cat["using_m15_jhk_photometry"] = swap_mask
 
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Extinction
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    if do_extinction_correction:
-        # Calculate A_G
-        A_G_all = params.calculate_A_G_all(info_cat, dustmap=dustmap,)
-    
-        # Calculate E(B-V)
-        ebv, A_zeta = params.calculate_per_band_reddening(A_G_all)
-
-        info_cat["A_G"] = A_G_all
-        info_cat["ebv"] = ebv
-
-        # Correct each band individually
-        info_cat["G_mag{}".format(gdr)] -= A_G_all
-        info_cat["BP_mag{}".format(gdr)] -= A_zeta["BP"]
-        info_cat["RP_mag{}".format(gdr)] -= A_zeta["RP"]
-
-        info_cat["u_psf"] -= A_zeta["u"]
-        info_cat["v_psf"] -= A_zeta["v"]
-        info_cat["g_psf"] -= A_zeta["g"]
-        info_cat["r_psf"] -= A_zeta["r"]
-        info_cat["i_psf"] -= A_zeta["i"]
-        info_cat["z_psf"] -= A_zeta["z"]
-
-        info_cat["J_mag"] -= A_zeta["J"]
-        info_cat["H_mag"] -= A_zeta["H"]
-        info_cat["K_mag"] -= A_zeta["K"]
-
-        # Finally, calculate a corrected Bp-Rp
-        info_cat["BP-RP{}".format(gdr)] = \
-            info_cat["BP_mag{}".format(gdr)] - info_cat["RP_mag{}".format(gdr)]
-
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # -------------------------------------------------------------------------
     # Absolute magnitudes, and colours
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # -------------------------------------------------------------------------
     # Absolute mags for Gaia and 2MASS photometry
     info_cat["G_mag_abs"] = \
         info_cat["G_mag{}".format(gdr)] - 5*np.log10(info_cat["dist"]/10)
@@ -1022,9 +1043,9 @@ def load_info_cat(
     info_cat["e_G-K"] = np.sqrt(info_cat["e_G_mag{}".format(gdr)]**2
                                  + info_cat["e_K_mag"]**2)
 
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # -------------------------------------------------------------------------
     # Empirical relations
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    # -------------------------------------------------------------------------
     # Mann+15 teff (Bp-Rp)
     teffs, e_teffs = params.compute_mann_2015_teff(
         info_cat["BP-RP{}".format(gdr)],
@@ -1042,29 +1063,8 @@ def load_info_cat(
     info_cat["teff_m15_bprp_jh"] = teffs
     info_cat["e_teff_m15_bprp_jh"] = e_teffs
 
-    # Before using any of the K band relations, check if we have any unresolved
-    # binaries that we should decrease the brightness of to give more accurate
-    # mass and radii. This is only done for stars whose source_ids are in the 
-    # list unresolved_equal_mass_binary_list.
-    K_mag = info_cat["K_mag"].values.copy()
-    K_mag_abs = info_cat["K_mag_abs"].values.copy()
-
-    if len(unresolved_equal_mass_binary_list) > 0:
-        for source_id in unresolved_equal_mass_binary_list:
-            # Update the K band magnitude (for use in empirical relations only)
-            # for any unresolved binaries
-            if source_id in info_cat.index:
-                print("Treating {} as an equal mass unresolved binary".format(
-                    source_id))
-                star_i =  int(np.argwhere(info_cat.index==source_id))
-                K_mag[star_i] += unresolved_equal_mass_binary_mag_diff
-                K_mag_abs[star_i] += unresolved_equal_mass_binary_mag_diff
-
-    info_cat["K_mag_rel"] = K_mag
-    info_cat["K_mag_abs_rel"] = K_mag_abs
-
     # Mann+19 radii
-    radii, e_radii = params.compute_mann_2015_radii(info_cat["K_mag_abs_rel"])
+    radii, e_radii = params.compute_mann_2015_radii(info_cat["K_mag_abs"])
     info_cat["radii_m19"] = radii
     info_cat["e_radii_m19"] = e_radii
 
@@ -1075,13 +1075,13 @@ def load_info_cat(
 
         for star_i, (source_id, star_info) in enumerate(info_cat.iterrows()):
             # Assign defaults if outside the absolute K bounds of the relation
-            if star_info["K_mag_abs_rel"] < 4 or star_info["K_mag_abs_rel"] > 11:
+            if star_info["K_mag_abs"] < 4 or star_info["K_mag_abs"] > 11:
                 continue
 
             # Calculate masses and uncertainties from code provided at:
             # https://github.com/awmann/M_-M_K-
             mass, e_mass = mk_mass.posterior(
-                star_info["K_mag_rel"], 
+                star_info["K_mag"], 
                 star_info["dist"],
                 star_info["e_K_mag"],
                 star_info["e_dist"],
@@ -1095,12 +1095,12 @@ def load_info_cat(
     else:
         # Compute masses from relation
         masses, e_masses = params.compute_mann_2019_masses(
-            info_cat["K_mag_abs_rel"])
+            info_cat["K_mag_abs"])
 
         # Exclude those beyond the bounds of the relation
         outside_bounds = np.logical_or(
-            info_cat["K_mag_abs_rel"].values < 4,
-            info_cat["K_mag_abs_rel"].values > 11)
+            info_cat["K_mag_abs"].values < 4,
+            info_cat["K_mag_abs"].values > 11)
 
         masses[outside_bounds] = np.nan
         e_masses[outside_bounds] = np.nan
@@ -1113,29 +1113,6 @@ def load_info_cat(
     logg, e_logg = params.compute_logg(masses, e_masses, radii, e_radii,)
     info_cat["logg_m19"] = logg
     info_cat["e_logg_m19"] = e_logg
-
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Photometric [Fe/H]
-    #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # Only accept stars that Gaia has not flagged as a duplicate, and those 
-    # with RUWE below 1.4 - i.e. the same criteria we used when building the
-    # relation to begin with
-    if "ruwe{}".format(gdr) in info_cat.columns:
-        valid_star_mask = np.logical_and(
-            ~info_cat["dup{}".format(gdr)].astype(bool),
-            info_cat["ruwe{}".format(gdr)] < 1.4)
-    else:
-        print("Warning: no RUWE!")
-        valid_star_mask = ~info_cat["dup{}".format(gdr)].astype(bool)
-
-    phot_feh, e_phot_feh = params.calc_photometric_feh_with_coeff_import(
-        info_cat["BP-K"].values,
-        info_cat["K_mag_abs"].values,
-        info_cat["BP-RP{}".format(gdr)].values, 
-        valid_star_mask)
-
-    info_cat["phot_feh"] = phot_feh
-    info_cat["e_phot_feh"] = e_phot_feh
 
     # Return copy so it isn't fragmented by whatever we've done here.
     info_cat = info_cat.copy()

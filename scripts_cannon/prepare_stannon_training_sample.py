@@ -54,26 +54,38 @@ def drop_cols(df, suffixes_to_drop,):
 std_info = pu.load_info_cat(
     path=ls.std_info_fn,
     use_mann_code_for_masses=ls.use_mann_code_for_masses,
-    in_paper=ls.in_paper,
-    only_observed=ls.only_observed,
-    do_extinction_correction=ls.do_extinction_correction,
-    do_skymapper_crossmatch=ls.do_skymapper_crossmatch,
+    only_import_in_paper=ls.only_import_in_paper,
+    only_import_observed=ls.only_import_observed,
     gdr=ls.gdr,
     do_use_mann_15_JHK=True,)
 
 std_info.reset_index(inplace=True)
-std_info.set_index("source_id_dr2", inplace=True)
 
 # Load results table, update index name to DR2
-obs_std = pu.load_fits_table("OBS_TAB", ls.spectra_label, path="spectra")
-obs_std.index.rename("source_id_dr2", inplace=True)
+obs_std = pu.load_fits_table(
+    extension="OBS_TAB",
+    label=ls.fits_label,
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,)
 
 # To crossmatch with our fitted parameters from Rains+21 we need to do a
 # crossmatch on DR2 coordinates instead for legacy reasons (as these were the
 # IDs used when observing). Once we've done the crossmatch, we want to update
 # the index be the Gaia DR3 source ID instead.
-obs_join = obs_std.join(std_info, "source_id_dr2", rsuffix="_info")
-obs_join.set_index("source_id_dr3", inplace=True)
+if ls.do_support_legacy_DR2_source_IDs:
+    std_info.set_index("source_id_dr2", inplace=True)
+    obs_std.index.rename("source_id_dr2", inplace=True)
+
+    obs_join = obs_std.join(std_info, "source_id_dr2", rsuffix="_info")
+    obs_join.set_index("source_id_dr3", inplace=True)
+
+# If not, we can assume the targets are indexed via Gaia DR3 IDs which
+# simplifies things.
+else:
+    std_info.set_index("source_id_dr3", inplace=True)
+    obs_std.index.rename("source_id_dr3", inplace=True) # Rename if not already
+
+    obs_join = obs_std.join(std_info, "source_id_dr3", rsuffix="_info")
 
 # Drop unnecessary columns
 obs_suffixes_to_drop = [
@@ -100,22 +112,16 @@ tsv_primaries = "data/cpm_primaries_dr3.tsv"
 tsv_secondaries = "data/cpm_secondaries_dr3.tsv"
 
 cpm_prim = pu.load_info_cat(
-    tsv_primaries,
-    clean=False,
-    allow_alt_plx=False,
+    path=tsv_primaries,
+    make_observed_col_bool_on_yes=False,
     use_mann_code_for_masses=False,
-    do_extinction_correction=False,
-    do_skymapper_crossmatch=False,
     gdr="dr3",
     has_2mass=False,)
 
 cpm_sec = pu.load_info_cat(
-    tsv_secondaries,
-    clean=False,
-    allow_alt_plx=False,
+    path=tsv_secondaries,
+    make_observed_col_bool_on_yes=False,
     use_mann_code_for_masses=False,
-    do_extinction_correction=False,
-    do_skymapper_crossmatch=False,
     gdr="dr3",
     has_2mass=True,)
 
@@ -216,7 +222,8 @@ for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
         mid_K_MKs_bound=ls.mid_K_MKs_bound,
         abund_order_k=ls.ABUND_ORDER_K,
         abund_order_m=ls.ABUND_ORDER_M,
-        abund_order_binary=ls.ABUND_ORDER_BINARY,)
+        abund_order_binary=ls.ABUND_ORDER_BINARY,
+        mid_K_BP_RP_trustworthy_X_Fe=ls.mid_K_BP_RP_trustworthy_X_Fe,)
     feh_info_all.append(feh_info)
 
 feh_info_all = np.vstack(feh_info_all)
@@ -522,7 +529,8 @@ params.prepare_labels(
     abund_order_binary=ls.ABUND_ORDER_BINARY,
     synth_params_available=False,
     mid_K_BP_RP_bound=ls.mid_K_BP_RP_bound,
-    mid_K_MKs_bound=ls.mid_K_MKs_bound,)
+    mid_K_MKs_bound=ls.mid_K_MKs_bound,
+    mid_K_BP_RP_trustworthy_X_Fe=ls.mid_K_BP_RP_trustworthy_X_Fe,)
 
 #------------------------------------------------------------------------------
 # Saving DataFrame
@@ -559,8 +567,23 @@ splt.plot_cannon_cmd(
 #------------------------------------------------------------------------------
 # Save dataframe
 #------------------------------------------------------------------------------
-pu.save_fits_table("CANNON_INFO", obs_join, ls.spectra_label)
+pu.save_fits_table(
+    extension="CANNON_INFO",
+    dataframe=obs_join,
+    label=ls.fits_label,
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,)
 
 # TODO: do this again to avoid the 1e10 instead of NaN issue on motley
-obs_join = pu.load_fits_table("CANNON_INFO", ls.spectra_label)
-pu.save_fits_table("CANNON_INFO", obs_join, ls.spectra_label)
+obs_join = pu.load_fits_table(
+    extension="CANNON_INFO",
+    label=ls.fits_label,
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,)
+
+pu.save_fits_table(
+    extension="CANNON_INFO",
+    dataframe=obs_join,
+    label=ls.fits_label,
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,)
