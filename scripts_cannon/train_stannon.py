@@ -34,7 +34,11 @@ cs = su.load_cannon_settings(cannon_settings_yaml)
 # Training sample
 #------------------------------------------------------------------------------
 # Import dataframe with benchmark parameters
-obs_join = pu.load_fits_table("CANNON_INFO", cs.std_label)
+obs_join = pu.load_fits_table(
+    extension="CANNON_INFO",
+    label=cs.fits_label,
+    fn_base=cs.fits_fn_base,
+    path=cs.fits_folder,)
 
 # Now that we've collated all our labels and vetted all our targets, we still
 # need to select which stars the Cannon will actually be trained on. This uses
@@ -125,41 +129,84 @@ if cs.use_label_uniform_variances:
 #------------------------------------------------------------------------------
 # Flux preparation
 #------------------------------------------------------------------------------
-# Load in RV corrected standard spectra
-wls = pu.load_fits_image_hdu("rest_frame_wave", cs.std_label, arm="br")
-spec_std_br = pu.load_fits_image_hdu("rest_frame_spec", cs.std_label, arm="br")
-e_spec_std_br = pu.load_fits_image_hdu(
-    "rest_frame_sigma", cs.std_label, arm="br")
+# WiFeS spectra (spectra are not yet pseudocontinuum normalised)
+if cs.spectra_format == "wifes":
+    # Load in RV corrected standard spectra
+    wls = pu.load_fits_image_hdu("rest_frame_wave", cs.fits_label, arm="br")
+    spec_std_br = pu.load_fits_image_hdu("rest_frame_spec", cs.fits_label, arm="br")
+    e_spec_std_br = pu.load_fits_image_hdu(
+        "rest_frame_sigma", cs.fits_label, arm="br")
 
-# [Optional] Broaden fluxes to a lower resolution
-if cs.do_constant_in_wl_spectral_broadening:
-    wls_new, spec_std_br_broad, e_spec_std_br_broad = su.broaden_cannon_fluxes(
-        wls=wls,
-        spec_std_br=spec_std_br,
-        e_spec_std_br=e_spec_std_br,
-        target_delta_lambda=cs.target_delta_lambda,)
-        
-    # Swap references
-    wls_unbroadened = wls
-    spec_std_br_unbroadened = spec_std_br
-    e_spec_std_br_unbroadened = e_spec_std_br
+    # [Optional] Broaden fluxes to a lower resolution
+    if cs.do_constant_in_wl_spectral_broadening:
+        wls_new, spec_std_br_broad, e_spec_std_br_broad = su.broaden_cannon_fluxes(
+            wls=wls,
+            spec_std_br=spec_std_br,
+            e_spec_std_br=e_spec_std_br,
+            target_delta_lambda=cs.target_delta_lambda,)
+            
+        # Swap references
+        wls_unbroadened = wls
+        spec_std_br_unbroadened = spec_std_br
+        e_spec_std_br_unbroadened = e_spec_std_br
 
-    wls = wls_new
-    spec_std_br = spec_std_br_broad
-    e_spec_std_br = e_spec_std_br_broad
+        wls = wls_new
+        spec_std_br = spec_std_br_broad
+        e_spec_std_br = e_spec_std_br_broad
 
-# Normalise fluxes
-fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
-    stannon.prepare_cannon_spectra_normalisation(
-        wls=wls,
-        spectra=spec_std_br[adopted_benchmark],
-        e_spectra=e_spec_std_br[adopted_benchmark],
-        wl_min_model=cs.wl_min_model,
-        wl_max_model=cs.wl_max_model,
-        wl_min_normalisation=cs.wl_min_normalisation,
-        wl_broadening=cs.wl_broadening,
-        do_gaussian_spectra_normalisation=cs.do_gaussian_spectra_normalisation,
-        poly_order=cs.poly_order)
+    # Normalise fluxes, TODO: do this in advance
+    fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
+        stannon.prepare_cannon_spectra_normalisation(
+            wls=wls,
+            spectra=spec_std_br,
+            e_spectra=e_spec_std_br,
+            wl_min_model=cs.wl_min_model,
+            wl_max_model=cs.wl_max_model,
+            wl_min_normalisation=cs.wl_min_normalisation,
+            wl_broadening=cs.wl_broadening,
+            do_gaussian_spectra_normalisation=cs.do_gaussian_spectra_normalisation,
+            poly_order=cs.poly_order)
+
+# MIKE spectra (spectra are pre-pseudocontinuum normalised)
+elif cs.spectra_format == "mike":
+    wls = pu.load_fits_image_hdu(
+        extension="rest_frame_wave",
+        label=cs.fits_label,
+        fn_base=cs.fits_fn_base,
+        path=cs.fits_folder,
+        arm="r",)
+    
+    spec_std_br = pu.load_fits_image_hdu(
+        extension="rest_frame_spec_norm",
+        label=cs.fits_label,
+        fn_base=cs.fits_fn_base,
+        path=cs.fits_folder,
+        arm="r",)
+    
+    e_spec_std_br = pu.load_fits_image_hdu(
+        extension="rest_frame_sigma_norm",
+        label=cs.fits_label,
+        fn_base=cs.fits_fn_base,
+        path=cs.fits_folder,
+        arm="r",)
+    
+    telluric_trans_2D = pu.load_fits_image_hdu(
+        extension="stellar_frame_telluric_trans",
+        label=cs.fits_label,
+        fn_base=cs.fits_fn_base,
+        path=cs.fits_folder,
+        arm="r",)
+
+    wls, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask = \
+        stannon.prepare_cannon_spectra_mike(
+            wave=wls,
+            spectra_2D=spec_std_br,
+            sigmas_2D=e_spec_std_br,
+            wl_min_model=cs.wl_min_model,
+            wl_max_model=cs.wl_max_model,
+            telluric_trans_2D=telluric_trans_2D,
+            telluric_absorption_threshold=0.95,
+            allowable_NaN_telluric_px=5,)
 
 # Similar to how we can optionally scale the uncertainties on our labels, we
 # can do the same for the uncertainties on our spectra.
@@ -200,8 +247,8 @@ print("\n", "%"*80, "\n\n", sep="")
 
 # Make model
 sm = stannon.Stannon(
-    training_data=fluxes_norm,
-    training_data_ivar=ivars_norm,
+    training_data=fluxes_norm[adopted_benchmark],
+    training_data_ivar=ivars_norm[adopted_benchmark],
     training_labels=label_values_all[adopted_benchmark],
     training_ids=obs_join[adopted_benchmark].index.values,
     label_names=cs.label_names,
@@ -209,7 +256,7 @@ sm = stannon.Stannon(
     model_type=cs.model_type,
     training_variances=label_var_all[adopted_benchmark],
     adopted_wl_mask=adopted_wl_mask,
-    bad_px_mask=bad_px_mask,)
+    bad_px_mask=bad_px_mask[adopted_benchmark],)
 
 # Timing
 start_time = datetime.now()
@@ -295,7 +342,8 @@ fits_ext_label = "{}_{}L_{}P_{}S".format(
 pu.save_fits_table(
     extension="CANNON_MODEL",
     dataframe=result_df,
-    label=cs.std_label,
+    label=cs.fits_label,
+    fn_base=cs.fits_fn_base,
     path=cs.model_save_path,
     ext_label=fits_ext_label)
 

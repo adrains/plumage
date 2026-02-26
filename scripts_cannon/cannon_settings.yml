@@ -20,7 +20,7 @@
 
 # This is our model 'label' which serves as a simple shorthand name for the
 # model in question, e.g. 'MK' for a model including both M and K dwarfs.
-model_label: "K"
+model_label: "MK"
 
 # If False, we don't make any cuts to our sample and simply adopt all 
 # benchmarks with 'is_cannon_benchmark' = True.
@@ -34,8 +34,9 @@ do_use_subset_of_benchmark_sample: True
 #   M dwarfs - warm: 8.23, cool: 100
 #   K dwarfs - warm: -100, cool: 8.85
 BP_RP_vs_M_Ks_cut_gradient: -1.93
-M_Ks_intercept_warm: -100 #7.8
-M_Ks_intercept_cool: 7.8 #8.85
+M_Ks_intercept_warm: 7.8
+M_Ks_intercept_cool: 100
+# using 7.8
 
 #------------------------------------------------------------------------------
 # Model Settings
@@ -129,21 +130,35 @@ uniform_var_frac_error: 0.01
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
 # an array of ones if we don't want to scale the uncertainties.
-lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0]
+lit_std_scale_fac: [1.0, 1.0, 1.0,]
 
 # Also for testing and as a complement to the previous setting we can scale the
 # uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
 # we're artifically increasing the SNR of the spectrum.
 spectra_std_scale_fac: 1.0
 
+# Pointers to fits file of spectra + parameters to train the Cannon on.
+# 1) WiFeS spectra
+#fits_folder: "spectra"
+#fits_fn_base: "spectra"
+#fits_label: "cannon_mk"
+
+# 2) MIKE spectra
+fits_folder: "spectra"
+fits_fn_base: "mike_spectra"
+fits_label: "KM_noflat"
+
+# Format of data, must be ['wifes', 'mike']
+spectra_format: "mike"
+
+# Path to save trained Cannon model to
 model_save_path: "spectra"
-std_label: "cannon_mk"
 
 # Whether to fit for abundances. At the moment our abundance heirarchy is
 # Montes+18 > Valenti+Fischer05 > Adibekyan+12. Not recommended to fit > 1-2.
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: ["Ti_Fe"]
+abundance_labels: []
 
 base_labels: ["teff", "logg", "Fe_H",]

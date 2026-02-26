@@ -595,7 +595,12 @@ def merge_activity_table_with_obs(
 # -----------------------------------------------------------------------------
 # Loading and saving/updating fits image HDUs
 # ----------------------------------------------------------------------------- 
-def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
+def load_fits_image_hdu(
+    extension,
+    label,
+    fn_base="spectra",
+    path="spectra",
+    arm="r",):
     """Loads in the data from specified fits image HDU.
 
     Parameters
@@ -606,7 +611,10 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
 
     label: string
         Unique label (e.g. std, TESS) for the resulting fits file.
-    
+
+    fn_base: string, default: "spectra"
+        Base string of filename.
+        
     path: string
         Path to save the fits file to
 
@@ -641,6 +649,7 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
         "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
         "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
         "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
+        "stellar_frame_telluric_trans":("STELLAR_FRAME_TRANS_", float),
     }
 
     if extension not in valid_ext.keys():
@@ -658,7 +667,7 @@ def load_fits_image_hdu(extension, label, path="spectra", arm="r"):
     extname = valid_ext[extension][0] + arm
 
     # Load in the fits file
-    fits_path = os.path.join(path,  "spectra_{}.fits".format(label))
+    fits_path = os.path.join(path, "{}_{}.fits".format(fn_base, label))
 
     with fits.open(fits_path, mode="readonly") as fits_file:
         if extname in fits_file:

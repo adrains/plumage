@@ -15,15 +15,20 @@
 # Files
 #------------------------------------------------------------------------------
 # Fits file of spectra, loaded from: <path>/<fn_base>_<label>.fits.
-fits_folder: "spectra"
-fits_fn_base: "spectra"
-fits_label: "cannon_mk"
+# 1) WiFeS spectra
+#fits_folder: "spectra"
+#fits_fn_base: "spectra"
+#fits_label: "cannon_mk"
+#std_info_fn: "data/std_info.tsv"
 
-# Science target parameter TSV
-std_info_fn: "data/std_info.tsv"
+# 2) MIKE spectra
+fits_folder: "spectra"
+fits_fn_base: "mike_spectra"
+fits_label: "KM_noflat"
+std_info_fn: "data/mike_info.tsv"
 
 # If true, we allow our initial crossmatch to be done on Gaia DR2 IDs
-do_support_legacy_DR2_source_IDs: True
+do_support_legacy_DR2_source_IDs: False
 
 # TSV of uniform literature chemistry corrected for systematics
 lit_chem: "data/lit_chemistry_corrected_Fe_Ti_Mg_Ca_Na_Al.tsv"
@@ -41,8 +46,8 @@ sampled_param_csv: "data/monty_sampled_params_n103.csv"
 
 # Settings to use when importing TSV files
 use_mann_code_for_masses: False
-only_import_in_paper: False
-only_import_observed: True
+only_import_in_paper: True #False
+only_import_observed: False #True
 gdr: "dr3"
 
 #------------------------------------------------------------------------------

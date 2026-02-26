@@ -1508,6 +1508,118 @@ def multiply_coeff_label_vectors(coeffs, *labels):
     return np.dot(coeffs, lvec)
 
 
+def prepare_cannon_spectra_mike(
+    wave,
+    spectra_2D,
+    sigmas_2D,
+    wl_min_model,
+    wl_max_model,
+    telluric_trans_2D,
+    telluric_absorption_threshold,
+    allowable_NaN_telluric_px,):
+    """Prepares MIKE format spectra for use with the Cannon. The key difference
+    here to how we handle WiFeS spectra is that we have already pseudocontinuum
+    normalised our MIKE spectra. It remains a TODO task to do this also for
+    WiFeS.
+
+    Parameters
+    ----------
+    wave: 1D float array
+        Wavelength scale of shape [N_px].
+
+    spectra_2D, sigmas_2D: 2D float array
+        Spectra and uncertainty arrays of shape [N_obs, N_px].
+
+    wl_min_model, wl_max_model: float
+        Minumum and maximum wavelengths to train the Cannon on.
+
+    telluric_trans_2D: 2D float array
+        Model telluric transmission in the stellar rest frame for *each* star.
+        We use this to compute our per-star bad px mask.Of shape [N_obs, N_px].
+    
+    telluric_absorption_threshold: float
+        Transmission threshold below which we consider the wavelength too
+        telluric contaminated to use. For example, a value of 0.95 means that
+        we accept up to 5% absorption.
+
+    allowable_NaN_telluric_px: int
+        When considering telluric_trans_2D in the N_obs dimension, if we have
+        more than allowable_NaN_telluric_px contaminated stars per pixel we
+        simply opt to mask out the entire wavelength value. 
+
+    Returns
+    -------
+    wave: 1D float array
+        Adopted wavelength scale for Cannon model considering wavelength
+        limits, of shape [N_px_new].
+    
+    fluxes, flux_ivars: 2D float array
+        Adopted fluxes and inverse variances, of shape [N_obs, N_px_new].
+    
+    bad_px_mask_2D: 2D boolean array
+        Bad pixel mask, True where pixels are telluric contaminated or NaN
+        values, False if they're good. Of shape [N_obs, N_px_new].
+    
+    adopted_wl_mask: boolean array
+        Global adopted wavelength values mask, True where the pixel/wavelength
+        is to be included in the Cannon model, and False where it belongs to
+        an emission region or is (collectively, across all stars) considered
+        too telluric contaminated to use.
+    """
+    # Adopted wavelength mask for Cannon, useful regions are *TRUE*
+    adopted_wl_mask = np.full(wave.shape, True)
+
+    # Mask out emission regions for *all* stars.
+    emission_lines = [
+        [3825.0, 3845.0],  # H Eta
+        [3880.0, 3900.0],  # H Zeta
+        [3929.0, 3939.0],  # Ca II K
+        [3964.0, 3974.0],  # Ca II H
+        [3960.0, 3980.0],  # H Epsilon
+        [4090.0, 4110.0],  # H Delta
+        [4330.0, 4350.0],  # H Gamma
+        [4850.0, 4870.0],  # H Beta
+        [6550.0, 6575.0],] # H Alpha
+
+    for emission_line in emission_lines:
+        line_mask = np.logical_and(
+            wave > emission_line[0], wave < emission_line[1])
+        adopted_wl_mask = np.logical_and(adopted_wl_mask, ~line_mask)
+
+    # Compute which pixels (for all stars, [N_obs, N_px]) have telluric
+    # absorption above our threshold value. We then want to collapse this in
+    # the N_obs dimensions to give the number of affected stars per pixel. If
+    # this number is above our allowable value, then we consider that pixel too
+    # contaminated to use in training for any star.
+    is_telluric_px_2D = telluric_trans_2D < telluric_absorption_threshold
+
+    n_telluric_px_per_wl = np.sum(is_telluric_px_2D, axis=0)
+
+    is_telluric_px_1D = n_telluric_px_per_wl > allowable_NaN_telluric_px
+
+    adopted_wl_mask = np.logical_and(adopted_wl_mask, ~is_telluric_px_1D)
+
+    # Prepare fluxes, inverse variances, and create an initial per-px bad pixel
+    # mask where there are nonfinite pixels.
+    fluxes, flux_ivars, nonfinite_px_2D = prepare_fluxes(spectra_2D, sigmas_2D)
+
+    # Compute final per-star bad px mask, of shape [N_obs, N_px] where either
+    # the telluric absorption is too high, or pixels have NaN values
+    bad_px_mask_2D = np.logical_or(nonfinite_px_2D, is_telluric_px_2D)
+
+    # Enforce minimum and maximum wavelengths
+    wb = np.logical_and(wave > wl_min_model, wave < wl_max_model)
+
+    # Mask output and return
+    wave = wave[wb]
+    fluxes = fluxes[:,wb]
+    flux_ivars = flux_ivars[:,wb]
+    bad_px_mask_2D = bad_px_mask_2D[:,wb]
+    adopted_wl_mask = adopted_wl_mask[wb]
+
+    return wave, fluxes, flux_ivars, bad_px_mask_2D, adopted_wl_mask
+
+
 def prepare_cannon_spectra_normalisation(
     wls,
     spectra,

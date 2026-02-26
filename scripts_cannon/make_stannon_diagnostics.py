@@ -44,14 +44,19 @@ sm = stannon.load_model(cannon_model_path)
 fits_ext_label = "{}_{}L_{}P_{}S".format(cds.sm_name, sm.L, sm.P, sm.S)
 cannon_df = pu.load_fits_table(
     extension="CANNON_MODEL",
-    label=cds.std_label,
-    path=cds.model_save_path,
+    label=cds.fits_label,
+    fn_base=cds.fits_fn_base,
+    path=cds.fits_folder,
     ext_label=fits_ext_label)
 
 adopted_benchmark = cannon_df["adopted_benchmark"].values
 
 # Import saved reference data amd grab only the saved benchmark subset
-obs_join = pu.load_fits_table("CANNON_INFO", cds.std_label)
+obs_join = pu.load_fits_table("CANNON_INFO",
+    label=cds.fits_label,
+    fn_base=cds.fits_fn_base,
+    path=cds.fits_folder,)
+
 N_BENCHMARK_TOTAL = len(obs_join)
 
 obs_join = obs_join[adopted_benchmark]
@@ -63,7 +68,7 @@ labels_pred = sm.cross_val_labels
 
 # Create name of subfolder to save everything to
 save_folder = "paper/{}_{}_{}_{}L_{}S_{}P_{}".format(
-    cds.std_label,
+    cds.fits_label,
     cds.sm_name,
     cds.sm_type,
     sm.L,
@@ -414,6 +419,7 @@ splt.plot_cannon_cmd(
 pu.save_fits_table(
     extension="CANNON_MODEL",
     dataframe=cannon_df,
-    label=cds.std_label,
-    path=cds.model_save_path,
-    ext_label=fits_ext_label)
+    label=cds.fits_label,
+    path=cds.fits_folder,
+    ext_label=fits_ext_label,
+    fn_base=ls.fits_fn_base,)
