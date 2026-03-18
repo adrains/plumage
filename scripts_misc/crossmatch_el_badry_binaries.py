@@ -7,30 +7,33 @@ import stannon.parameters as params
 
 lit_chem =  "data/lit_chemistry_corrected_Fe_Ti_Mg_Ca_Na.tsv"
 
-ff = fits.open("/Users/arains/Downloads/all_columns_catalog.fits.gz")
+ff = fits.open("/Users/arains/Dropbox/code/plumage/data/El-Badry_all_columns_catalog.fits.gz")
 data = ff[1].data
 
 # -----------------------------------------------------------------------------
 # Masks
 # -----------------------------------------------------------------------------
 # BP-RP limits to ensure F/G/K primaries
-prim_mask = np.logical_and(data["bp_rp1"] > 0.5, data["bp_rp1"] < 1.2)
+prim_mask = np.logical_and(data["bp_rp1"] > 1.2, data["bp_rp1"] < 2.5)
 
 # BP-RP limits to ensure K/M secondaries
-sec_mask = np.logical_and(data["bp_rp2"] > 1.5, data["bp_rp2"] < 5)
+sec_mask = np.logical_and(data["bp_rp2"] > 3.5, data["bp_rp2"] < 5)
 
 # Declination limit to target southern systems we don't already have
-dec_mask = data["dec1"] < -25
+dec_mask = np.logical_and(data["dec1"] < 25, data["dec1"] >= -90)
 
 # Parallax mask to target nearby stars
-plx_mask = data["parallax1"] > 1.5
+plx_mask = data["parallax1"] > 1.0
 
 # Magnitude mask to ensure the stars are observable
 mag_mask = np.logical_and(
-    data["phot_bp_mean_mag1"] < 15, data["phot_bp_mean_mag2"] < 15)
+    data["phot_rp_mean_mag1"] < 15, data["phot_rp_mean_mag2"] < 16)
+
+# RUWE cut for primaries
+ruwe_mask_prim = data["ruwe1"] <= 1.4
 
 # RUWE cut for secondaries
-ruwe_mask = data["ruwe2"] <= 1.4
+ruwe_mask_sec = data["ruwe2"] <= 1.4
 
 # Separation cut to ensure they're widely enough separated to observe. This
 # column is in degrees, so we multiply by 3600 to get to arcseconds.
@@ -40,7 +43,8 @@ sep_mask = data["pairdistance"]*3600 > 2
 chance_align_mask = data["R_chance_align"] < 0.01
 
 combined_mask = np.all((prim_mask, sec_mask, dec_mask, plx_mask, mag_mask,
-                        ruwe_mask, sep_mask, chance_align_mask), axis=0)
+                        ruwe_mask_prim, ruwe_mask_sec, sep_mask,
+                        chance_align_mask), axis=0)
 
 # -----------------------------------------------------------------------------
 # Crossmatching with [Fe/H] and [X/Fe] catalogues
@@ -50,6 +54,14 @@ binary_df = binary_tab.to_pandas()
 
 binary_df["source_id_dr3"] = binary_df["source_id1"].values.astype(str)
 binary_df.set_index("source_id_dr3", inplace=True)
+
+# Calculate pair distance in arcsec instead
+binary_df["pairdistance_arcsec"] = binary_df["pairdistance"]*3600
+
+# Compute secondary absolute magnitudes
+dist_sec = 1000 / binary_df["parallax2"].values
+binary_df["dist2"] = dist_sec
+binary_df["M_G_sec"] = binary_df["phot_g_mean_mag2"] - 5*np.log10(dist_sec/10)
 
 lit_chem_df = pd.read_csv(
     lit_chem,
@@ -61,8 +73,6 @@ lit_chem_df["has_chem"] = True
 
 binary_df_join = binary_df.join(lit_chem_df, "source_id_dr3", rsuffix="_chem", how="inner")
 
-binary_df_join["pairdistance_arcsec"] = binary_df_join["pairdistance"]*3600
-
 #------------------------------------------------------------------------------
 # Collate [Fe/H]
 #------------------------------------------------------------------------------
@@ -72,7 +82,8 @@ feh_info_all = []
 mid_K_BP_RP_bound = 1.7
 mid_K_MKs_bound = 5
 
-ABUND_ORDER_K = ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20", "M14"]
+#ABUND_ORDER_K = ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20", "M14"]
+ABUND_ORDER_K = ["M15", "G14b", "G14a", "D19", "RA12", "VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20", "M14"]
 
 # Add dummy magnitude information to treat stars as mid-K
 binary_df_join["K_mag_abs"] = 4
@@ -93,9 +104,13 @@ for star_i, (source_id, star_info) in enumerate(binary_df_join.iterrows()):
 feh_info_all = np.vstack(feh_info_all)
 
 feh_values = feh_info_all[:,0].astype(float)
+e_feh_values = feh_info_all[:,1].astype(float)
+feh_source = feh_info_all[:,2]
 
 # TEMPORARY archive of chosen [Fe/H]
 binary_df_join["Fe_H_adopt"] = feh_values.copy()
+binary_df_join["e_Fe_H_adopt"] = e_feh_values.copy()
+binary_df_join["Fe_H_adopt_source"] = feh_source
 
 binary_df_join.sort_values(by="ra1", inplace=True)
 
