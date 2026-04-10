@@ -37,13 +37,13 @@ mike_info = pd.read_csv(
     filepath_or_buffer=mike_info_fn,
     sep="\t",
     comment="#",
-    dtype={"source_id":str},)
+    dtype={"source_id_dr3":str},)
 
-mike_info.set_index("source_id", inplace=True)
+mike_info.set_index("source_id_dr3", inplace=True)
 
 # Exclude rejected targets and calibrators
 exclude_mask = np.logical_or(
-    mike_info["rejected"].values, mike_info["observed"].values == "-")
+    ~mike_info["in_paper"].values, mike_info["observed"].values == "-")
 
 mike_info = mike_info[~exclude_mask].copy()
 
@@ -58,16 +58,16 @@ binary_info = pd.read_csv(
     filepath_or_buffer=binary_info_fn,
     sep="\t",
     comment="#",
-    dtype={"source_id":str},)
+    dtype={"source_id_dr3":str},)
 
-binary_info.set_index("source_id", inplace=True)
+binary_info.set_index("source_id_dr3", inplace=True)
 
 # Mask
 is_candidate = np.all([
     np.logical_or(
         binary_info["kind"].values == "secondary",
         binary_info["kind"].values == "interferometric",),
-    binary_info["vis_1103"].values == "TRUE",
+    binary_info["vis_1103"].values != "FALSE",
     [type(sts) == str for sts in binary_info["status_2026"].values],], axis=0)
 
 binary_info = binary_info[is_candidate].copy()
@@ -88,7 +88,7 @@ fig, axis = plt.subplots(figsize=(7,4))
 is_sec = mike_info["component"] == "sec"
 
 sc = axis.scatter(
-    mike_info[is_sec]["bp_rp"].values,
+    mike_info[is_sec]["BP-RP_dr3"].values,
     mike_info[is_sec]["Fe_H"].values,
     edgecolor="b",
     facecolor="None",
@@ -102,7 +102,7 @@ sc = axis.scatter(
 is_int = mike_info["is_int"].values
 
 sc = axis.scatter(
-    mike_info[is_int]["bp_rp"].values,
+    mike_info[is_int]["BP-RP_dr3"].values,
     mike_info[is_int]["Fe_H"].values,
     edgecolor="k",
     facecolor="None",
@@ -164,5 +164,5 @@ axis.legend(
     fontsize="x-small",
     ncol=3,
     bbox_to_anchor=(0.5, 1.15),)
-    
+
 plt.tight_layout()
