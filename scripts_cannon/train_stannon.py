@@ -23,6 +23,7 @@ import stannon.stannon as stannon
 import stannon.plotting as splt
 import stannon.utils as su
 from datetime import datetime
+from collections import Counter
 
 #------------------------------------------------------------------------------
 # Import Settings
@@ -84,6 +85,9 @@ else:
 
 if np.sum(adopted_benchmark) == 0:
     raise Exception("Zero benchmarks selected!")
+
+if len(set(Counter(obs_join[adopted_benchmark].index.values).values())) > 1:
+    raise Exception("Duplicate target IDs detected!")
 
 # Create new DataFrame for results
 result_df = pd.DataFrame(
