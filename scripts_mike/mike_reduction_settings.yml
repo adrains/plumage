@@ -108,11 +108,11 @@ flux_cal_arm: "r"
 
 # Whether to clean input spectra by masking edge px and NaNs.
 flux_cal_clean_input_spectra: True
-flux_cal_edge_px_to_mask: 100
+flux_cal_edge_px_to_mask: 20
 
 # Settings for doing a 'blaze' correction using the normalised flat lamp
 # spectra before doing the flux calibration itself.
-flux_cal_do_flat_field_blaze_corr: True
+flux_cal_do_flat_field_blaze_corr: False
 flux_cal_blaze_corr_poly_order: 7
 flux_cal_blaze_corr_poly_coef_path: "data/"
 flux_cal_blaze_corr_set_px_to_nan_beyond_domain: True
@@ -122,7 +122,7 @@ flux_cal_run_on_order_subset: False
 flux_cal_order_subset: [50, 51, 52, 53, 54]
 
 # Polynomial order for the flux calibration.
-flux_cal_poly_order: 2
+flux_cal_poly_order: 7
 
 # Whether to include the difference between overlapping orders in the
 # minimisation in an attempt to optimise overlap (True) or to just treat each
@@ -158,15 +158,16 @@ spec_prep_arm: "r"
 
 # Precomputed flat field polynomial coefficients are saved as:
 #   <path>/mike_norm_flat_poly_coef_<poly_order>_<arm>.csv"
-spec_prep_do_flat_field_blaze_corr: True
+spec_prep_do_flat_field_blaze_corr: False
 spec_prep_blaze_corr_poly_order: 7
 spec_prep_blaze_corr_poly_coef_path: "data/"
 spec_prep_blaze_corr_set_px_to_nan_beyond_domain: True
 
 # Settings for flux cal file
-spec_prep_flux_cal_poly_order: 5
-spec_prep_flux_cal_poly_order_fn_label: "12x_SpPhot_mean"
+spec_prep_flux_cal_poly_order: 9
+spec_prep_flux_cal_poly_order_fn_label: "20x_SpPhot_mean"
 spec_prep_flux_cal_folder: "spectra/mike_MK_unnormalised/diagnostics_flux_cal/"
+spec_prep_flux_cal_set_px_to_nan_beyond_domain: True
 
 # Folder for saving continuum normalisation plots
 plot_folder_cn: "spectra/mike_MK_unnormalised/diagnostics_cont_norm/"
@@ -179,3 +180,45 @@ spec_prep_orders_to_drop: [37, 70, 71]
 
 # Pseudocontinuum resolution
 pseudocontinuum_smoothing_resolution: 50
+
+# -----------------------------------------------------------------------------
+# Grabbing MARCS synthetic spectra at literature parameters
+#  - scripts_mike/get_lit_param_synth_mike.py
+# -----------------------------------------------------------------------------
+# Specifics for loading file. Note that this assumes we're on the MSO servers
+# where Thomas Nordlander's MARCS grid can be queried.
+spec_synth_fits_label: "KM_noflat"
+spec_synth_fits_folder: "/priv/mulga2/arains/"
+
+# Setting to use with plumage.synthetic.get_idl_spectrum()
+spec_synth_mike_resolving_power_r: 46000
+spec_synth_wl_min: 4902.13708969
+spec_synth_wl_max: 9167.84990448
+spec_synth_n_px: 121509
+spec_synth_wl_per_px: 0.03510644
+spec_synth_wl_broadening: 0.03510644
+spec_synth_grid: "full"
+
+# -----------------------------------------------------------------------------
+# Compare MIKE vs Cannon  vs MARCS spectra
+#  - scripts_mike/compare_cannon_vs_model_spectra_mike.py
+# -----------------------------------------------------------------------------
+# Location of the fits file to load the Cannon model from
+cannon_fits_label: "KM_noflat"
+cannon_fits_fn_base: "mike_spectra"
+cannon_fits_folder: "spectra/"
+
+# Minimum and maximum wavelengths for Cannon model
+cannon_fits_wl_min_model: 5000
+cannon_fits_wl_max_model: 6800
+
+# Specifics of the given Cannon model to load
+cannon_model_type: "basic"
+cannon_model_name: "MK"
+cannon_model_labels: ["teff", "logg", "Fe_H",]
+cannon_model_L: 3
+cannon_model_S: 42
+cannon_model_P: 48776
+
+# Fractional thresholds to use when comparing Cannon vs MARCS spectra
+cannon_flux_delta_thresholds: [0.1, 0.05, 0.02]
