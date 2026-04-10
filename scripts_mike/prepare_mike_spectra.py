@@ -87,7 +87,9 @@ for star_i in range(n_obs):
         poly_order=ms.spec_prep_flux_cal_poly_order,
         arm=ms.spec_prep_arm,
         coeff_save_folder=ms.spec_prep_flux_cal_folder,
-        label=ms.spec_prep_flux_cal_poly_order_fn_label,)
+        label=ms.spec_prep_flux_cal_poly_order_fn_label,
+        set_px_to_nan_beyond_domain=\
+            ms.spec_prep_flux_cal_set_px_to_nan_beyond_domain,)
 
     spectra_fc[star_i] = spec_fc
     sigma_fc[star_i] = sig_fc

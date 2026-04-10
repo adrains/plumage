@@ -649,7 +649,7 @@ def load_fits_image_hdu(
         "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
         "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
         "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
-        "stellar_frame_telluric_trans":("STELLAR_FRAME_TRANS_", float),
+        "stellar_frame_telluric_trans":("STELLAR_FRAME_T_TRANS_", float),
     }
 
     if extension not in valid_ext.keys():

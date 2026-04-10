@@ -74,6 +74,15 @@ def plot_flux_calibration(
     scale_O2 = fit_dict["scale_O2"]
     telluric_corr_spec_2D = fit_dict["telluric_corr_spec_2D"]
 
+    # Native resolution template spectra
+    wave_synth_mike_res = fit_dict["wave_synth_native_res"]
+    spec_synth_mike_res = fit_dict["spec_synth_native_res"]
+    wave_telluric_mike_res = fit_dict["wave_telluric_native_res"]
+    trans_H2O_telluric_mike_res = \
+        np.exp(-scale_H2O * fit_dict["tau_H2O_telluric_native_res"])
+    trans_O2_telluric_mike_res = \
+        np.exp(-scale_H2O * fit_dict["tau_O2_telluric_native_res"] )
+
     (n_order, n_px) = wave_obs_2D.shape
 
     # [Optional] Clip edges of MIKE spectra when plotting
@@ -102,6 +111,8 @@ def plot_flux_calibration(
         top=0.95,
         #wspace=0.05,
         hspace=0.075)
+
+    max_y_corr = []
 
     for order_i in range(n_order):
         wave_ith = wave_obs_2D[order_i]
@@ -174,7 +185,7 @@ def plot_flux_calibration(
         ax_obs.plot(
             wave_ith[plot_mask],
             spec_ith[plot_mask],
-            linewidth=0.5,
+            linewidth=0.2,
             c="k",
             alpha=0.8,
             label="MIKE Spectrum (raw)" if order_i == 0 else None,)
@@ -182,7 +193,7 @@ def plot_flux_calibration(
         ax_obs.plot(
             wave_broad_ith,
             spec_broad_ith,
-            linewidth=0.5,
+            linewidth=0.2,
             c="r",
             alpha=0.8,
             label="MIKE Spectrum (raw, smoothed)" if order_i == 0 else None,)
@@ -242,25 +253,75 @@ def plot_flux_calibration(
         
         # --------
         # Panel #6: flux calibrated spectrum
+        domain_mask = np.logical_and(
+            wave_ith > wave_mins[order_i],
+            wave_ith < wave_maxes[order_i],)
+
+        # *Within* domain limits
+        spec_fc = spec_ith[domain_mask]*smooth_tf[domain_mask]
+
         ax_corr.plot(
-            wave_ith[plot_mask],
-            spec_ith[plot_mask]*smooth_tf[plot_mask],
-            linewidth=0.5,
+            wave_ith[domain_mask],
+            spec_fc,
+            linewidth=0.2,
             c="r" if order_i % 2 == 0 else "k",
             alpha=0.8,
             label="MIKE Spectrum (Fluxed)" if order_i == 0 else None,)
+
+        if np.nansum(spec_fc) > 0:
+            max_y_corr.append(np.nanmax(spec_fc))
+
+        # *Beyond* domain limits
+        spec_ith_bd = spec_ith*smooth_tf
+        spec_ith_bd[domain_mask] = np.nan
+
+        ax_corr.plot(
+            wave_ith,
+            spec_ith_bd,
+            linewidth=0.1,
+            c="r" if order_i % 2 == 0 else "k",
+            alpha=0.2,
+            linestyle="--",)
     
+    # Also plot native resolution template spectra
+    ax_temp.plot(
+            wave_synth_mike_res,
+            spec_synth_mike_res,
+            linewidth=0.2,
+            c="k",
+            alpha=0.2,)
+    
+    ax_temp.plot(
+        wave_telluric_mike_res,
+        trans_H2O_telluric_mike_res,
+        linewidth=0.2,
+        c="maroon",
+        alpha=0.2,)
+    
+    ax_temp.plot(
+        wave_telluric_mike_res,
+        trans_O2_telluric_mike_res,
+        linewidth=0.2,
+        c="b",
+        alpha=0.2,)
+
+    # Axis limits
+    ylims_ax_obs = ax_obs.get_ylim()
+    ax_obs.set_ylim(1E-3, ylims_ax_obs[1])
+    ax_corr.set_ylim(-0.1, np.nanmax(max_y_corr)*1.1)
+
     # Legends
     loc = "lower center"
-    fontsize = "small"
+    fontsize = "x-small"
     ncol = 3
-    ax_temp.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
-    ax_ext.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
-    ax_flux.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
-    ax_obs.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
-    ax_comp.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
-    ax_tf.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
-    ax_corr.legend(loc=loc, fontsize=fontsize, ncol=ncol,)
+    bbx = (0.5, -0.1)
+    ax_temp.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
+    ax_ext.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
+    ax_flux.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
+    ax_obs.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
+    ax_comp.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
+    ax_tf.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
+    ax_corr.legend(loc=loc, fontsize=fontsize, ncol=ncol, bbox_to_anchor=bbx)
 
     # Scale
     ax_obs.set_yscale("log")

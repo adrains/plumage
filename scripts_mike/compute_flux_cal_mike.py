@@ -116,6 +116,7 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     # Grab source ID
     source_id = star_data["source_id"]
     ut_date = star_data["ut_date"]
+    ut_date_fmt = ut_date.replace("-", "")
 
     # Grab row info from flux standard dataframe
     flux_std_row = flux_std_info.loc[source_id]
@@ -123,6 +124,13 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     print("-"*160,
           "{}/{} - Gaia DR3 {}".format(si+1, n_spphot, source_id),
           "-"*160, sep="\n")
+    
+    # Check that we've marked this observation as useful, continue otherwise
+    is_useful = flux_std_row["useful_{}".format(ut_date_fmt)]
+
+    if not is_useful:
+        print("Skipping: {}\n".format(flux_std_row["spectra_comment"]))
+        continue
 
     plot_label = "{}_{}".format(
         obs_info_sp.loc[star_i]["ut_date"], source_id)
@@ -132,8 +140,8 @@ for si, (star_i, star_data) in enumerate(obs_info_sp.iterrows()):
     airmass = star_data["airmass"]
 
     # Grab initial guess tau scaling terms
-    tau_scale_O2 = flux_std_row["O2_scl_{}".format(ut_date.replace("-", ""))]
-    tau_scale_H2O = flux_std_row["H2O_scl_{}".format(ut_date.replace("-", ""))]
+    tau_scale_O2 = flux_std_row["O2_scl_{}".format(ut_date_fmt)]
+    tau_scale_H2O = flux_std_row["H2O_scl_{}".format(ut_date_fmt)]
 
     # -------------------------------------------------------------------------
     # Flux standard spectrum

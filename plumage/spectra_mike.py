@@ -1227,11 +1227,11 @@ def calc_flux_correction_resid(
             spec_2_interp = interp_spec(wave_1[overlap_mask_1])
             sigma_2_interp = interp_sigma(wave_1[overlap_mask_1])
 
-            # We don't weight by the uncertainties, as that downweights the
-            # order edges which makes the overlap between adjacent orders
-            # worse.
-            overlap_resid = (spec_1[overlap_mask_1] - spec_2_interp)**2 
-                        #/ (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2))
+            # Weight by the uncertainties. While this has the effect of down-
+            # weighting the order edges, these regions have low-SNR anyway so
+            # so can't really focus the fit on them anyway.
+            overlap_resid = ((spec_1[overlap_mask_1] - spec_2_interp)**2 
+                    / (sigma_1[overlap_mask_1]**2 + sigma_2_interp**2)**0.5)
 
             is_nan = np.isnan(overlap_resid)
             overlap_resid[is_nan] = 0
@@ -1455,6 +1455,11 @@ def fit_atmospheric_transmission(
     # -------------------------------------------------------------------------
     # [Optional] Convolve to a lower resolution
     # -------------------------------------------------------------------------
+    # Store
+    tau_H2O_telluric_mike_res = -np.log(trans_H2O_telluric.copy())
+    tau_O2_telluric_mike_res = -np.log(trans_O2_telluric.copy())
+    spec_synth_mike_res = spec_synth.copy()
+
     if do_convolution:
         # Telluric (H2O)
         trans_H2O_telluric = instrBroadGaussFast(
@@ -1764,6 +1769,12 @@ def fit_atmospheric_transmission(
     fit_dict["tau_O2_2D"] = tau_O2_2D
     fit_dict["telluric_corr_spec_2D"] = telluric_corr_spec_2D
 
+    fit_dict["wave_synth_native_res"] = wave_synth
+    fit_dict["spec_synth_native_res"] = spec_synth_mike_res
+    fit_dict["wave_telluric_native_res"] = wave_telluric
+    fit_dict["tau_H2O_telluric_native_res"] = tau_H2O_telluric_mike_res
+    fit_dict["tau_O2_telluric_native_res"] = tau_O2_telluric_mike_res 
+
     return fit_dict
 
 
@@ -1776,6 +1787,7 @@ def flux_calibrate_mike_spectrum(
     arm,
     coeff_save_folder,
     label,
+    set_px_to_nan_beyond_domain,
     extinction_curve_fn="data/paranal_extinction_patat2011.tsv",):
     """Flux calibrates a single MIKE spectrum using pre-computed polynomial
     coefficients from fit_atmospheric_transmission, the airmass of the target,
@@ -1804,6 +1816,10 @@ def flux_calibrate_mike_spectrum(
     label: str
         Label for the file used to identify the flux standard, e.g.
         "<night>_<target_id>".
+
+    set_px_to_nan_beyond_domain: boolean
+        If True, we set to NaN all pixels beyond the domain limits of the
+        polynomial used for flux calibration.
 
     extinction_curve_fn: str, default: 'data/paranal_extinction_patat2011.tsv'
         Path to extinction at observatory.
@@ -1859,6 +1875,14 @@ def flux_calibrate_mike_spectrum(
 
         # Calculate combined correction factor
         flux_cal_comb = flux_cal_tf*obj_ext
+
+        # [Optional] Exclude beyond the domain limits
+        if set_px_to_nan_beyond_domain:
+            in_doman = np.logical_and(
+                wave_2D[order_i] > wave_mins[order_i],
+                wave_2D[order_i] < wave_maxes[order_i],)
+            
+            flux_cal_comb[~in_doman] = np.nan
 
         # Perform the flux calibration. TODO: exp, delta_lambda
         spec_2D_fc[order_i] = spec_1D / flux_cal_comb 
