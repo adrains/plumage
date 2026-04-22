@@ -1973,3 +1973,297 @@ def plot_abundance_trend_recovery(
 
     plt.savefig("{}.pdf".format(plot_fn))
     plt.savefig("{}.png".format(plot_fn), dpi=300)
+
+
+def plot_spectra_comp_with_atomic_features(
+    sm,
+    wave_marcs,
+    fluxes_marcs_norm,
+    wave_min,
+    wave_max,
+    star_names,
+    BP_RP,
+    n_panels=1,
+    fig_size=(16,7.5),
+    linewidth=0.5,
+    alpha=0.6,
+    fn_label="",
+    fn_suffix="",
+    plot_folder="plots/",
+    leg_loc="lower center",
+    line_list=None,
+    line_list_cm="cubehelix",
+    species_to_plot=["Ca 1", "Ti 1", "Fe 1", "Mg 1", "Al 1", "Na 1",],
+    species_line_width=0.75,
+    species_line_lims_spec=(1.6,2.0),):
+    """Plots a comparison of pseudo-continuum normalised observed, Cannon, and
+    synthetic spectra over many panels with overplotted atomic absorption
+    features.
+
+    Plots are saved as:
+        <plot_folder>/spec_comparison_<source_id><fn_label><fn_suffix>.pdf
+
+    Parameters
+    ----------
+    sm: Stannon object
+        Trained Stannon object.
+
+    wave_marcs, fluxes_marcs_norm: 2D float array
+        Wavelength scale and spectra for MARCS synthetic spectra, of shape
+        [n_star, n_px_marcs].
+
+    wave_min, wave_max: float
+        Minimum and maximum wavelengths to plot.
+
+    plot_folder: str, default: "plots/"
+        Folder to save plots to. By default just a subdirectory called plots.
+
+    star_names: str list
+        List of human readable star names to add to the plot, of shape 
+        [n_star].
+
+    BP_RP: float list
+        BP-RP values for each star to add to the plot, of shape [n_star].
+
+    n_panels: int, default: 1
+        Number of panels to have, where wavelength_range / n_panels is the
+        width of each panel.
+
+    fig_size: float tuple, default: (16,7.5)
+        Size of the figure.
+
+    linewidth: float, default: 0.5
+        Linewidth of spectra when plotting.
+
+    alpha: float, default: 0.6
+        Alpha value for spectra when plotting.
+
+    fn_label, fn_suffix: str, default: ""
+        String label components of filename, see above.
+
+    plot_folder: str, default: "plots/"
+        Relative or absolute filepath to save plots to.
+
+    leg_loc: str, default: "lower center"
+        Legend location when plotting.
+
+    line_list: pd.DataFrame, default: None
+        DataFrame of line list data. If None, no lines are plotted.
+
+    line_list_cm: default: "cubehelix"
+        Colourmap to use for the line list.
+
+    species_to_plot: str list default: ["Ca 1", "Ti 1", "Fe 1", "Mg 1",]
+        List of atomic species to plot.
+
+    species_line_width: float, default: 0.75
+        Width of atomic line absorption markers.
+    
+    species_line_lims_spec: float list, default: species_line_lims_spec
+        Lower and upper y axis limits of atomic line aborption markers.
+    """
+    # -------------------------------------------------------------------------
+    # Setup
+    # -------------------------------------------------------------------------
+    # We want to avoid plotting lines across the gaps we've excluded, so we're
+    # going to insert nans in the breaks so that matplotlib leaves a gap. This
+    # is a bit clunky, but this involves looping over each gap and inserting a
+    # fake wavelength value and corresponding nan for the theta and scatter 
+    # arrays.
+    gap_px = np.argwhere(
+        np.abs(sm.masked_wl[:-1] - sm.masked_wl[1:]) > 1.0)[:,0]
+    gap_px = np.concatenate((gap_px+1, [sm.P]))
+
+    px_min = 0
+
+    wave = []
+
+    for px_max in gap_px:
+        wave.append(np.concatenate(
+            (sm.masked_wl[px_min:px_max], [sm.masked_wl[px_max-1]+1])))
+
+        px_min = px_max
+
+    wave = np.concatenate(wave)
+
+    # -------------------------------------------------------------------------
+    # Panel 1: Spectra
+    # -------------------------------------------------------------------------
+    # Do bad px masking
+    masked_spectra = sm.training_data.copy()
+    masked_spectra[sm.bad_px_mask] = np.nan
+
+    # First plot spectra
+    for star_i, _ in enumerate(masked_spectra):
+        # Initialise plot
+        plt.close("all")
+
+        # Either one panel or many panels
+        if n_panels == 1:
+            fig, axes = plt.subplots(1, 1, figsize=fig_size)
+            wave_bounds_all = np.array((wave_min, wave_max,))
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(nrows=n_panels, ncols=1, figsize=fig_size)
+            wave_bounds_all = np.linspace(wave_min, wave_max, n_panels+1,)
+
+        source_id = sm.training_ids[star_i]
+
+        # Generate a model spectrum (with nans for our excluded regions)
+        labels = sm.training_labels[star_i]
+
+        spec_gen = np.full(masked_spectra.shape[1], np.nan)
+        spec_gen[sm.adopted_wl_mask] = sm.generate_spectra(labels)
+
+        for panel_i in range(n_panels):
+            wave_bounds = (
+                wave_bounds_all[panel_i], wave_bounds_all[panel_i+1])
+
+            # Create masks
+            obs_wl_mask = np.logical_and(
+                sm.wavelengths >= wave_bounds[0],
+                sm.wavelengths < wave_bounds[1],)
+            
+            marcs_wl_mask = np.logical_and(
+                wave_marcs >= wave_bounds[0],
+                wave_marcs < wave_bounds[1],)
+
+            # observed spectrum
+            axes[panel_i].plot(
+                sm.wavelengths[obs_wl_mask],
+                masked_spectra[star_i][obs_wl_mask],
+                linewidth=linewidth,
+                alpha=alpha,
+                c="k",
+                label="Observed",)
+
+            # Cannon spectrum
+            axes[panel_i].plot(
+                sm.wavelengths[obs_wl_mask],
+                spec_gen[obs_wl_mask],
+                linewidth=linewidth,
+                alpha=alpha,
+                c="r",
+                label="Cannon",)
+
+            # model spectrum
+            axes[panel_i].plot(
+                wave_marcs[marcs_wl_mask],
+                fluxes_marcs_norm[star_i][marcs_wl_mask],
+                linewidth=linewidth,
+                alpha=alpha,
+                c="b",
+                label="MARCS",)
+
+            # -----------------------------------------------------------------
+            # [Optional] Atomic line plot
+            # -----------------------------------------------------------------
+            # Overplot line list on spectrum and scatter subplots
+            if line_list is not None and len(species_to_plot) > 0:
+                # Remove any species not in our list
+                species_mask = np.isin(line_list["ion"].values, species_to_plot)
+                line_list_adopt = line_list[species_mask].copy()
+
+                # Count how many unique species are in the line list
+                unique_species = list(set(line_list_adopt["ion"].values))
+                unique_species.sort()
+                n_unique_species = len(unique_species)
+                colour_i = np.arange(len(unique_species))/n_unique_species
+                species_mapping_dict = \
+                    OrderedDict(zip(unique_species, colour_i))
+
+                # Get the colour map for our lines
+                cmap = cm.get_cmap(line_list_cm)
+
+                # Only print those in our wavelength range
+                line_mask = np.logical_and(
+                    line_list_adopt["wl"].values >= wave_bounds[0],
+                    line_list_adopt["wl"].values < wave_bounds[1],)
+                
+                for line_i, line_data in line_list_adopt[line_mask].iterrows():
+                    # Change arabic numbers to roman numerals
+                    species_str = \
+                        line_data["ion"].replace("1", "I").replace("2", "II")
+
+                    # Label lines on spectral plot
+                    axes[panel_i].vlines(
+                        x=line_data["wl"],
+                        ymin=species_line_lims_spec[0],
+                        ymax=species_line_lims_spec[1],
+                        linewidth=species_line_width,
+                        colors=cmap(species_mapping_dict[line_data["ion"]]),
+                        label=species_str,
+                        alpha=0.6,)
+                    
+                    axes[panel_i].text(
+                        x=line_data["wl"],
+                        y=species_line_lims_spec[1],
+                        s=line_data["ion"],
+                        fontsize="xx-small",
+                        horizontalalignment="center")
+            else:
+                n_unique_species = 0
+
+            # -----------------------------------------------------------------
+            # Final Setup
+            # -----------------------------------------------------------------
+            # Mask emission and telluric regions for all panels
+            pplt.shade_excluded_regions(
+                wave=sm.wavelengths[obs_wl_mask],
+                bad_px_mask=~sm.adopted_wl_mask[obs_wl_mask],
+                axis=axes[panel_i],
+                res_ax=None,
+                colour="red",
+                alpha=0.25,
+                hatch=None)
+            
+            # Legend
+            handles, leg_labels = axes[panel_i].get_legend_handles_labels()
+            by_label = OrderedDict(zip(leg_labels, handles))
+            leg = axes[panel_i].legend(
+                handles=by_label.values(),
+                labels=by_label.keys(),
+                loc=leg_loc,
+                ncol=n_unique_species+3,
+                fontsize="x-small",)
+            
+            for legobj in leg.legendHandles:
+                legobj.set_linewidth(1.5)
+
+            axes[panel_i].set_xlim((wave_bounds[0], wave_bounds[1]))
+            axes[panel_i].set_ylim((-0.1, 2.1))
+            #axes[0].set_ylim(y_spec_lims)
+
+            #axes[0].set_ylabel(r"Flux (Norm.)")
+
+            axes[panel_i].xaxis.set_major_locator(
+                plticker.MultipleLocator(base=1))
+            axes[panel_i].xaxis.set_minor_locator(
+                plticker.MultipleLocator(base=0.5))
+        
+        # Title
+        star_txt = (
+            r"{} ({}), $T_{{\rm eff}}={:0.0f}\,$K, "
+            r"[Fe/H]$ = ${:+.2f}, $(BP-RP)={:0.2f}$")
+        star_txt = star_txt.format(
+            star_names[star_i],
+            source_id,
+            labels[0],
+            labels[2],
+            BP_RP[star_i],)
+        
+        axes[0].set_title(star_txt)
+
+        plt.xlabel(r"Wavelength (${\rm \AA}$)")
+        
+        plt.tight_layout()
+
+        # Save plot
+        if not os.path.isdir(plot_folder):
+            os.mkdir(plot_folder)
+
+        plot_fn = os.path.join(
+            plot_folder,
+            "spec_comparison_{}{}{}".format(source_id, fn_label, fn_suffix))
+
+        plt.savefig("{}.pdf".format(plot_fn))

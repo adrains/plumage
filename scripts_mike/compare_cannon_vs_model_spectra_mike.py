@@ -7,10 +7,12 @@ Nordlander's MARCS grid can be queried.
 import os
 import numpy as np
 import plumage.utils as pu
+import plumage.utils_mike as pum
 import stannon.utils as su
 import stannon.plotting as splt
 import stannon.stannon as stannon
 import plumage.spectra_mike as psm
+from PyAstronomy.pyasl import instrBroadGaussFast
 
 # -----------------------------------------------------------------------------
 # Settings
@@ -96,17 +98,37 @@ spec_2D_norm, sigma_2D_norm, continua_2D = \
         e_spec_marcs_br,
         resolving_power_smoothed=ms.pseudocontinuum_smoothing_resolution,)
 
+# --------
+# [Optional] Apply extra broadening
+# --------
+if ms.cannon_comp_apply_extra_broadening:
+    spec_2D_norm_init = spec_2D_norm.copy()
+
+    for spec_i in range(spec_2D_norm.shape[0]):
+        spec_2D_norm[spec_i] = instrBroadGaussFast(
+            wvl=wls,
+            flux=spec_2D_norm_init[spec_i],
+            resolution=ms.cannon_comp_new_resolving_power,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
+
+# ---------
+
 # Grab MARCS spectra for just our benchmarks
-wls, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask = \
-        stannon.prepare_cannon_spectra_mike(
-            wave=wls,
-            spectra_2D=spec_2D_norm,
-            sigmas_2D=sigma_2D_norm,
-            wl_min_model=ms.cannon_fits_wl_min_model,
-            wl_max_model=ms.cannon_fits_wl_max_model,
-            telluric_trans_2D=np.ones_like(spec_marcs_br),
-            telluric_absorption_threshold=0.95,
-            allowable_NaN_telluric_px=5,)
+wave_norm, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask = \
+    stannon.prepare_cannon_spectra_mike(
+        wave=wls,
+        spectra_2D=spec_2D_norm,
+        sigmas_2D=sigma_2D_norm,
+        wl_min_model=ms.cannon_fits_wl_min_model,
+        wl_max_model=ms.cannon_fits_wl_max_model,
+        telluric_trans_2D=np.ones_like(spec_marcs_br),
+        telluric_absorption_threshold=0.95,
+        allowable_NaN_telluric_px=5,)
+
+# Convert to air wavelengths
+wave_norm = pum.convert_air_to_vacuum_wl(wave_norm)
 
 # Plot Cannon vs MARCS spectra comparison over the entire spectral range
 splt.plot_spectra_comparison(
@@ -130,3 +152,29 @@ splt.plot_delta_cannon_vs_marcs(
     sm=sm,
     fluxes_marcs_norm=fluxes_norm[adopted_benchmark],
     delta_thresholds=ms.cannon_flux_delta_thresholds,)
+
+#------------------------------------------------------------------------------
+# MARCS vs Cannon spectra comparison plots
+#------------------------------------------------------------------------------
+line_list_a = pu.load_linelist(
+    filename=ms.line_list_file,
+    wl_lower=ms.cannon_fits_wl_min_model,
+    wl_upper=ms.cannon_fits_wl_max_model,
+    ew_min_ma=ms.ew_min_ma_r,)
+
+splt.plot_spectra_comp_with_atomic_features(
+    sm=sm,
+    wave_marcs=wave_norm,
+    fluxes_marcs_norm=fluxes_norm[adopted_benchmark],
+    wave_telluric=None,
+    trans_telluric=None,
+    line_list=line_list_a,
+    star_names=obs_join["simbad_name"].values[adopted_benchmark],
+    BP_RP=obs_join["BP_RP_dr3"].values[adopted_benchmark],
+    species_to_plot=list(set(line_list_a["ion"].values)),   # All species
+    wave_min=ms.cannon_fits_wl_min_model,
+    wave_max=ms.cannon_fits_wl_max_model,
+    n_panels=1800//20,
+    fig_size=(20,180),
+    alpha=0.6,
+    plot_folder="plots/")

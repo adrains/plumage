@@ -200,9 +200,13 @@ spec_synth_wl_broadening: 0.03510644
 spec_synth_grid: "full"
 
 # -----------------------------------------------------------------------------
-# Compare MIKE vs Cannon  vs MARCS spectra
+# Compare MIKE vs Cannon vs MARCS spectra
 #  - scripts_mike/compare_cannon_vs_model_spectra_mike.py
 # -----------------------------------------------------------------------------
+# Whether to do additional broadening
+cannon_comp_apply_extra_broadening: True
+cannon_comp_new_resolving_power: 44000
+
 # Location of the fits file to load the Cannon model from
 cannon_fits_label: "KM_noflat"
 cannon_fits_fn_base: "mike_spectra"
@@ -222,3 +226,8 @@ cannon_model_P: 48776
 
 # Fractional thresholds to use when comparing Cannon vs MARCS spectra
 cannon_flux_delta_thresholds: [0.1, 0.05, 0.02]
+
+line_list_file: "data/t3500_g+5.0_z+0.00_a+0.00_v1.00_latoms.eqw"
+ew_min_ma_b: 400
+ew_min_ma_r: 0.5
+species_to_plot: ["Ca 1", "Ti 1", "Fe 1", "Mg 1", "Al 1", "Na 1",]
