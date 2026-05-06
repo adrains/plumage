@@ -249,6 +249,14 @@ splt.plot_theta_coefficients(
     only_plot_first_order_coeff=cds.only_plot_first_order_coeff,
     plot_folder=save_folder,)
 
+# Barcode plot
+splt.plot_theta_coefficient_barcode_plot(
+    sm=sm,
+    x_lims=(cds.wl_min_model, cds.wl_max_model),
+    x_binning=cds.theta_barcode_x_binning,
+    fn_suffix=fn_label,
+    plot_folder=save_folder,)
+
 #------------------------------------------------------------------------------
 # Spectral Recovery
 #------------------------------------------------------------------------------
@@ -422,4 +430,4 @@ pu.save_fits_table(
     label=cds.fits_label,
     path=cds.fits_folder,
     ext_label=fits_ext_label,
-    fn_base=ls.fits_fn_base,)
+    fn_base=cds.fits_fn_base,)

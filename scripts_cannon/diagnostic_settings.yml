@@ -16,17 +16,17 @@
 #------------------------------------------------------------------------------
 # Save path and label of fits file
 # 1) WiFeS spectra
-#fits_folder: "spectra"
-#fits_fn_base: "spectra"
-#fits_label: "cannon_mk"
+fits_folder: "spectra"
+fits_fn_base: "spectra"
+fits_label: "cannon_mk"
 
 # 2) MIKE spectra
-fits_folder: "spectra"
-fits_fn_base: "mike_spectra"
-fits_label: "KM_noflat"
+#fits_folder: "spectra"
+#fits_fn_base: "mike_spectra"
+#fits_label: "KM_noflat"
 
 # Abundance labels of the Cannon model, e.g.["X_Fe",..]. Left empty otherwise.
-abundance_labels: [] #"Ti_Fe", "Mg_Fe", "Ca_Fe"]
+abundance_labels: ["Ti_Fe",]
  
 # Base non-abundance labels
 base_labels: ["teff", "logg", "Fe_H", ]
@@ -37,9 +37,9 @@ wl_min_model: 4000
 wl_max_model: 7000
 
 # Specifics of the given Cannon model to load
-sm_name: "MK"
-L: 3
-S: 147      # MK: 199, M: 147, K: 52
+sm_name: "M"
+L: 4
+S: 141      # MK: 199, M: 147, K: 52
 P: 5024     # 4000-7000 A
 #P: 5573    # 3500-7000 A
 
@@ -106,6 +106,9 @@ vf05_sampled_file: "/Users/arains/Dropbox/AdamTiDists/Results/VFCalibration/vfs_
 
 # Size of spectra diagnostic plots
 spec_comp_fig_size: [14, 10]
+
+# Binning for barcode plot. Increase this for MIKE data.
+theta_barcode_x_binning: 1
 
 #------------------------------------------------------------------------------
 # Model Comparison Settings

@@ -10,6 +10,9 @@ import matplotlib.ticker as plticker
 from collections import OrderedDict
 from stannon.vectorizer import PolynomialVectorizer
 from scipy.interpolate import splrep, BSpline
+from tqdm import tqdm
+from matplotlib.patches import Rectangle
+from scipy.stats import binned_statistic
 
 def plot_label_recovery(
     label_values,
@@ -2267,3 +2270,285 @@ def plot_spectra_comp_with_atomic_features(
             "spec_comparison_{}{}{}".format(source_id, fn_label, fn_suffix))
 
         plt.savefig("{}.pdf".format(plot_fn))
+
+
+def plot_theta_coefficient_barcode_plot(
+    sm,
+    do_sort_theta_coeff=True,
+    x_binning=1,
+    x_lims=(5000,6800),
+    y_spec_lims=(0,2.5),
+    x_ticks=(200,100),
+    figsize=(18, 6),
+    fn_label="",
+    fn_suffix="",
+    plot_folder="plots/",):
+    """Plot theta 'barcode'plot with two panels: 
+        1) pseudocontinuum normalised training fluxes (coloured by Teff).
+        2) 'barcode' plot of theta coefficients for all Cannon terms and all
+           pixels, shown using a diverging colour map and ordered by the 
+           standard deviation of each term (as a proxy for its importance).
+
+    Saved as:
+    <plot_folder>/barcode_<L>L_<S>S_<S>P_binning_x<B>_<fn_label><fn_suffix>.pdf
+
+    Where L, S, P, and B are the number of labels, size of the training sample,
+    number of pixels, and binning to be applied to the theta coefficients for
+    aiding visualisation when plotting high resolution spectra.
+
+    Parameters
+    ----------
+    sm: Stannon object
+        Trained Stannon object.
+
+    do_sort_theta_coeff: boolean, defaullt: True
+        Whether to order theta coefficients by their standard deviation.
+        
+    x_binning: int, default: 1
+        Binning to apply to theta coefficients.
+
+    x_lims: float tuple, default: (5000,6000)
+        X axis wavelength limits when plotting.
+
+    y_spec_lims: float tuple, default: (0,2.5)
+        Y axis flux limits when plotting.
+
+    x_ticks: float tuple, default: (200,100)
+        X axis major and minor ticks to use when plotting.
+
+    fig_size: float tuple, default: (16,7.5)
+        Size of the figure.
+
+    fn_label, fn_suffix: str, default: ""
+        String label components of filename, see above.
+
+    plot_folder: str, default: "plots/"
+        Relative or absolute filepath to save plots to.
+    """
+    # -------------------------------------------------------------------------
+    # Setup
+    # -------------------------------------------------------------------------
+    plt.close("all")
+    
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=figsize,)
+    
+    fig.subplots_adjust(
+        left=0.08,
+        bottom=0.1,
+        right=0.98,
+        top=0.925,
+        hspace=0.04,
+        wspace=0.001)
+
+    axes = axes.flatten()
+
+    # We want to avoid plotting lines across the gaps we've excluded, so we're
+    # going to insert nans in the breaks so that matplotlib leaves a gap. This
+    # is a bit clunky, but this involves looping over each gap and inserting a
+    # fake wavelength value and corresponding nan for the theta and scatter 
+    # arrays.
+    gap_px = np.argwhere(
+        np.abs(sm.masked_wl[:-1] - sm.masked_wl[1:]) > 1.0)[:,0]
+    gap_px = np.concatenate((gap_px+1, [sm.P]))
+
+    px_min = 0
+
+    wave = []
+    theta = []
+    scatter = []
+
+    for px_max in gap_px:
+        wave.append(np.concatenate(
+            (sm.masked_wl[px_min:px_max], [sm.masked_wl[px_max-1]+1])))
+        theta.append(np.concatenate(
+            (sm.theta[px_min:px_max],
+                np.atleast_2d(np.full(sm.N_COEFF, np.nan)))))
+        scatter.append(np.concatenate((sm.s2[px_min:px_max], [np.nan])))
+
+        px_min = px_max
+
+    wave = np.concatenate(wave)
+    theta = np.concatenate(theta)
+    scatter = np.concatenate(scatter)
+
+    # [Optional] Binning
+    if x_binning > 1:
+        bin_means, bin_edges, bin_num = binned_statistic(
+            x=wave,
+            values=theta.T,
+            statistic="mean",
+            bins=len(wave)//x_binning,)
+        
+        theta_unbinnned = theta.copy()
+        theta = bin_means.T
+
+        wave_unbinned = wave.copy()
+        wave = bin_edges[:-1] + np.nanmedian(np.diff(wave))/2
+
+    # Wavelength mask
+    wave_mask = np.logical_and(wave > x_lims[0], wave < x_lims[1])
+    wave = wave[wave_mask]
+    theta = theta[wave_mask]
+
+    # Grab each set of coefficients (linear, quadratic, cross-term) and format
+    # as appropriate for plotting
+    vectorizer = PolynomialVectorizer(sm.label_names, 2)
+    theta_lvec = vectorizer.get_human_readable_label_vector()
+
+    # Format for plotting
+    theta_lvec = theta_lvec.replace("teff", r"$T_{eff}$")
+    theta_lvec = theta_lvec.replace("logg", r"$\log g$")
+    theta_lvec = theta_lvec.replace("Fe_H", "[Fe/H]")
+
+    if sm.L > 3:
+        for abundance_i, abundance in enumerate(sm.label_names[3:]):
+            label_i = 4 + abundance_i
+            
+            abundance_label = "[{}]".format(abundance.replace("_", "/"))
+
+            theta_lvec =  \
+                theta_lvec.replace(abundance, abundance_label)
+    
+    theta_lvec = theta_lvec.replace("*", r"$\times$")
+    theta_lvec =  theta_lvec.replace("^2", r"$^2$")
+    
+    theta_lvec = theta_lvec.split(" + ")
+
+    # Sort theta coefficients by standard deviation
+    n_coeff = sm.theta.shape[1]
+
+    if do_sort_theta_coeff:
+        theta_std = np.nanstd(theta, axis=0)
+        ii = np.argsort(theta_std)
+    else:
+        ii = np.arange(0, n_coeff)
+
+    # -------------------------------------------------------------------------
+    # Panel 1: Spectra
+    # -------------------------------------------------------------------------
+    # Initialise teff colours
+    cmap = cm.get_cmap("magma")
+    teff_min = np.min(sm.training_labels[:,0])
+    teff_max = np.max(sm.training_labels[:,0])
+
+    # Do bad px masking
+    masked_spectra = sm.training_data.copy()
+    masked_spectra[sm.bad_px_mask] = np.nan
+
+    # First plot spectra
+    for star_i, spectrum in enumerate(masked_spectra):
+        teff = sm.training_labels[star_i, 0]
+        colour = cmap((teff-teff_min)/(teff_max-teff_min))
+
+        axes[0].plot(sm.wavelengths, spectrum, linewidth=0.2, c=colour)
+
+    # -------------------------------------------------------------------------
+    # Panel 2: Coefficients
+    # -------------------------------------------------------------------------
+    theta_min = np.nanmin(theta[:,1:])
+    theta_max = np.nanmax(theta[:,1:])
+    theta_scaled = (theta - theta_min) / (theta_max - theta_min)
+
+    # Sort
+    theta_lvec = np.array(theta_lvec)[ii]
+    theta_scaled = theta_scaled[:,ii]
+
+    cmap_theta = cm.get_cmap("PRGn")
+
+    # Loop over all coefficients
+    for coeff_i in range(n_coeff-1):
+
+        desc = "Plotting barcode coeffs for {}/{}".format(coeff_i+1, n_coeff-1)
+
+        # Loop over all pixels, draw a rectangle for each. We need to be
+        # careful about computing delta wave in the presence of the dummy NaN
+        # pixels we inserted
+        for px_i in tqdm(range(len(wave)), desc=desc, leave=False):
+            # Skip if we encounter one of our fake 'NaN' pixels
+            if theta[px_i, coeff_i] == np.nan:
+                continue
+
+            if px_i == 0:
+                delta_wave = wave[px_i+1] - wave[px_i]
+
+            elif px_i == len(wave)-1:
+                delta_wave = wave[px_i] - wave[px_i-1]
+
+            else:
+                delta_wave = np.min((
+                    wave[px_i+1] - wave[px_i],
+                    wave[px_i] - wave[px_i-1],))
+
+            rect = Rectangle(
+                xy=(wave[px_i]-delta_wave/2, coeff_i),
+                width=delta_wave,
+                height=1,
+                facecolor=cmap_theta(theta_scaled[px_i, coeff_i]),
+                edgecolor=None,
+                linewidth=None,)
+            
+            axes[1].add_patch(rect)
+
+    axes[1].set_yticks(np.arange(0.5,n_coeff-0.5))
+    axes[1].set_yticklabels(theta_lvec[:-1])
+
+    # -------------------------------------------------------------------------
+    # Final Setup
+    # -------------------------------------------------------------------------
+    # Mask emission and telluric regions for all panels
+    for axis in axes:
+        pplt.shade_excluded_regions(
+            wave=sm.wavelengths,
+            bad_px_mask=~sm.adopted_wl_mask,
+            axis=axis,
+            res_ax=None,
+            colour="red",
+            alpha=0.25,
+            hatch=None)
+    
+    # Title
+    base_labels = [r"$T_{\rm eff}$", "log g"]
+
+    chemical_labels = \
+        ["[{}]".format(X.replace("_", "/")) for X in sm.label_names[2:]]
+    
+    formatted_labels = ", ".join(base_labels + chemical_labels)
+
+    title = "{}L, {}S, {}P: {}".format(sm.L, sm.S, sm.P, formatted_labels)
+
+    axes[0].set_title(title)
+
+    axes[0].set_xlim(x_lims)
+    axes[0].set_ylim(y_spec_lims)
+
+    axes[1].set_ylim(0,n_coeff-1)
+
+    axes[0].set_ylabel(r"Flux (Norm.)")
+    axes[1].set_ylabel(r"$\theta$")
+
+    axes[0].yaxis.set_major_locator(plticker.MultipleLocator(base=0.5))
+    axes[0].yaxis.set_minor_locator(plticker.MultipleLocator(base=0.25))
+
+    axes[1].xaxis.set_major_locator(plticker.MultipleLocator(base=x_ticks[0]))
+    axes[1].xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
+
+    axes[1].tick_params(axis='both', which='major', labelsize="small")
+
+    plt.xlabel(r"Wavelength (${\rm \AA}$)")
+    
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "barcode_{}L_{}S_{}P_binning_x{}{}{}".format(
+            sm.L,
+            sm.S,
+            sm.P,
+            x_binning,
+            fn_label,
+            fn_suffix))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    
