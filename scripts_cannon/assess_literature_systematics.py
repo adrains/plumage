@@ -1192,6 +1192,8 @@ samples = {
     "G14b":"data/G14b_gaia_all.tsv",    # Individual sigmas
     "M14":"data/M14_all.tsv",           # Individual sigmas
     "M15":"data/mann15_all_dr3.tsv",    # Individual sigmas
+    "T15E":"data/T15_all.tsv",          # const sigma
+    "T15M":"data/T15_all.tsv",          # const sigma
     "B16":"data/B16_dr3_all.tsv",       # Const sigma for: all
     "M18":"data/montes18_prim.tsv",     # Individual sigmas
     "L18":"data/luck18_all_dr3.tsv",    # Individual sigmas
@@ -1214,6 +1216,8 @@ species_all = {
     "G14a":["Fe"],
     "G14b":["Fe"],
     "M15":["Fe"],
+    "T15E":["Fe"],
+    "T15M":["Fe"],
     "B16":["C", "N", "O", "Na", "Mg", "Al", "Si", "Ca", "Ti", "V", "Cr", "Mn",
            "Fe", "Ni", "Y"],
     "M18":["Fe", "Na", "Mg", "Al", "Si", "Ca", "Sc", "Ti", "V", "Cr", "Mn",
@@ -1240,6 +1244,8 @@ sigmas = {
             "Fe":0.03,
             "Ni":0.03,},
     "A12":{"Fe":0.03,},     # From paper, pg. 2, section 2.
+    "T15E":{"Fe":0.11,},     # From paper, Table 2
+    "T15M":{"Fe":0.07,},     # From paper, Table 2
     "B16":{"C":0.026,
             "N":0.042,
             "O":0.036,
@@ -1298,7 +1304,7 @@ sigmas = {
 ENFORCE_K_DWARF_BP_RP_COLOUR_CUT = False
 K_DWARF_BP_RP_MAX = 1.7
 cool_dwarf_catalogues = \
-    ["RA12", "M14", "G14a", "G14b", "M15", "D19", "M20", "SM25"]
+    ["RA12", "M14", "G14a", "G14b", "M15", "T15E", "T15M", "D19", "M20", "SM25"]
 
 # Set to true to drop columns related to abundances we're not correcting for
 # systematics. This prevents bloat in the number of columns, and is important
@@ -1610,7 +1616,52 @@ dataframes_cut["M15"] = M15[cols].copy()
 #=========================================
 # Terrien+2015 - 2015ApJS..220...16T
 #=========================================
-pass
+# Terrien+2015 reports [Fe/H] from six different empirical relations. For
+# early-mid M-dwarfs they recommend preferentially adopting those from the Ks
+# band relations of Mann+13b, and for mid-late M dwarfs those from Mann+2014.
+# See Sections 3.4. (Composition) and 5.3. (Preferred Measure of [Fe/H] for
+# Early-mid M Dwarfs) respectively. The mid-to-late M dwarfs do not have [Fe/H]
+# from the other other relations, so to use (and correct) these for systematics
+# we need to import this sample twice, once for each spectral type range.
+# -----------------------
+# Early-to-mid M dwarfs
+# -----------------------
+T15E = dataframes["T15E"]
+has_sid = np.array([sid not in default_ids for sid in T15E.index.values])
+T15E = T15E[has_sid].copy()
+T15E.rename(columns={"BP-RP_dr3":"bp_rp"}, inplace=True)
+
+abund_cols_old = ["M{}HK".format(ss) for ss in species_all["T15E"]]
+abund_cols_new = ["{}_H_T15E".format(ss) for ss in species_all["T15E"]]
+T15E.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_new = ["e_Fe_H_T15E"]
+T15E["e_Fe_H_T15E"] = sigmas["T15E"]["Fe"]
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["T15E"] = T15E[cols].copy()
+
+# -----------------------
+# Mid-to-late M dwarfs
+# -----------------------
+T15M = dataframes["T15M"]
+has_sid = np.array([sid not in default_ids for sid in T15M.index.values])
+T15M = T15M[has_sid].copy()
+T15M.rename(columns={"BP-RP_dr3":"bp_rp"}, inplace=True)
+
+abund_cols_old = ["M{}HL".format(ss) for ss in species_all["T15M"]]
+abund_cols_new = ["{}_H_T15M".format(ss) for ss in species_all["T15M"]]
+T15M.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_new = ["e_Fe_H_T15M"]
+T15M["e_Fe_H_T15M"] = sigmas["T15M"]["Fe"]
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["T15M"] = T15M[cols].copy()
 
 #=========================================
 # Brewer+2016 - 2016ApJS..225...32B
@@ -1936,7 +1987,8 @@ fit_dict_K = correct_abundance_trends(
 # M dwarfs
 species_to_correct_M = ["Fe_H",]
 comp_ref_M = "M15"
-references_to_compare_M = np.array(["RA12", "G14a", "G14b", "M20"])
+references_to_compare_M = np.array(
+    ["RA12", "G14a", "G14b", "T15E", "T15M", "M20"])
 
 print("\nM Dwarfs\n--------")
 fit_dict_M = correct_abundance_trends(

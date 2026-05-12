@@ -16,19 +16,20 @@
 #------------------------------------------------------------------------------
 # Fits file of spectra, loaded from: <path>/<fn_base>_<label>.fits.
 # 1) WiFeS spectra
-#fits_folder: "spectra"
-#fits_fn_base: "spectra"
-#fits_label: "cannon_mk"
-#std_info_fn: "data/std_info.tsv"
+fits_folder: "spectra"
+fits_fn_base: "spectra"
+fits_label: "cannon_mk"
+std_info_fn: "data/std_info.tsv"
 
 # 2) MIKE spectra
-fits_folder: "spectra"
-fits_fn_base: "mike_spectra"
-fits_label: "KM_noflat"
-std_info_fn: "data/mike_info.tsv"
+#fits_folder: "spectra"
+#fits_fn_base: "mike_spectra"
+#fits_label: "KM_noflat"
+#std_info_fn: "data/mike_info.tsv"
 
 # If true, we allow our initial crossmatch to be done on Gaia DR2 IDs
-do_support_legacy_DR2_source_IDs: False
+# NOTE! Currently this is required for the use of WiFeS spectra
+do_support_legacy_DR2_source_IDs: True
 
 # TSV of uniform literature chemistry corrected for systematics
 lit_chem: "data/lit_chemistry_corrected_Fe_Ti_Mg_Ca_Na_Al.tsv"
@@ -46,8 +47,8 @@ sampled_param_csv: "data/monty_sampled_params_n103.csv"
 
 # Settings to use when importing TSV files
 use_mann_code_for_masses: False
-only_import_in_paper: True #False
-only_import_observed: False #True
+only_import_in_paper: False #True
+only_import_observed: True #False
 gdr: "dr3"
 
 #------------------------------------------------------------------------------
@@ -55,11 +56,11 @@ gdr: "dr3"
 #------------------------------------------------------------------------------
 # Abund order of preference (highest priority to lowest).
 ABUND_ORDER_K: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "D19", "RB20", "SM25"]
-ABUND_ORDER_M: ["M15", "G14b", "G14a", "D19", "RA12", "M20", "SM25"]
+ABUND_ORDER_M: ["M15", "G14b", "G14a", "T15E", "T15M", "D19", "RA12", "SM25"]
 ABUND_ORDER_BINARY: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20", "SM25"]
 
 # Abundance labels to compute, e.g. ['Fe_H', 'Ti_Fe'].
-abundance_labels: ["Fe_H", "Ti_Fe", "Ca_Fe", "Mg_Fe", "Na_Fe", "Al_Fe"]
+abundance_labels: ["Fe_H", "Ti_Fe", "Ca_Fe", "Mg_Fe",] # "Na_Fe", "Al_Fe"]
 
 #------------------------------------------------------------------------------
 # Benchmark citations
@@ -80,7 +81,8 @@ BENCHMARK_CITATIONS:
   G14a: "gaidos_m_2014"
   G14b: "gaidos_trumpeting_2014"
   M15: "mann_how_2015"
-  T15: "terrien_near-infrared_2015"
+  T15E: "terrien_near-infrared_2015"
+  T15M: "terrien_near-infrared_2015"
   B16: "brewer_spectral_2016"
   L18: "luck_abundances_2018"
   M18: "montes_calibrating_2018"
