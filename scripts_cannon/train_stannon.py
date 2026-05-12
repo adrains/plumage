@@ -223,6 +223,7 @@ ivars_norm *= 1/(cs.spectra_std_scale_fac**2)
 print("\n\n", "%"*80, "\n", sep="")
 print("\tModel Params:\n\t", "-"*21, sep="")
 print("\tmodel: \t\t\t = {}".format(cs.model_type))
+print("\torder: \t\t\t = {}".format(cs.cannon_order))
 print("\tlambda: \t\t = {:0.0f}-{:0.0f} A".format(
     cs.wl_min_model, cs.wl_max_model))
 print("\tn px: \t\t\t = {:0.0f}".format(np.sum(adopted_wl_mask)))
@@ -258,6 +259,7 @@ sm = stannon.Stannon(
     label_names=cs.label_names,
     wavelengths=wls,
     model_type=cs.model_type,
+    order=cs.cannon_order,
     training_variances=label_var_all[adopted_benchmark],
     adopted_wl_mask=adopted_wl_mask,
     bad_px_mask=bad_px_mask[adopted_benchmark],)
@@ -340,8 +342,8 @@ print("Model training complete!")
 sm.save_model(cs.model_save_path, name=cs.model_label,)
 
 # Store results DF
-fits_ext_label = "{}_{}L_{}P_{}S".format(
-    cs.model_label, sm.L, sm.P, sm.S)
+fits_ext_label = "{}_{}L_{}O_{}P_{}S".format(
+    cs.model_label, sm.L, sm.O, sm.P, sm.S)
 
 pu.save_fits_table(
     extension="CANNON_MODEL",

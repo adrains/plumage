@@ -953,19 +953,19 @@ def shade_excluded_regions(wave, bad_px_mask, axis, res_ax, colour, alpha,
 
     for xi in range(len(wave)):
         # We've gotten to the end of the shaded region, draw
-        if (not bad_px_mask[xi] and previous_true
-            or xi+1 == len(bad_px_mask) and previous_true):
-            axis.axvspan(wave_min, wave_max, ymin=0, 
+        if ((not bad_px_mask[xi] and previous_true)
+            or (xi+1 == len(bad_px_mask) and previous_true)):
+            axis.axvspan(wave_min, wave_max, ymin=0, ec=None, lw=0,
                         ymax=1.7, alpha=alpha, color=colour, hatch=hatch)
             if res_ax is not None:
-                res_ax.axvspan(wave_min, wave_max, ymin=-1, 
+                res_ax.axvspan(wave_min, wave_max, ymin=-1, ec=None, lw=0,
                     ymax=1, alpha=alpha, color=colour, hatch=hatch)
 
             if hatch != None:
-                axis.axvspan(wave_min, wave_max, ymin=0, 
+                axis.axvspan(wave_min, wave_max, ymin=0, ec=None, lw=0,
                         ymax=1.7, alpha=alpha, color=None, hatch=hatch)
                 if res_ax is not None:
-                    res_ax.axvspan(wave_min, wave_max, ymin=-1, 
+                    res_ax.axvspan(wave_min, wave_max, ymin=-1, ec=None, lw=0,
                         ymax=1, alpha=alpha, color=None, hatch=hatch)
 
             previous_true = False

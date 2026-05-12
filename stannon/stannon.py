@@ -20,47 +20,65 @@ class Stannon(object):
     """
     # Constants
     SUPPORTED_MODELS = ("basic", "label_uncertainties")
-    ORDER = 2
 
-    def __init__(self, training_data, training_data_ivar, training_labels, 
-                 training_ids, label_names, wavelengths, model_type, 
-                 training_variances=None, adopted_wl_mask=None, data_mask=None, 
-                 bad_px_mask=None):
+    def __init__(
+        self,
+        training_data,
+        training_data_ivar,
+        training_labels, 
+        training_ids,
+        label_names,
+        wavelengths,
+        model_type,
+        order=2,
+        training_variances=None,
+        adopted_wl_mask=None,
+        data_mask=None, 
+        bad_px_mask=None,):
         """Stannon class to encapsulate Cannon functionality.
 
         Parameters
         ----------
-        training_data: 2D numpy array
-            Training data (spectra) of shape [S spectra, P pixels]
+        training_data, training_data_ivar: 2D float array
+            Training fluxes and inverse variances of shape [N_star, N_px].
 
-        training_data_ivar: 2D numpy array
-            Training data inverse variances of shape [S spectra, P pixels]
+        training_labels: 2D float array
+            Labels for the training set, of shape [N_star, N_label].
 
-        training_labels: 2D numpy array
-            Labels for the training set, of shape [S spectra, L labels]
+        training_ids: 1D str array
+            IDs for the stars in the training sample, of shape [N_star].
 
-        training_ids: 
+        label_names: 1D str array
+            Label names corresponding to training_labels, of shape [N_label].
 
-        label_names: 1D array_like
-            1D array of label/column names corresponding to training_labels. Of
-            length L.
-
-        wavelengths:
+        wavelengths: 1D float array
+            Wavelengths corresponding to the training data, of shape [N_px].
 
         model_type: string
             The kind of Cannon model to construct. Allowable values are 'basic'
             and 'label_uncertainties'.
 
-        training_variances: 2D numpy array, optional
-            Label variances corresponding to (and same as) training_labels. 
-            Defaults to None if not using an appropriate model.
+        order: int, default: 2
+            Polynomial order for the Cannon model. Currently only 1st and 2nd
+            order models are supported.
 
-        adopted_wl_mask: 1D boolean numpy array, optional
-            Used to mask out pixels during modelling, False = unused.
+        training_variances: 2D numpy array, default: None
+            Label variances corresponding to training_labels if using a
+            model_type of 'label_uncertainties'. None otherwise.
+
+        adopted_wl_mask: 1D boolean array, default: None
+            Used to *globally* mask out pixels/wavelengths during modelling
+            (e.g. to exclude telluric contaminated regions) where a value of
+            False means we do not use the pixel. Of shape [N_px].
 
         data_mask: 1D boolean numpy array, optional
-            Used to mask out training data during modelling, False = unused.
+            Used to mask out training data during modelling, False = unused. Of
+            shape [N_star].
 
+        bad_px_mask: 2D boolean array, default: None
+            Used to mask out pixels/wavelengths *per star* during modelling
+            where a value of False means we do not use the pixel. Of shape
+            [N_star, N_px].
         """
         self.training_data = training_data
         self.training_data_ivar = training_data_ivar
@@ -76,9 +94,10 @@ class Stannon(object):
 
         self.S, self.P = training_data[:,adopted_wl_mask].shape
         self.L = len(label_names)
+        self.O = order
 
         # Set the shape of our theta array
-        lvec = svp.terminator(label_names, order=self.ORDER)
+        lvec = svp.terminator(label_names, order=order)
         self.N_COEFF = 1 + len(
             svp.parse_label_vector_description(lvec, label_names))
 
@@ -116,6 +135,7 @@ class Stannon(object):
             label_names=copy.deepcopy(self.label_names),
             wavelengths=copy.deepcopy(self.wavelengths),
             model_type=copy.deepcopy(self.model_type),
+            order=copy.deepcopy(self.O),
             training_variances=copy.deepcopy(self.training_variances),
             adopted_wl_mask=copy.deepcopy(self.adopted_wl_mask),
             data_mask=copy.deepcopy(self.data_mask),
@@ -346,17 +366,19 @@ class Stannon(object):
     # Class functions
     #--------------------------------------------------------------------------
     def get_stannon_model(self):
-        """Load in the Stan code for the designated model type
+        """Load in the Stan code for the designated model type. We expect all
+        models to stored in plumage/stannon/models/ as .stan files.
         """
         # Get present location
         here = os.path.dirname(__file__)
 
         # Construct the model name
         if self.model_type == "basic":
-            model_name = f"cannon-{self.L:.0f}L-O2.stan"
+            model_name = f"cannon-{self.L:.0f}L-O{self.O:.0f}.stan"
 
         elif self.model_type == "label_uncertainties":
-            model_name = f"cannon_model_uncertainties_{self.L:.0f}L-O2.stan"
+            model_name = \
+                f"cannon_model_uncertainties_{self.L:.0f}L-O{self.O:.0f}.stan"
 
         else:
             # Note that it shouldn't be possible to get to this position, but
@@ -364,7 +386,7 @@ class Stannon(object):
             raise ValueError("Not a valid model, see Stannon.SUPPORTED_MODELS")
 
         # Check the model file exists
-        model_path = os.path.join(here, model_name)
+        model_path = os.path.join(here, "models", model_name)
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(
@@ -532,7 +554,7 @@ class Stannon(object):
             whether the model has converged or not.
         """
         # Create design matrix
-        self.vectorizer = PolynomialVectorizer(self.label_names, 2)
+        self.vectorizer = PolynomialVectorizer(self.label_names, self.O)
         self.design_matrix = self.vectorizer(self.whitened_labels)
 
         # Initialise theta array
@@ -796,6 +818,16 @@ class Stannon(object):
 
         lbl = "Inferring labels"
 
+        # Choose the multiplication function. Due to the way curve_fit works,
+        # having separate functions is more robust than hacking an extra
+        # variable into the function call.
+        if self.O == 1:
+            multiply_coeff_label_vectors = multiply_coeff_label_vectors_order_1
+        elif self.O == 2:
+            multiply_coeff_label_vectors = multiply_coeff_label_vectors_order_2
+        else:
+            raise ValueError("Unsupported model order.")
+
         for star_i, (flux, ivar) in enumerate(
             zip(tqdm(test_data, desc=lbl, leave=False), test_data_ivars)):
             # Where the ivar == 0, set normalized flux to 1 and sigma to 100
@@ -807,10 +839,13 @@ class Stannon(object):
             errbar = np.sqrt(sigma**2 + self.s2**2)
 
             try:
-                labels, cov = curve_fit(multiply_coeff_label_vectors, 
-                                        self.theta, flux, 
-                                        p0=starting_guess, sigma=errbar, 
-                                        absolute_sigma=True)
+                labels, cov = curve_fit(
+                    f=multiply_coeff_label_vectors, 
+                    xdata=self.theta,
+                    ydata=flux,
+                    p0=starting_guess,
+                    sigma=errbar, 
+                    absolute_sigma=True)
             except:
                 labels = np.zeros(starting_guess.shape)*np.nan
                 cov = np.zeros((len(starting_guess),
@@ -1005,6 +1040,7 @@ class Stannon(object):
             # just initialise a new object rather than using the deep copy
             # function to make sure all the changes cascade properly. As such,
             # this new object will have S = N-1.
+            # TODO: this can probably be handled by the deep copy function?
             cv_sm = Stannon(
                 training_data=copy.deepcopy(self.training_data[dm]),
                 training_data_ivar=copy.deepcopy(self.training_data_ivar[dm]),
@@ -1013,6 +1049,7 @@ class Stannon(object):
                 label_names=copy.deepcopy(self.label_names),
                 wavelengths=copy.deepcopy(self.wavelengths),
                 model_type=copy.deepcopy(self.model_type),
+                order=copy.deepcopy(self.O),
                 training_variances=copy.deepcopy(self.training_variances[dm]),
                 adopted_wl_mask=copy.deepcopy(self.adopted_wl_mask),
                 data_mask=copy.deepcopy(self.data_mask[dm]),
@@ -1065,7 +1102,7 @@ class Stannon(object):
         labels = (labels - self.mean_labels) / self.std_labels
 
         # Construct the label vector and predict spectrum
-        label_vector = get_lvec(labels)
+        label_vector = get_lvec(labels, order=self.O,)
         spec_gen = np.matmul(self.theta, label_vector)
 
         return spec_gen
@@ -1108,18 +1145,20 @@ class Stannon(object):
             "P":self.P,
             "S":self.S,
             "n_coeff":self.N_COEFF,
+            "order":self.O,
         }
 
         if self.model_type == "label_uncertainties":
             class_dict["true_labels"] = self.true_labels
 
         # Construct filename
-        fn = "stannon_model_{}_{}{}L_{}P_{}S_{}.{}".format(
+        fn = "stannon_model_{}_{}{}L_{}P_{}S_{}O_{}.{}".format(
             self.model_type,
             "{}_".format(name) if name is not None else "",
             self.L,
             self.P,
             self.S,
+            self.O,
             "_".join(self.label_names),
             fmt)
         filename = os.path.join(path, fn)
@@ -1166,6 +1205,13 @@ def load_model(filename):
     else:
         raise Exception("Unknown file extension.")
 
+    # HACK: for old models, we didn't save the order. For these models, assume
+    # a quadratic model.
+    if "order" not in class_dict.keys():
+        order = 2
+    else:
+        order = class_dict["order"]
+
     # Remake object
     sm = Stannon(
         training_data=class_dict["training_data"],
@@ -1175,6 +1221,7 @@ def load_model(filename):
         label_names=class_dict["label_names"],
         wavelengths=class_dict["wavelengths"],
         model_type=class_dict["model_type"],
+        order=order,
         training_variances=class_dict["training_variances"],
         adopted_wl_mask=class_dict["adopted_wl_mask"],
         data_mask=class_dict["data_mask"],
@@ -1463,7 +1510,7 @@ def prepare_fluxes(spec_br, e_spec_br,):
     return training_set_flux, training_set_ivar, bad_px_mask
 
 
-def get_lvec(labels):
+def get_lvec(labels, order=2,):
     """
     Constructs a label vector for an arbitrary number of labels
     Assumes that our model is quadratic in the labels
@@ -1475,22 +1522,40 @@ def get_lvec(labels):
     ----------
     labels: numpy ndarray
         pivoted label values for one star
+
+    order: int, default: 2
+        Order of the Polynomial. Currently only orders 1 and 2 are supported.
+
     Returns
     -------
     lvec: numpy ndarray
         label vector
     """
     nlabels = len(labels)
-    # specialized to second-order model
+
     linear_terms = labels 
-    quadratic_terms = np.outer(linear_terms, 
-                            linear_terms)[np.triu_indices(nlabels)]
-    lvec = np.hstack(([1], linear_terms, quadratic_terms))
+
+    # Compute quadratic and cross terms if using order = 2
+    if order == 2:
+        quadratic_terms = np.outer(linear_terms, 
+                                linear_terms)[np.triu_indices(nlabels)]
+        lvec = np.hstack(([1], linear_terms, quadratic_terms))
+
+    # Otherwise we just keep the offset and linear terms.
+    elif order == 1:
+        lvec = np.hstack(([1], linear_terms,))
+
+    # And throw an exception for any other polynomial orders.
+    else:
+        raise ValueError("Higher polynomial orders not supported!")
+
     return lvec
 
 
-def multiply_coeff_label_vectors(coeffs, *labels):
-    """ Takes the dot product of coefficients vec & labels vector 
+def multiply_coeff_label_vectors_order_1(coeffs, *labels):
+    """ Takes the dot product of coefficients vec & labels vector for a 1st
+    order Cannon model.
+
     Modified from: 
     https://github.com/annayqho/TheCannon/blob/master/TheCannon/infer_labels.py
 
@@ -1504,7 +1569,28 @@ def multiply_coeff_label_vectors(coeffs, *labels):
     -------
     dot product of coeffs vec and labels vec
     """
-    lvec = get_lvec(list(labels))
+    lvec = get_lvec(list(labels), 1,)
+    return np.dot(coeffs, lvec)
+
+
+def multiply_coeff_label_vectors_order_2(coeffs, *labels):
+    """ Takes the dot product of coefficients vec & labels vector for a 2nd
+    order Cannon model.
+
+    Modified from: 
+    https://github.com/annayqho/TheCannon/blob/master/TheCannon/infer_labels.py
+
+    Parameters
+    ----------
+    coeffs: numpy ndarray
+        the coefficients on each element of the label vector
+    *labels: numpy ndarray
+        label vector
+    Returns
+    -------
+    dot product of coeffs vec and labels vec
+    """
+    lvec = get_lvec(list(labels), 2,)
     return np.dot(coeffs, lvec)
 
 

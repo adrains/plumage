@@ -26,7 +26,7 @@ fits_label: "cannon_mk"
 #fits_label: "KM_noflat"
 
 # Abundance labels of the Cannon model, e.g.["X_Fe",..]. Left empty otherwise.
-abundance_labels: ["Ti_Fe",]
+abundance_labels: ["Ti_Fe", "Mg_Fe", "Ca_Fe",]
  
 # Base non-abundance labels
 base_labels: ["teff", "logg", "Fe_H", ]
@@ -38,7 +38,8 @@ wl_max_model: 7000
 
 # Specifics of the given Cannon model to load
 sm_name: "M"
-L: 4
+L: 6
+O: 2
 S: 141      # MK: 199, M: 147, K: 52
 P: 5024     # 4000-7000 A
 #P: 5573    # 3500-7000 A

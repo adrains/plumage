@@ -20,7 +20,7 @@
 
 # This is our model 'label' which serves as a simple shorthand name for the
 # model in question, e.g. 'MK' for a model including both M and K dwarfs.
-model_label: "MK"
+model_label: "M"
 
 # If False, we don't make any cuts to our sample and simply adopt all 
 # benchmarks with 'is_cannon_benchmark' = True.
@@ -115,6 +115,10 @@ target_delta_lambda: 4.6875 # Å (BOSS spectra, 5000-7000 Å)
 # the runtime by a factor of N_stars. TODO: update these numbers.
 model_type: "basic"
 
+# Polynomial order of Cannon model. Currently only 1 (linear) and 2 (quadratic,
+# default) are supported.
+cannon_order: 2
+
 # For testing purposes, we can run with uniform label variances instead of the
 # literature uncertainties. To do this, we assign every label the same
 # percentage uncertainty. For instance, uniform_var_frac_error = 0.01 means
@@ -139,17 +143,17 @@ spectra_std_scale_fac: 1.0
 
 # Pointers to fits file of spectra + parameters to train the Cannon on.
 # 1) WiFeS spectra
-#fits_folder: "spectra"
-#fits_fn_base: "spectra"
-#fits_label: "cannon_mk"
+fits_folder: "spectra"
+fits_fn_base: "spectra"
+fits_label: "cannon_mk"
 
 # 2) MIKE spectra
-fits_folder: "spectra"
-fits_fn_base: "mike_spectra"
-fits_label: "KM_noflat"
+#fits_folder: "spectra"
+#fits_fn_base: "mike_spectra"
+#fits_label: "KM_noflat"
 
 # Format of data, must be ['wifes', 'mike']
-spectra_format: "mike"
+spectra_format: "wifes"
 
 # Path to save trained Cannon model to
 model_save_path: "spectra"

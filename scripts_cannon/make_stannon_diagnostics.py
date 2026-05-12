@@ -33,8 +33,14 @@ ls = su.load_yaml_settings(label_settings)
 # Parameters and Setup
 #------------------------------------------------------------------------------
 # Import model
-model_name = "stannon_model_{}_{}_{}L_{}P_{}S_{}.pkl".format(
-    cds.sm_type, cds.sm_name, cds.L, cds.P, cds.S, "_".join(cds.label_names))
+model_name = "stannon_model_{}_{}_{}L_{}P_{}S_{}O_{}.pkl".format(
+    cds.sm_type,
+    cds.sm_name,
+    cds.L,
+    cds.P,
+    cds.S,
+    cds.O,
+    "_".join(cds.label_names))
 
 cannon_model_path = os.path.join("spectra", model_name)
 
@@ -67,11 +73,12 @@ is_binary = obs_join["is_cpm"].values
 labels_pred = sm.cross_val_labels
 
 # Create name of subfolder to save everything to
-save_folder = "paper/{}_{}_{}_{}L_{}S_{}P_{}".format(
+save_folder = "paper/{}_{}_{}_{}L_{}O_{}S_{}P_{}".format(
     cds.fits_label,
     cds.sm_name,
     cds.sm_type,
     sm.L,
+    sm.O,
     sm.S,
     sm.P,
     "_".join(sm.label_names),)

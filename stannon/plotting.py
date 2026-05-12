@@ -931,7 +931,7 @@ def plot_theta_coefficients(
     # -------------------------------------------------------------------------
     plt.close("all")
     # Three axes if plotting only spectra, first order coeff, and the scatter
-    if only_plot_first_order_coeff:
+    if only_plot_first_order_coeff or sm.O == 1:
         fig, axes = plt.subplots(3, 1, sharex=True, figsize=(16, 6))
     
     # Five axes if we're plotting all theta coefficients
@@ -1053,7 +1053,7 @@ def plot_theta_coefficients(
     # -------------------------------------------------------------------------
     # [Optional] Panel 4 + 5: Quadratic + cross term coefficients
     # -------------------------------------------------------------------------
-    if not only_plot_first_order_coeff:
+    if not only_plot_first_order_coeff and sm.O > 1:
         # Plot quadratic coefficents
         for quad_coeff_i in quad_term_ii:
             axes[2].plot(
@@ -2278,7 +2278,7 @@ def plot_theta_coefficient_barcode_plot(
     x_binning=1,
     x_lims=(5000,6800),
     y_spec_lims=(0,2.5),
-    x_ticks=(200,100),
+    x_ticks=(100,25),
     figsize=(18, 6),
     fn_label="",
     fn_suffix="",
@@ -2392,7 +2392,7 @@ def plot_theta_coefficient_barcode_plot(
 
     # Grab each set of coefficients (linear, quadratic, cross-term) and format
     # as appropriate for plotting
-    vectorizer = PolynomialVectorizer(sm.label_names, 2)
+    vectorizer = PolynomialVectorizer(sm.label_names, sm.O)
     theta_lvec = vectorizer.get_human_readable_label_vector()
 
     # Format for plotting
@@ -2514,7 +2514,8 @@ def plot_theta_coefficient_barcode_plot(
     
     formatted_labels = ", ".join(base_labels + chemical_labels)
 
-    title = "{}L, {}S, {}P: {}".format(sm.L, sm.S, sm.P, formatted_labels)
+    title = "{}O, {}L, {}S, {}P: {}".format(
+        sm.O, sm.L, sm.S, sm.P, formatted_labels)
 
     axes[0].set_title(title)
 
