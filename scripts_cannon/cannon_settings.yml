@@ -26,6 +26,14 @@ model_label: "M"
 # benchmarks with 'is_cannon_benchmark' = True.
 do_use_subset_of_benchmark_sample: True
 
+# Whether we trust and want to use [Fe/H] values directly-determined from high-
+# resolution spectroscopy, or only allow these for binary systems. If True, we
+# exclude most K-dwarf [Fe/H] literature sources.
+do_exclude_high_res_Fe_H_from_single_stars: True
+
+# The high-res [Fe/H] spectroscopic studies to be considered above.
+high_res_Fe_H_studies: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20"]
+
 # Parameterising the BP-RP - M_Ks main sequence by a linear line, we use two
 # lines perpendicularto this to denote the cool K dwarf boundary, and the warm
 # M dwarf boundary when training separate models. The main sequence line is:

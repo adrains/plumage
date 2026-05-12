@@ -47,7 +47,9 @@ cannon_model_path = os.path.join("spectra", model_name)
 sm = stannon.load_model(cannon_model_path)
 
 # Import DataFrame for this particular model
-fits_ext_label = "{}_{}L_{}P_{}S".format(cds.sm_name, sm.L, sm.P, sm.S)
+fits_ext_label = "{}_{}L_{}O_{}P_{}S".format(
+    cds.sm_name, sm.L, sm.O, sm.P, sm.S)
+
 cannon_df = pu.load_fits_table(
     extension="CANNON_MODEL",
     label=cds.fits_label,

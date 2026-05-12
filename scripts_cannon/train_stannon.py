@@ -52,8 +52,9 @@ obs_join = pu.load_fits_table(
 # A Cannon model is assumed to be uniquely defined by:
 #   1) the model 'label', e.g. 'MK' for M and K dwarfs.
 #   2) Number of labels, L
-#   3) Number of pixels, P
-#   4) Number of benchmarks, S
+#   3) Polynomial order, O
+#   4) Number of pixels, P
+#   5) Number of benchmarks, S
 # And given these we save all results when using this model to a unique fits
 # HDU, which allows for the same fits file to contain the results of multiple
 # Cannon models using different sets of benchmarks, labels, or pixels.
@@ -80,6 +81,20 @@ if cs.do_use_subset_of_benchmark_sample:
     
     adopted_benchmark = np.logical_and(icb, within_bounds)
 
+    # [Optional] Make an additional cut to only use [Fe/H] directly determined
+    # from high-resolution spectroscopy for binary stars, i.e. exclude [Fe/H]
+    # for most K dwarfs studies.
+    if cs.do_exclude_high_res_Fe_H_from_single_stars:
+        has_high_res_Fe_H = np.isin(
+            element=obs_join["label_source_Fe_H"].values,
+            test_elements=cs.high_res_Fe_H_studies)
+        
+        is_acceptable_high_res_Fe_H = np.logical_or(
+            ~has_high_res_Fe_H, obs_join["is_cpm"].values)
+
+        adopted_benchmark = np.logical_and(
+            adopted_benchmark, is_acceptable_high_res_Fe_H,)
+        
 else:
     adopted_benchmark = obs_join["is_cannon_benchmark"].values
 
