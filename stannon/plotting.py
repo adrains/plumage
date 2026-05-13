@@ -14,12 +14,44 @@ from tqdm import tqdm
 from matplotlib.patches import Rectangle
 from scipy.stats import binned_statistic
 
+#------------------------------------------------------------------------------
+# Recovery plot settings when colouring with/without the reduced chi^2
+#------------------------------------------------------------------------------
+REDUCED_CHI2_CB_LABEL = {
+    "teff":r"$\chi_\nu^2$",
+    "logg":r"$\chi_\nu^2$",
+    "Fe_H":r"$\chi_\nu^2$",
+    "X_Fe":r"$\chi_\nu^2$",}
+
+REDUCED_CHI2_CMAP = {
+    "teff":"cividis",
+    "logg":"cividis",
+    "Fe_H":"cividis",
+    "X_Fe":"cividis",}
+        
+STANDARD_CB_LABEL = {
+    "teff":"[Fe/H] (Adopted)",
+    "logg":"[Fe/H] (Adopted)",
+    "Fe_H":r"$T_{\rm eff}$ (K, Adopted)",
+    "X_Fe":r"$T_{\rm eff}$ (K, Adopted)",}
+
+STANDARD_CMAP = {
+    "teff":"viridis",
+    "logg":"viridis",
+    "Fe_H":"magma",
+    "X_Fe":"magma",}
+
+#------------------------------------------------------------------------------
+# Functions
+#------------------------------------------------------------------------------
 def plot_label_recovery(
     label_values,
     e_label_values,
     label_pred,
     e_label_pred,
     label_names,
+    plot_reduced_chi2_cb=False,
+    reduced_chi2=None,
     teff_lims=(2500,5000),
     logg_lims=(4.4,5.4),
     feh_lims=(-1.1,0.65),
@@ -31,9 +63,11 @@ def plot_label_recovery(
     feh_ticks=(0.5,0.25,0.5,0.25),
     X_Fe_ticks=(0.2,0.1,0.4,0.2),
     plot_folder="plots/",):
-    """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
+    """Plot 1 x N_label grid of literature comparisons using *adopted* labels.
 
-    Saves as paper/std_comp<fn_suffix>.<pdf/png>.
+    Saves as <plot_folder>/cannon_param_recovery<fn_suffix><chi2>.<pdf/png>.
+
+    Where chi2 is either '_rchi2' or '' depending on plot_reduced_chi2_cb.
 
     Parameters
     ----------
@@ -46,7 +80,15 @@ def plot_label_recovery(
 
     label_names: str list
         List of label names of length [n_label].
-        
+    
+    plot_reduced_chi2_cb: boolean, default: False
+        Uses the reduced chi^2 to colour code the label recovery plots instead
+        of Teff or [Fe/H] as usual. For this to work, reduced_chi2 must not be
+        None.
+
+    reduced_chi2: 1D float array, default: None
+        Reduced chi^2 values from fitting the spectra, of shape [n_star].
+
     teff_lims: float array, default: (2800, 4500)
         Teff limits to use for X/Y axes and 1:1 recovery line.
     
@@ -94,6 +136,36 @@ def plot_label_recovery(
     fig, axes = plt.subplots(1, n_labels)
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
 
+    #--------------------------------------------------------------------------
+    # Colourbar Setup
+    #--------------------------------------------------------------------------
+    # [Optional] Diagnostic plot with reduced chi^2 on the colourbar instead
+    if plot_reduced_chi2_cb and reduced_chi2 is not None:
+        colours = {
+            "teff":reduced_chi2,
+            "logg":reduced_chi2,
+            "Fe_H":reduced_chi2,
+            "X_Fe":reduced_chi2,}
+
+        cb_labels = REDUCED_CHI2_CB_LABEL
+        cb_cmaps = REDUCED_CHI2_CMAP
+        chi2_suffix = "_rchi2"
+
+    # Otherwise plot with the standard set of labels on the colourbar
+    else:
+        colours = {
+            "teff":label_values[:,2],
+            "logg":label_values[:,2],
+            "Fe_H":label_values[:,0],
+            "X_Fe":label_values[:,0],}
+        
+        cb_labels = STANDARD_CB_LABEL
+        cb_cmaps = STANDARD_CMAP
+        chi2_suffix = ""
+
+    #--------------------------------------------------------------------------
+    # Plotting
+    #--------------------------------------------------------------------------
     # Temperatures
     pplt.plot_std_comp_generic(
         fig=fig,
@@ -102,13 +174,13 @@ def plot_label_recovery(
         e_lit=e_label_values[:,0],
         fit=label_pred[:,0],
         e_fit=e_label_pred[:,0],
-        colour=label_values[:,2],
+        colour=colours["teff"],
         fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
         lit_label=r"$T_{\rm eff}$ (K, Adopted)",
-        cb_label="[Fe/H] (Adopted)",
+        cb_label=cb_labels["teff"],
         x_lims=teff_lims,
         y_lims=teff_lims,
-        cmap="viridis",
+        cmap=cb_cmaps["teff"],
         show_offset=show_offset,
         ticks=teff_ticks,
         panel_label=panel_label,)
@@ -121,13 +193,13 @@ def plot_label_recovery(
         e_lit=e_label_values[:,1],
         fit=label_pred[:,1],
         e_fit=e_label_pred[:,1],
-        colour=label_values[:,2],
+        colour=colours["logg"],
         fit_label=r"$\log g$ ($\it{Cannon}$)",
         lit_label=r"$\log g$ (Adopted)",
-        cb_label="[Fe/H] (Adopted)",
+        cb_label=cb_labels["logg"],
         x_lims=logg_lims,
         y_lims=logg_lims,
-        cmap="viridis",
+        cmap=cb_cmaps["logg"],
         show_offset=show_offset,
         ticks=logg_ticks,
         panel_label=panel_label,
@@ -141,13 +213,13 @@ def plot_label_recovery(
         e_lit=e_label_values[:,2],
         fit=label_pred[:,2],
         e_fit=e_label_pred[:,2],
-        colour=label_values[:,0],
+        colour=colours["Fe_H"],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Adopted)",
-        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+        cb_label=cb_labels["Fe_H"],
         x_lims=feh_lims,
         y_lims=feh_lims,
-        cmap="magma",
+        cmap=cb_cmaps["Fe_H"],
         show_offset=show_offset,
         ticks=feh_ticks,
         panel_label=panel_label,
@@ -167,13 +239,13 @@ def plot_label_recovery(
                 e_lit=e_label_values[:,xfe_i],
                 fit=label_pred[:,xfe_i],
                 e_fit=e_label_pred[:,xfe_i],
-                colour=label_values[:,0],
+                colour=colours["X_Fe"],
                 fit_label=r"{} ($\it{{Cannon}}$)".format(xfe_lbl),
                 lit_label=r"{} (Adopted)".format(xfe_lbl),
-                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                cb_label=cb_labels["X_Fe"],
                 x_lims=X_Fe_lims,
                 y_lims=X_Fe_lims,
-                cmap="magma",
+                cmap=cb_cmaps["X_Fe"],
                 show_offset=show_offset,
                 ticks=X_Fe_ticks,
                 panel_label=panel_label,
@@ -188,7 +260,7 @@ def plot_label_recovery(
 
     plot_fn = os.path.join(
         plot_folder,
-        "cannon_param_recovery{}".format(fn_suffix))
+        "cannon_param_recovery{}{}".format(fn_suffix, chi2_suffix))
 
     plt.savefig("{}.pdf".format(plot_fn))
     plt.savefig("{}.png".format(plot_fn), dpi=300)
@@ -208,21 +280,23 @@ def plot_label_recovery_per_source(
     teff_ticks,
     feh_ticks,
     X_Fe_ticks,
+    plot_reduced_chi2_cb=False,
+    reduced_chi2=None,
     n_cols=4,
-    plot_individual_X_Fe_refs=False,
     show_offset=True,
     fn_suffix="",
     plot_folder="plots/",):
-    """Plot a grid pf Teff [Fe/H], and [X/Fe] recovery for each separate
+    """Plot a grid of Teff, [Fe/H], and [X/Fe] recovery for each separate
     literature parameter source.
 
-    Saves as paper/std_comp<fn_suffix>.<pdf/png>.
+    Saves as <plot_folder>/cannon_param_recovery_ps<fn_suffix><chi2>.<pdf/png>.
+
+    Where chi2 is either '_rchi2' or '' depending on plot_reduced_chi2_cb.
 
     Parameters
     ----------
     label_values, e_label_values: 2D float array
-        Adopted label value and uncertainty arrays with shape 
-        [n_star, n_label].
+        Adopted label value and uncertainty arrays, of shape [n_star, n_label].
         
     label_pred, e_label_pred: 2D float array
         Predicted label value and uncertainty arrays with shape 
@@ -247,10 +321,16 @@ def plot_label_recovery_per_source(
         X and Y ticks for the main and residual axes, of form 
         (ax_main_major, ax_main_minor, ax_resid_major, ax_resid_minor).
 
+    plot_reduced_chi2_cb: boolean, default: False
+        Uses the reduced chi^2 to colour code the label recovery plots instead
+        of Teff or [Fe/H] as usual. For this to work, reduced_chi2 must not be
+        None.
+
+    reduced_chi2: 1D float array, default: None
+        Reduced chi^2 values from fitting the spectra, of shape [n_star].
+
     n_cols: int, default: 4
         Number of columns for our grid.
-
-    TODO
 
     show_offset: bool, default: True
         Whether to plot the median offset as text.
@@ -261,6 +341,33 @@ def plot_label_recovery_per_source(
     plot_folder: str, default: "plots/"
         Folder to save plots to. By default just a subdirectory called plots.
     """
+    #--------------------------------------------------------------------------
+    # Colourbar Setup
+    #--------------------------------------------------------------------------
+    # [Optional] Diagnostic plot with reduced chi^2 on the colourbar instead
+    if plot_reduced_chi2_cb:
+        colours = {
+            "teff":reduced_chi2,
+            "logg":reduced_chi2,
+            "Fe_H":reduced_chi2,
+            "X_Fe":reduced_chi2,}
+
+        cb_labels = REDUCED_CHI2_CB_LABEL
+        cb_cmaps = REDUCED_CHI2_CMAP
+        chi2_suffix = "_rchi2"
+
+    # Otherwise plot with the standard set of labels on the colourbar
+    else:
+        colours = {
+            "teff":label_values[:,2],
+            "logg":label_values[:,2],
+            "Fe_H":label_values[:,0],
+            "X_Fe":label_values[:,0],}
+        
+        cb_labels = STANDARD_CB_LABEL
+        cb_cmaps = STANDARD_CMAP
+        chi2_suffix = ""
+
     plt.close("all")
     #--------------------------------------------------------------------------
     # Preparation
@@ -354,13 +461,13 @@ def plot_label_recovery_per_source(
             e_lit=e_label_values[:,0][teff_mask],
             fit=label_pred[:,0][teff_mask],
             e_fit=e_label_pred[:,0][teff_mask],
-            colour=label_values[:,2][teff_mask],
+            colour=colours["teff"][teff_mask],
             fit_label=r"$T_{\rm eff}$ (K, $\it{Cannon}$)",
             lit_label=r"$T_{{\rm eff}}$ (K, {})".format(source),
-            cb_label="[Fe/H] (Adopted)",
+            cb_label=cb_labels["teff"],
             x_lims=teff_lims,
             y_lims=teff_lims,
-            cmap="viridis",
+            cmap=cb_cmaps["teff"],
             show_offset=show_offset,
             ticks=teff_ticks,
             panel_label=panel_label,)
@@ -380,13 +487,13 @@ def plot_label_recovery_per_source(
             e_lit=e_label_values[:,2][feh_mask],
             fit=label_pred[:,2][feh_mask],
             e_fit=e_label_pred[:,2][feh_mask],
-            colour=label_values[:,0][feh_mask],
+            colour=colours["Fe_H"][feh_mask],
             fit_label=r"[Fe/H] ($\it{Cannon}$)",
             lit_label=r"[Fe/H] ({})".format(source),
-            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            cb_label=cb_labels["Fe_H"],
             x_lims=feh_lims,
             y_lims=feh_lims,
-            cmap="magma",
+            cmap=cb_cmaps["Fe_H"],
             show_offset=show_offset,
             ticks=feh_ticks,
             panel_label=panel_label,
@@ -407,13 +514,13 @@ def plot_label_recovery_per_source(
         e_lit=e_label_values[:,2][feh_mask],
         fit=label_pred[:,2][feh_mask],
         e_fit=e_label_pred[:,2][feh_mask],
-        colour=label_values[:,0][feh_mask],
+        colour=colours["Fe_H"][feh_mask],
         fit_label=r"[Fe/H] ($\it{Cannon}$)",
         lit_label=r"[Fe/H] (Binary Primary)",
-        cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+        cb_label=cb_labels["Fe_H"],
         x_lims=feh_lims,
         y_lims=feh_lims,
-        cmap="magma",
+        cmap=cb_cmaps["Fe_H"],
         show_offset=show_offset,
         ticks=feh_ticks,
         panel_label=panel_label,
@@ -433,13 +540,13 @@ def plot_label_recovery_per_source(
             e_lit=e_label_values[:,2][feh_mask],
             fit=label_pred[:,2][feh_mask],
             e_fit=e_label_pred[:,2][feh_mask],
-            colour=label_values[:,0][feh_mask],
+            colour=colours["Fe_H"][feh_mask],
             fit_label=r"[Fe/H] ($\it{Cannon}$)",
             lit_label=r"[Fe/H] (Mid-K Literature)",
-            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            cb_label=cb_labels["Fe_H"],
             x_lims=feh_lims,
             y_lims=feh_lims,
-            cmap="magma",
+            cmap=cb_cmaps["Fe_H"],
             show_offset=show_offset,
             ticks=feh_ticks,
             panel_label=panel_label,
@@ -474,13 +581,13 @@ def plot_label_recovery_per_source(
                 e_lit=e_label_values[:,label_i][X_Fe_direct],
                 fit=label_pred[:,label_i][X_Fe_direct],
                 e_fit=e_label_pred[:,label_i][X_Fe_direct],
-                colour=label_values[:,0][X_Fe_direct],
+                colour=colours["X_Fe"][X_Fe_direct],
                 fit_label=r"[{}] ($\it{{Cannon}}$)".format(label_txt),
                 lit_label=r"[{}] (Literature)".format(label_txt),
-                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                cb_label=cb_labels["X_Fe"],
                 x_lims=X_Fe_lims,
                 y_lims=X_Fe_lims,
-                cmap="magma",
+                cmap=cb_cmaps["X_Fe"],
                 show_offset=show_offset,
                 ticks=X_Fe_ticks,
                 panel_label=panel_label,
@@ -498,13 +605,13 @@ def plot_label_recovery_per_source(
                 e_lit=e_label_values[:,label_i][is_cpm],
                 fit=label_pred[:,label_i][is_cpm],
                 e_fit=e_label_pred[:,label_i][is_cpm],
-                colour=label_values[:,0][is_cpm],
+                colour=colours["X_Fe"][is_cpm],
                 fit_label=r"[{}] ($\it{{Cannon}}$)".format(label_txt),
                 lit_label=r"[{}] (Binary Primary)".format(label_txt),
-                cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+                cb_label=cb_labels["X_Fe"],
                 x_lims=X_Fe_lims,
                 y_lims=X_Fe_lims,
-                cmap="magma",
+                cmap=cb_cmaps["X_Fe"],
                 show_offset=show_offset,
                 ticks=X_Fe_ticks,
                 panel_label=panel_label,
@@ -525,13 +632,13 @@ def plot_label_recovery_per_source(
             e_lit=e_X_Fe_CD[X_Fe_mask],
             fit=label_pred[:,label_i][X_Fe_mask],
             e_fit=e_label_pred[:,label_i][X_Fe_mask],
-            colour=label_values[:,0][X_Fe_mask],
+            colour=colours["X_Fe"][X_Fe_mask],
             fit_label=r"[{}] ($\it{{Cannon}}$)".format(label_txt),
             lit_label=r"[{}] (Chemodynamic)".format(label_txt),
-            cb_label=r"$T_{\rm eff}$ (K, Adopted)",
+            cb_label=cb_labels["X_Fe"],
             x_lims=X_Fe_lims,
             y_lims=X_Fe_lims,
-            cmap="magma",
+            cmap=cb_cmaps["X_Fe"],
             show_offset=show_offset,
             ticks=X_Fe_ticks,
             panel_label=panel_label,
@@ -579,7 +686,7 @@ def plot_label_recovery_per_source(
 
     plot_fn = os.path.join(
         plot_folder,
-        "cannon_param_recovery_ps{}".format(fn_suffix))
+        "cannon_param_recovery_ps{}{}".format(fn_suffix, chi2_suffix))
 
     plt.savefig("{}.pdf".format(plot_fn))
     plt.savefig("{}.png".format(plot_fn), dpi=300)
@@ -592,38 +699,79 @@ def plot_label_recovery_abundances(
     e_label_pred,
     obs_join,
     abundance_labels,
-    feh_lims=(-1.0,0.75),
+    plot_reduced_chi2_cb=False,
+    reduced_chi2=None,
+    X_Fe_lims=(-1.0,0.75),
     show_offset=True,
     fn_suffix="",
-    feh_ticks=(0.5,0.25,0.5,0.25),
+    X_Fe_ticks=(0.5,0.25,0.5,0.25),
     plot_folder="plots/",):
-    """Plot 1x3 grid of Teff, logg, and [Fe/H] literature comparisons.
+    """Plot label recovery for all [X/Fe].
 
-    Saves as paper/std_comp<fn_suffix>.<pdf/png>.
+    Saves as <plot_folder>/
+        cannon_param_recovery_abundance<fn_suffix><chi2>.<pdf/png>.
+
+    Where chi2 is either '_rchi2' or '' depending on plot_reduced_chi2_cb.
 
     Parameters
     ----------
-    label_values: 2D numpy array
-            Label array with columns [teff, logg, feh]
+    label_values, e_label_values: 2D float array
+        Adopted label value and uncertainty arrays, of shape [n_star, n_label].
         
-    label_pred: 2D numpy array
-        Predicted label array with columns [teff, logg, feh]
+    label_pred, e_label_pred: 2D numpy array
+        Predicted label values and uncertainty arrays of shape 
+        [n_star, n_label].
+    
+    obs_join: pandas DataFrame
+        Dataframe of stellar properties.
 
-    teff_lims, feh_lims: float array, default:[3000,4600],[-1.4,0.75]
-        Axis limits for Teff and [Fe/H] respectively.
+    abundance_labels: 1D str array
+        List of abundance labels, e.g. ['Ti_Fe', 'Mg_Fe', 'Ca_Fe'].
+
+    plot_reduced_chi2_cb: boolean, default: False
+        Uses the reduced chi^2 to colour code the label recovery plots instead
+        of Teff or [Fe/H] as usual. For this to work, reduced_chi2 must not be
+        None.
+
+    reduced_chi2: 1D float array, default: None
+        Reduced chi^2 values from fitting the spectra, of shape [n_star].
+
+    X_Fe_lims: float array, default:(-1.0,0.75)
+        Axis limits for [X/Fe] respectively.
 
     show_offset: bool, default: False
         Whether to plot the median offset as text.
 
     fn_suffix: string, default: ''
-        Suffix to append to saved figures
-        
-    title_text: string, default: ''
-        Text for fig.suptitle.
+        Suffix to append to saved figures.
+
+    X_Fe_ticks: float array, default: (0.2,0.1,0.4,0.2)
+        Ticks for [X/Fe] subplot of form 
+        (xy_major, xy_minor, resid_major, resid_minor).
 
     plot_folder: str, default: "plots/"
         Folder to save plots to. By default just a subdirectory called plots.
     """
+    #--------------------------------------------------------------------------
+    # Colourbar Setup
+    #--------------------------------------------------------------------------
+    # [Optional] Diagnostic plot with reduced chi^2 on the colourbar instead
+    if plot_reduced_chi2_cb:
+        colours = reduced_chi2
+        cb_label = REDUCED_CHI2_CB_LABEL["X_Fe"]
+        cb_cmap = REDUCED_CHI2_CMAP["X_Fe"]
+        chi2_suffix = "_rchi2"
+
+    # Otherwise plot with the standard set of labels on the colourbar
+    else:
+        colours = label_values[:,0]
+        cb_label = STANDARD_CB_LABEL["X_Fe"]
+        cb_cmap = STANDARD_CMAP["X_Fe"]
+        chi2_suffix = ""
+
+    #--------------------------------------------------------------------------
+    # Plotting
+    #--------------------------------------------------------------------------
     plt.close("all")
 
     # Panel label with n_labels
@@ -664,15 +812,15 @@ def plot_label_recovery_abundances(
             e_lit=e_label_values[:,label_i][abundance_mask],
             fit=label_pred[:,label_i][abundance_mask],
             e_fit=e_label_pred[:,label_i][abundance_mask],
-            colour=label_values[:,0][abundance_mask],
+            colour=colours[abundance_mask],
             fit_label=r"{} ($\it{{Cannon}}$)".format(abundance_label),
             lit_label=r"{} (Adopted)".format(abundance_label),
-            cb_label=r"$T_{\rm eff}\,$K (Adopted)",
-            x_lims=feh_lims,
-            y_lims=feh_lims,
-            cmap="magma",
+            cb_label=cb_label,
+            x_lims=X_Fe_lims,
+            y_lims=X_Fe_lims,
+            cmap=cb_cmap,
             show_offset=show_offset,
-            ticks=feh_ticks,
+            ticks=X_Fe_ticks,
             panel_label=panel_label,)
     
     fig.set_size_inches(4*n_abundances, 3)
@@ -684,7 +832,7 @@ def plot_label_recovery_abundances(
 
     plot_fn = os.path.join(
         plot_folder,
-        "cannon_param_recovery_abundance{}.pdf".format(fn_suffix))
+        "cannon_param_recovery_abundance{}{}".format(fn_suffix, chi2_suffix))
 
     plt.savefig("{}.pdf".format(plot_fn))
     plt.savefig("{}.png".format(plot_fn), dpi=300)
@@ -781,8 +929,9 @@ def plot_cannon_cmd(
             zorder=1,
             label=label,)
         
-    # If we've been given a *second* highlight mask, also plot
-    if highlight_mask_2 is not None:
+    # If we've been given a *second* highlight mask, also plot (but only if it
+    # isn't empty).
+    if highlight_mask_2 is not None and np.sum(highlight_mask_2) != 0:
         label = "{} ({})".format(
             highlight_mask_label_2, int(np.sum(highlight_mask_2)))
         scatter = axis.scatter(

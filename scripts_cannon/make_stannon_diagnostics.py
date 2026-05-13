@@ -125,56 +125,68 @@ print(std_text.format(*adopted_label_uncertainties))
 fn_label = "_{}_{}_label_{}".format(
     cds.sm_type, len(cds.label_names), "_".join(cds.label_names))
 
-# Label recovery for Teff, logg, and [Fe/H]
-splt.plot_label_recovery(
-    label_values=sm.training_labels,
-    e_label_values=sm.training_variances**0.5,
-    label_pred=labels_pred,
-    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-    #chi2=sm.cross_val_chi2,
-    label_names=sm.label_names,
-    fn_suffix=fn_label,
-    teff_lims=(2500,4250),
-    teff_ticks=(500,250,200,100),
-    logg_ticks=(0.25,0.125,0.1,0.05),
-    feh_lims=(-1.1,0.65),
-    feh_ticks=(0.5,0.25,0.4,0.2),
-    X_Fe_lims=(-0.4,0.4),
-    X_Fe_ticks=(0.2,0.1,0.2,0.1),
-    plot_folder=save_folder,)
+# Plot two sets of label recovery plots, one where we colour the scatter points
+# by Teff or [Fe/H], and another by reduced chi^2 for diagnostic purposes.
+deg_freedom = sm.P * sm.S - sm.N_COEFF * sm.P
+reduced_chi2 = sm.cross_val_chi2 / deg_freedom
 
-# Plot recovery for interferometric Teff, M+15 [Fe/H], RA+12 [Fe/H], CPM [Fe/H]
-splt.plot_label_recovery_per_source( 
-    label_values=sm.training_labels, 
-    e_label_values=sm.training_variances**0.5, 
-    label_pred=labels_pred, 
-    e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
-    label_names=sm.label_names,
-    obs_join=obs_join,
-    teff_sources=["int", "M15_BP_RP_feh", "C21_BP_RP_logg_feh"],
-    fn_suffix=fn_label,
-    teff_lims=(2800,5000),
-    feh_lims=(-1.1,0.65),
-    X_Fe_lims=(-0.3,0.4),
-    teff_ticks=(500,250,200,100),
-    feh_ticks=(0.5,0.25,0.25,0.125),
-    X_Fe_ticks=(0.2,0.1,0.2,0.1),
-    plot_folder=save_folder,)
-
-# And finally plot the label recovery for any abundances we might be using
-if len(cds.abundance_labels) >= 1:
-    n_binary = np.sum(is_binary)
-    splt.plot_label_recovery_abundances(
-        label_values=sm.training_labels[is_binary],
-        e_label_values=sm.training_variances[is_binary]**0.5,
-        label_pred=labels_pred[is_binary],
-        e_label_pred=np.tile(label_pred_std, n_binary).reshape(n_binary, sm.L),
-        obs_join=obs_join[is_binary],
+for plot_reduced_chi2_cb in [False, True]:
+    # Label recovery for *adopted* Teff, logg, [Fe/H], [X/Fe].
+    splt.plot_label_recovery(
+        label_values=sm.training_labels,
+        e_label_values=sm.training_variances**0.5,
+        label_pred=labels_pred,
+        e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
+        plot_reduced_chi2_cb=plot_reduced_chi2_cb,
+        reduced_chi2=reduced_chi2,
+        label_names=sm.label_names,
         fn_suffix=fn_label,
-        abundance_labels=cds.abundance_labels,
-        feh_lims=(-0.4,0.4),
-        feh_ticks=(0.2,0.1,0.2,0.1),
+        teff_lims=(2500,4250),
+        teff_ticks=(500,250,200,100),
+        logg_ticks=(0.25,0.125,0.1,0.05),
+        feh_lims=(-1.1,0.65),
+        feh_ticks=(0.5,0.25,0.4,0.2),
+        X_Fe_lims=(-0.3,0.4),
+        X_Fe_ticks=(0.2,0.1,0.2,0.1),
         plot_folder=save_folder,)
+
+    # Plot label recovery per literature source, not just for adopted values.
+    splt.plot_label_recovery_per_source( 
+        label_values=sm.training_labels, 
+        e_label_values=sm.training_variances**0.5, 
+        label_pred=labels_pred, 
+        e_label_pred=np.tile(label_pred_std, sm.S).reshape(sm.S, sm.L),
+        label_names=sm.label_names,
+        obs_join=obs_join,
+        teff_sources=["int", "M15_BP_RP_feh", "C21_BP_RP_logg_feh"],
+        fn_suffix=fn_label,
+        plot_reduced_chi2_cb=plot_reduced_chi2_cb,
+        reduced_chi2=reduced_chi2,
+        teff_lims=(2800,5000),
+        feh_lims=(-1.1,0.65),
+        X_Fe_lims=(-0.3,0.4),
+        teff_ticks=(500,250,200,100),
+        feh_ticks=(0.5,0.25,0.25,0.125),
+        X_Fe_ticks=(0.2,0.1,0.2,0.1),
+        plot_folder=save_folder,)
+
+    # Plot [X/Fe] label recovery for binary sources
+    if len(cds.abundance_labels) >= 1:
+        n_binary = np.sum(is_binary)
+        splt.plot_label_recovery_abundances(
+            label_values=sm.training_labels[is_binary],
+            e_label_values=sm.training_variances[is_binary]**0.5,
+            label_pred=labels_pred[is_binary],
+            e_label_pred=\
+                np.tile(label_pred_std, n_binary).reshape(n_binary, sm.L),
+            obs_join=obs_join[is_binary],
+            fn_suffix=fn_label,
+            abundance_labels=cds.abundance_labels,
+            plot_reduced_chi2_cb=plot_reduced_chi2_cb,
+            reduced_chi2=reduced_chi2[is_binary],
+            X_Fe_lims=(-0.3,0.4),
+            X_Fe_ticks=(0.2,0.1,0.2,0.1),
+            plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
 # Theta Coefficients
