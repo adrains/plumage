@@ -148,82 +148,26 @@ if cs.use_label_uniform_variances:
 #------------------------------------------------------------------------------
 # Flux preparation
 #------------------------------------------------------------------------------
-# WiFeS spectra (spectra are not yet pseudocontinuum normalised)
+# WiFeS spectra (low res. masking of telluric bands only).
 if cs.spectra_format == "wifes":
-    # Load in RV corrected standard spectra
-    wls = pu.load_fits_image_hdu("rest_frame_wave", cs.fits_label, arm="br")
-    spec_std_br = pu.load_fits_image_hdu("rest_frame_spec", cs.fits_label, arm="br")
-    e_spec_std_br = pu.load_fits_image_hdu(
-        "rest_frame_sigma", cs.fits_label, arm="br")
-
-    # [Optional] Broaden fluxes to a lower resolution
-    if cs.do_constant_in_wl_spectral_broadening:
-        wls_new, spec_std_br_broad, e_spec_std_br_broad = su.broaden_cannon_fluxes(
-            wls=wls,
-            spec_std_br=spec_std_br,
-            e_spec_std_br=e_spec_std_br,
-            target_delta_lambda=cs.target_delta_lambda,)
-            
-        # Swap references
-        wls_unbroadened = wls
-        spec_std_br_unbroadened = spec_std_br
-        e_spec_std_br_unbroadened = e_spec_std_br
-
-        wls = wls_new
-        spec_std_br = spec_std_br_broad
-        e_spec_std_br = e_spec_std_br_broad
-
-    # Normalise fluxes, TODO: do this in advance
-    fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
-        stannon.prepare_cannon_spectra_normalisation(
-            wls=wls,
-            spectra=spec_std_br,
-            e_spectra=e_spec_std_br,
+    # Load in rest-frame pseudocontinuum normalised spectra
+    wls, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask = \
+        stannon.prepare_cannon_spectra_wifes(
+            fits_folder=cs.fits_folder,
+            fits_fn_base=cs.fits_fn_base,
+            fits_label=cs.fits_label,
             wl_min_model=cs.wl_min_model,
-            wl_max_model=cs.wl_max_model,
-            wl_min_normalisation=cs.wl_min_normalisation,
-            wl_broadening=cs.wl_broadening,
-            do_gaussian_spectra_normalisation=cs.do_gaussian_spectra_normalisation,
-            poly_order=cs.poly_order)
+            wl_max_model=cs.wl_max_model,)
 
-# MIKE spectra (spectra are pre-pseudocontinuum normalised)
+# MIKE spectra (fine masking of tellurics done at high-res).
 elif cs.spectra_format == "mike":
-    wls = pu.load_fits_image_hdu(
-        extension="rest_frame_wave",
-        label=cs.fits_label,
-        fn_base=cs.fits_fn_base,
-        path=cs.fits_folder,
-        arm="r",)
-    
-    spec_std_br = pu.load_fits_image_hdu(
-        extension="rest_frame_spec_norm",
-        label=cs.fits_label,
-        fn_base=cs.fits_fn_base,
-        path=cs.fits_folder,
-        arm="r",)
-    
-    e_spec_std_br = pu.load_fits_image_hdu(
-        extension="rest_frame_sigma_norm",
-        label=cs.fits_label,
-        fn_base=cs.fits_fn_base,
-        path=cs.fits_folder,
-        arm="r",)
-    
-    telluric_trans_2D = pu.load_fits_image_hdu(
-        extension="stellar_frame_telluric_trans",
-        label=cs.fits_label,
-        fn_base=cs.fits_fn_base,
-        path=cs.fits_folder,
-        arm="r",)
-
     wls, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask = \
         stannon.prepare_cannon_spectra_mike(
-            wave=wls,
-            spectra_2D=spec_std_br,
-            sigmas_2D=e_spec_std_br,
+            fits_folder=cs.fits_folder,
+            fits_fn_base=cs.fits_fn_base,
+            fits_label=cs.fits_label,
             wl_min_model=cs.wl_min_model,
             wl_max_model=cs.wl_max_model,
-            telluric_trans_2D=telluric_trans_2D,
             telluric_absorption_threshold=0.95,
             allowable_NaN_telluric_px=5,)
 
@@ -245,13 +189,6 @@ print("\tn px: \t\t\t = {:0.0f}".format(np.sum(adopted_wl_mask)))
 print("\tn labels: \t\t = {:0.0f}".format(len(cs.label_names)))
 print("\tlabels: \t\t = {}".format(cs.label_names))
 print("\tn benchmarks: \t\t = {:0.0f}".format(np.sum(adopted_benchmark)))
-print("\tGaussian Normalisation:\t = {}".format(
-    cs.do_gaussian_spectra_normalisation))
-if cs.do_gaussian_spectra_normalisation:
-    print("\twl broadening: \t\t = {:0.0f} Å".format(cs.wl_broadening))
-else:
-    print("\tpoly order: \t\t = {:0.0f}".format(cs.poly_order))
-
 print("\n\tTraining Params:\n\t", "-"*21, sep="")
 print("\tcross validation: \t = {}".format(cs.do_cross_validation))
 print("\titerative masking: \t = {}".format(cs.do_iterative_bad_px_masking))

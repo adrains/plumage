@@ -28,8 +28,7 @@ std_info_fn: "data/std_info.tsv"
 #std_info_fn: "data/mike_info.tsv"
 
 # If true, we allow our initial crossmatch to be done on Gaia DR2 IDs
-# NOTE! Currently this is required for the use of WiFeS spectra
-do_support_legacy_DR2_source_IDs: True
+do_support_legacy_DR2_source_IDs: False
 
 # TSV of uniform literature chemistry corrected for systematics
 lit_chem: "data/lit_chemistry_corrected_Fe_Ti_Mg_Ca_Na_Al.tsv"
@@ -50,6 +49,9 @@ use_mann_code_for_masses: False
 only_import_in_paper: False #True
 only_import_observed: True #False
 gdr: "dr3"
+
+# Set to true if we're using 'source_id_dr3' as the ID column
+do_use_dr3_id_on_import: True
 
 #------------------------------------------------------------------------------
 # Abundance Priorities + abundances to determine labels for

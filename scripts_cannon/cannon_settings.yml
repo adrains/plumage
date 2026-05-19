@@ -95,15 +95,6 @@ n_cross_val_samples: 100
 do_iterative_bad_px_masking: True
 flux_sigma_to_clip: 6.5
 
-# Normalisation - using using a Gaussian smoothed version of the spectrum, or 
-# a much simpler polynomial fit. Only wavelengths > than wl_min_normalisation
-# will be considered during either approach to avoid low-SNR blue pixels for
-# the coolest stars. TODO: save these parameters in the Cannon model.
-do_gaussian_spectra_normalisation: True
-wl_min_normalisation: 4000
-wl_broadening: 50
-poly_order: 4
-
 # Minimum and maximum wavelengths for Cannon model
 wl_min_model: 4000
 wl_max_model: 7000
@@ -142,7 +133,7 @@ uniform_var_frac_error: 0.01
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
 # an array of ones if we don't want to scale the uncertainties.
-lit_std_scale_fac: [1.0, 1.0, 1.0,]
+lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
 # Also for testing and as a complement to the previous setting we can scale the
 # uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
@@ -171,6 +162,6 @@ model_save_path: "spectra"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: []
+abundance_labels: ["Ti_Fe", "Mg_Fe", "Ca_Fe",]
 
 base_labels: ["teff", "logg", "Fe_H",]

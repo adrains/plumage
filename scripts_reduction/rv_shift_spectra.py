@@ -3,16 +3,29 @@ spectra with the Cannon.
 """
 import plumage.utils as pu
 import plumage.spectra as ps
+import stannon.stannon as stannon
 
 #------------------------------------------------------------------------------
 # Settings
 #------------------------------------------------------------------------------
 spec_path = "spectra"
-label = "planet_mk"
+label = "cannon_mk"
 
 # Set to True if we've previously used the 'modern' ID crossmatch in
 # scripts_reduction/import_spectra.py and our index column is 'source_id_dr3'
 do_use_dr3_id = True
+
+# Minimumum and maximum wavelengths to be used when normalising (applicable
+# later when running the Cannon, mostly because the coolest stars don't have
+# good SNR < 400 nm.
+wl_min = 4000
+wl_max = 7000
+
+# Normalisation - using using a Gaussian smoothed version of the spectrum. Only
+# wavelengths > than wl_min_normalisation will be considered during either 
+# approach to avoid low-SNR blue pixels for the coolest stars.
+wl_min_normalisation = 4000
+wl_broadening = 50
 
 #------------------------------------------------------------------------------
 # Imports
@@ -62,26 +75,19 @@ pu.save_fits_image_hdu(spec_br, "rest_frame_spec", label, arm="br")
 pu.save_fits_image_hdu(e_spec_br, "rest_frame_sigma", label, arm="br")
 
 #------------------------------------------------------------------------------
-# Polynomial normalisation + saving each arm
+# Gaussian normalisation
 #------------------------------------------------------------------------------
-# Polynomial normalisation
-spec_rf_norm_b, e_spec_rf_norm_b = ps.normalise_spectra(
-    wave_rf_b, spec_rf_b, e_spec_rf_b)
-
-spec_rf_norm_r, e_spec_rf_norm_r = ps.normalise_spectra(
-    wave_rf_r, spec_rf_r, e_spec_rf_r)
+fluxes_norm, ivars_norm, bad_px_mask, continua, adopted_wl_mask = \
+    stannon.prepare_cannon_spectra_normalisation(
+        wls=wl_br,
+        spectra=spec_br,
+        e_spectra=e_spec_br,
+        wl_min_model=wl_min,
+        wl_max_model=wl_max,
+        wl_min_normalisation=wl_min_normalisation,
+        wl_broadening=wl_broadening,
+        do_gaussian_spectra_normalisation=True,)
 
 # Save both sets as extra fits HDUs
-pu.save_fits_image_hdu(wave_rf_b, "rest_frame_wave", label, arm="b")
-pu.save_fits_image_hdu(spec_rf_b, "rest_frame_spec", label, arm="b")
-pu.save_fits_image_hdu(e_spec_rf_b, "rest_frame_sigma", label, arm="b")
-pu.save_fits_image_hdu(spec_rf_norm_b, "rest_frame_spec_norm", label, arm="b")
-pu.save_fits_image_hdu(
-    e_spec_rf_norm_b, "rest_frame_sigma_norm", label, arm="b")
-
-pu.save_fits_image_hdu(wave_rf_r, "rest_frame_wave", label, arm="r")
-pu.save_fits_image_hdu(spec_rf_r, "rest_frame_spec", label, arm="r")
-pu.save_fits_image_hdu(e_spec_rf_r, "rest_frame_sigma", label, arm="r")
-pu.save_fits_image_hdu(spec_rf_norm_r, "rest_frame_spec_norm", label, arm="r")
-pu.save_fits_image_hdu(
-    e_spec_rf_norm_r, "rest_frame_sigma_norm", label, arm="r")
+pu.save_fits_image_hdu(fluxes_norm, "rest_frame_spec_norm", label, arm="br")
+pu.save_fits_image_hdu(ivars_norm, "rest_frame_ivars_norm", label, arm="br")

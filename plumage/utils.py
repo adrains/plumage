@@ -113,7 +113,10 @@ def do_id_crossmatch_modern(observations, star_info_fn,):
     star_info["has_observation"] = False
 
     # Potential IDs that the target could have been observed under
-    id_cols = ["source_id_dr2", "source_id_dr3", "TOI",]
+    if "TOI" in star_info.columns.values:
+        id_cols = ["source_id_dr2", "source_id_dr3", "TOI",]
+    else:
+        id_cols = ["source_id_dr2", "source_id_dr3",]
 
     for ob_id_i, ob_id in enumerate(ob_ids):
         id_found = False
@@ -649,6 +652,7 @@ def load_fits_image_hdu(
         "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
         "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
         "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
+        "rest_frame_ivars_norm":("REST_FRAME_IVARS_NORM_", float),
         "stellar_frame_telluric_trans":("STELLAR_FRAME_T_TRANS_", float),
     }
 
@@ -732,6 +736,7 @@ def save_fits_image_hdu(
         "rest_frame_sigma":("REST_FRAME_SIGMA_", float),
         "rest_frame_spec_norm":("REST_FRAME_SPEC_NORM_", float),
         "rest_frame_sigma_norm":("REST_FRAME_SIGMA_NORM_", float),
+        "rest_frame_ivars_norm":("REST_FRAME_IVARS_NORM_", float),
         "stellar_frame_telluric_trans":("STELLAR_FRAME_T_TRANS_", float),
         "wave_3D":("WAVE_3D_", float),      # MIKE
         "spec_3D":("SPEC_3D_", float),      # MIKE

@@ -61,12 +61,13 @@ std_info = pu.load_info_cat(
 
 std_info.reset_index(inplace=True)
 
-# Load results table, update index name to DR2
+# Load results table, [Optionally] update index name to DR2
 obs_std = pu.load_fits_table(
     extension="OBS_TAB",
     label=ls.fits_label,
     path=ls.fits_folder,
-    fn_base=ls.fits_fn_base,)
+    fn_base=ls.fits_fn_base,
+    do_use_dr3_id=ls.do_use_dr3_id_on_import,)
 
 # To crossmatch with our fitted parameters from Rains+21 we need to do a
 # crossmatch on DR2 coordinates instead for legacy reasons (as these were the

@@ -29,6 +29,7 @@ Finally, stars will be crossmatched to their science program and a unique ID
 2MASS for young stars, and TOI for TESS targets). This catalogue is specified
 through 'cat_file'
 """
+import numpy as np
 import plumage.spectra as ps
 import plumage.utils as pu
 
@@ -36,7 +37,7 @@ import plumage.utils as pu
 # Setup
 # -----------------------------------------------------------------------------
 # Unique label of fits file of all spec
-label =  "planet_mk"
+label =  "cannon_mk"
 
 # Base folder of 1D fits spectra--each folder is globbed separately.
 spectra_folder = ["spectra/standard", "spectra/tess", "spectra/standard_other"]
@@ -53,8 +54,11 @@ cat_file = "data/all_2m3_star_ids.csv"
 do_crossmatch_old = False
 
 # Crossmatch method #2: new format where we use our TSV of stellar Gaia + 
-# 2MASS info for the crossmatch, enabling us to remove stars we won't use.
-star_info_fn = "data/all_known_and_candidate_hosts.tsv"
+# 2MASS info for the crossmatch, enabling us to remove stars we won't use. We
+# crossmatch all stars across whatever catalogues are contained in these lists.
+star_info_fn = [
+    "data/all_known_and_candidate_hosts.tsv",
+    "data/std_info.tsv",]
 do_crossmatch_modern = True
 
 # Whether to import the spectra in units of counts, and then flux ourselves
@@ -100,13 +104,35 @@ if do_crossmatch_old:
 # Option #2: modern crossmatch that drops irrelevant stars, no science programs
 elif do_crossmatch_modern:
     # Import the dataframe
-    successful_crossmatch, star_info = pu.do_id_crossmatch_modern(
-        observations, star_info_fn,)
+    successful_crossmatch = np.full(len(observations), False)
+    source_ids = np.full(len(observations), "").astype(object)
+
+    # Check all crossmatch catalogues. TODO: make more elegant, as the function
+    # pu.do_id_crossmatch_modern() already updates the index column and we're
+    # having to overwrite it here.
+    for fn in star_info_fn:
+        successful_crossmatch_ith, star_info = pu.do_id_crossmatch_modern(
+            observations, fn,)
+        source_ids[successful_crossmatch_ith] = \
+            observations.index.values[successful_crossmatch_ith]
+        successful_crossmatch = np.logical_or(
+            successful_crossmatch, successful_crossmatch_ith)
+    
+    observations["source_id_dr3"] = source_ids
+    observations.set_index("source_id_dr3", inplace=True)
+
+    print("Total crossmatches: {}/{}".format(
+        np.sum(successful_crossmatch), len(successful_crossmatch)))
+
+    # Archive
+    spectra_b_full = spectra_b.copy()
+    spectra_r_full = spectra_r.copy()
+    observations_full = observations.copy()
 
     # Apply mask so that we only carry forward those stars we're interested in.
     spectra_b = spectra_b[successful_crossmatch]
     spectra_r = spectra_r[successful_crossmatch]
-    observations = observations[successful_crossmatch]
+    observations = observations[successful_crossmatch].copy()
 
 # Option #3: basic, assumes that ID is already equal to the source_id
 else:

@@ -9,6 +9,7 @@ import pandas as pd
 import stannon.utils as su
 from datetime import datetime
 import plumage.spectra as spec
+import plumage.utils as pu
 from scipy.optimize import curve_fit
 from astropy.io import fits
 from astropy.table import Table
@@ -1595,33 +1596,30 @@ def multiply_coeff_label_vectors_order_2(coeffs, *labels):
 
 
 def prepare_cannon_spectra_mike(
-    wave,
-    spectra_2D,
-    sigmas_2D,
+    fits_folder,
+    fits_fn_base,
+    fits_label,
     wl_min_model,
     wl_max_model,
-    telluric_trans_2D,
     telluric_absorption_threshold,
     allowable_NaN_telluric_px,):
     """Prepares MIKE format spectra for use with the Cannon. The key difference
-    here to how we handle WiFeS spectra is that we have already pseudocontinuum
-    normalised our MIKE spectra. It remains a TODO task to do this also for
-    WiFeS.
+    here to how we handle WiFeS spectra is that here we perform finer masking
+    using the VIPER telluric templates, not just masking out entire bands.
 
     Parameters
     ----------
-    wave: 1D float array
-        Wavelength scale of shape [N_px].
+    fits_folder: string
+        Path to save the fits file to.
 
-    spectra_2D, sigmas_2D: 2D float array
-        Spectra and uncertainty arrays of shape [N_obs, N_px].
+    fits_fn_base: string, default: "spectra"
+        Base string of filename.
+    
+    fits_label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
 
     wl_min_model, wl_max_model: float
         Minumum and maximum wavelengths to train the Cannon on.
-
-    telluric_trans_2D: 2D float array
-        Model telluric transmission in the stellar rest frame for *each* star.
-        We use this to compute our per-star bad px mask.Of shape [N_obs, N_px].
     
     telluric_absorption_threshold: float
         Transmission threshold below which we consider the wavelength too
@@ -1652,6 +1650,35 @@ def prepare_cannon_spectra_mike(
         an emission region or is (collectively, across all stars) considered
         too telluric contaminated to use.
     """
+    # Import from fits
+    wave = pu.load_fits_image_hdu(
+        extension="rest_frame_wave",
+        label=fits_label,
+        fn_base=fits_fn_base,
+        path=fits_folder,
+        arm="r",)
+    
+    spectra_2D = pu.load_fits_image_hdu(
+        extension="rest_frame_spec_norm",
+        label=fits_label,
+        fn_base=fits_fn_base,
+        path=fits_folder,
+        arm="r",)
+    
+    sigmas_2D = pu.load_fits_image_hdu(
+        extension="rest_frame_sigma_norm",
+        label=fits_label,
+        fn_base=fits_fn_base,
+        path=fits_folder,
+        arm="r",)
+    
+    telluric_trans_2D = pu.load_fits_image_hdu(
+        extension="stellar_frame_telluric_trans",
+        label=fits_label,
+        fn_base=fits_fn_base,
+        path=fits_folder,
+        arm="r",)
+
     # Adopted wavelength mask for Cannon, useful regions are *TRUE*
     adopted_wl_mask = np.full(wave.shape, True)
 
@@ -1704,6 +1731,88 @@ def prepare_cannon_spectra_mike(
     adopted_wl_mask = adopted_wl_mask[wb]
 
     return wave, fluxes, flux_ivars, bad_px_mask_2D, adopted_wl_mask
+
+
+def prepare_cannon_spectra_wifes(
+    fits_folder,
+    fits_fn_base,
+    fits_label,
+    wl_min_model,
+    wl_max_model,):
+    """Importts WiFeS format spectra and associated masks for use with the 
+    Cannon.
+
+    Parameters
+    ----------
+    fits_folder: string
+        Path to save the fits file to.
+
+    fits_fn_base: string, default: "spectra"
+        Base string of filename.
+    
+    fits_label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+
+    wl_min_model, wl_max_model: float
+        Minumum and maximum wavelengths to train the Cannon on.
+
+    Returns
+    -------
+    wave: 1D float array
+        Adopted wavelength scale for Cannon model considering wavelength
+        limits, of shape [N_px_new].
+    
+    fluxes, flux_ivars: 2D float array
+        Adopted fluxes and inverse variances, of shape [N_obs, N_px_new].
+    
+    bad_px_mask_2D: 2D boolean array
+        Bad pixel mask, True where pixels are telluric contaminated or NaN
+        values, False if they're good. Of shape [N_obs, N_px_new].
+    
+    adopted_wl_mask: boolean array
+        Global adopted wavelength values mask, True where the pixel/wavelength
+        is to be included in the Cannon model, and False where it belongs to
+        an emission region or is (collectively, across all stars) considered
+        too telluric contaminated to use.
+    """
+    # Load in rest-frame pseudocontinuum normalised spectra
+    wls = pu.load_fits_image_hdu(
+        extension="rest_frame_wave",
+        path=fits_folder,
+        fn_base=fits_fn_base,
+        label=fits_label,
+        arm="br")
+    
+    fluxes_norm = pu.load_fits_image_hdu(
+        extension="rest_frame_spec_norm",
+        path=fits_folder,
+        fn_base=fits_fn_base,
+        label=fits_label,
+        arm="br")
+    ivars_norm = pu.load_fits_image_hdu(
+        extension="rest_frame_ivars_norm",
+        path=fits_folder,
+        fn_base=fits_fn_base,
+        label=fits_label,
+        arm="br",)
+    
+    # Construct mask for emission regions - useful regions are *TRUE*
+    bad_px_mask = np.logical_or(
+        ~np.isfinite(fluxes_norm),
+        ~np.isfinite(ivars_norm))
+    
+    # Construct mask for emission regions - useful regions are *TRUE*
+    adopted_wl_mask = spec.make_wavelength_mask(
+        wls,
+        mask_emission=True,
+        mask_sky_emission=False,
+        mask_edges=True,)
+
+    # Enforce minimum and maximum wavelengths
+    adopted_wl_mask = \
+        adopted_wl_mask * (wls > wl_min_model) * (wls < wl_max_model)
+    
+    return wls, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask
 
 
 def prepare_cannon_spectra_normalisation(
