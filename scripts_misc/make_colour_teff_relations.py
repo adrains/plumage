@@ -29,6 +29,11 @@ relation = "colour_feh"
 # Inflation factor for K+19 uncertainties
 K19x = 1.5
 
+if relation == "colour_feh":
+    N_COEFF = 6
+elif relation == "colour_J-H":
+    N_COEFF = 7
+
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
@@ -135,7 +140,7 @@ def calc_resid_colour_jh(coeff, colours, j_h, teffs_real, e_teffs_real):
 
     resid = (teffs_real - teffs_pred) / e_teffs_real
 
-    return resid
+    return resid**2
 
 
 def calc_resid_colour_feh(coeff, colours, fehs, teffs_real, e_teffs_real):
@@ -164,7 +169,7 @@ def calc_resid_colour_feh(coeff, colours, fehs, teffs_real, e_teffs_real):
 
     resid = (teffs_real - teffs_pred) / e_teffs_real
 
-    return resid
+    return resid**2
 
 
 def fit_colour_teff_relation_jh(colours, j_hs, teffs_real, e_teffs_real):
@@ -205,7 +210,7 @@ def fit_colour_teff_relation_jh(colours, j_hs, teffs_real, e_teffs_real):
 
     coeff = opt_res["x"]
 
-    return coeff
+    return coeff, opt_res
 
 def fit_colour_teff_relation_feh(colours, fehs, teffs_real, e_teffs_real):
     """Fit a colour relation of the form:
@@ -245,7 +250,7 @@ def fit_colour_teff_relation_feh(colours, fehs, teffs_real, e_teffs_real):
 
     coeff = opt_res["x"]
 
-    return coeff
+    return coeff, opt_res
 
 # -----------------------------------------------------------------------------
 # Import
@@ -257,25 +262,26 @@ mann_tsv = "data/mann15_all_dr3.tsv"
 
 m15_data = pu.load_info_cat(
     mann_tsv,
-    clean=False,
+    make_observed_col_bool_on_yes=False,
     use_mann_code_for_masses=False,
-    do_extinction_correction=False,
-    do_skymapper_crossmatch=False,
     gdr="dr3",)
 
+# Drop missing gaia data
+m15_data = m15_data[~np.isnan(m15_data["BP-RP_dr3"].values)].copy()
+
 # ---------------------------------------------
-# Kiman+2019
+# Kesseli+2019
 # ---------------------------------------------
 if include_K19_subdwarfs:
     k19_tsv = "data/K19_all.tsv"
 
     k19_data = pu.load_info_cat(
         k19_tsv,
-        clean=False,
+        make_observed_col_bool_on_yes=False,
         use_mann_code_for_masses=False,
-        do_extinction_correction=False,
-        do_skymapper_crossmatch=False,
         gdr="dr3",)
+
+    k19_data = k19_data[~np.isnan(k19_data["BP-RP_dr3"].values)].copy()
 
     # ---------------------------------------------
     # Merge
@@ -357,7 +363,7 @@ j_h = data_tab["J_mag"] - data_tab["H_mag"].values
 
 # Fit colour with [Fe/H] relation
 if relation == "colour_feh":
-    coeffs = fit_colour_teff_relation_feh(
+    coeffs, opt_res = fit_colour_teff_relation_feh(
         colour,
         data_tab["feh_adopt"].values,
         data_tab["teff_adopt"].values,
@@ -367,7 +373,7 @@ if relation == "colour_feh":
 
 # Fit colour with J-H relation
 elif relation == "colour_J-H":
-    coeffs = fit_colour_teff_relation_jh(
+    coeffs, opt_res = fit_colour_teff_relation_jh(
         colour,
         j_h,
         data_tab["teff_adopt"].values,
@@ -385,6 +391,10 @@ coeffs = np.round(coeffs, 4)
 print("Fitted Coefficients:")
 print("\t".join(coeffs.astype(str)))
 
+# Number of degrees of freedom
+ndf = len(colour) - N_COEFF
+rchi2 = opt_res["cost"] / ndf
+
 # -----------------------------------------------------------------------------
 # Plotting
 # -----------------------------------------------------------------------------
@@ -394,7 +404,7 @@ fig, comp_ax = plt.subplots(1)
 # ---------------------------------------------
 # Combined (or just Mann+15) sample
 # ---------------------------------------------
-xx = np.linspace(2600, 4450, 50)
+xx = np.linspace(2500, 4450, 50)
 comp_ax.plot(xx, xx, "--", color="black", zorder=0)
 
 comp_ax.errorbar(
@@ -424,6 +434,8 @@ if include_K19_subdwarfs:
         marker="o",
         c=data_tab["feh_adopt"][adopt_k19],
         #facecolors='none',
+        vmin=np.nanmin(data_tab["feh_adopt"].values),
+        vmax=np.nanmax(data_tab["feh_adopt"].values),
         edgecolor="k",
         linewidths=1.2,
         zorder=1,
@@ -447,10 +459,11 @@ if include_K19_subdwarfs:
     sigma_m15 = np.nanstd(resid_m15)
 
     comp_ax.text(
-        x=3200,
-        y=2825,
+        x=0.35,
+        y=0.125,
         s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (M15)".format(
             delta_m15, sigma_m15),
+        transform=comp_ax.transAxes,
         horizontalalignment="left",)
 
     resid_k19 = data_tab["teff_adopt"].values[adopt_k19] - teffs_pred_k19
@@ -458,14 +471,15 @@ if include_K19_subdwarfs:
     sigma_k19 = np.nanstd(resid_k19)
 
     comp_ax.text(
-        x=3200,
-        y=2700,
+        x=0.35,
+        y=0.05,
         s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (K19)".format(
             delta_k19, sigma_k19),
+        transform=comp_ax.transAxes,
         horizontalalignment="left",)
 
 cb1 = fig.colorbar(sc1, ax=comp_ax)
-cb1.set_label("[Fe/H]")
+cb1.ax.set_title("[Fe/H]")
 
 # ---------------------------------------------
 # Residuals axis
@@ -478,16 +492,18 @@ e_resid = np.sqrt(
     np.full(resid.shape, resid_std)**2 + data_tab["e_teff_adopt"].values**2)
 
 comp_ax.text(
-    x=3200,
-    y=2950,
+    x=0.35,
+    y=0.20,
     s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (All)".format(
         resid_offset, resid_std),
+    transform=comp_ax.transAxes,
     horizontalalignment="left",)
 
 # Plot residuals
 divider = make_axes_locatable(comp_ax)
 resid_ax = divider.append_axes("bottom", size="30%", pad=0)
 comp_ax.figure.add_axes(resid_ax, sharex=comp_ax)
+comp_ax.sharex(resid_ax)
 
 resid_ax.plot(xx, np.zeros(50), "--", color="black")
 
@@ -514,6 +530,8 @@ if include_K19_subdwarfs:
         resid[adopt_k19],
         marker="o",
         c=data_tab["feh_adopt"][adopt_k19],
+        vmin=np.nanmin(data_tab["feh_adopt"].values),
+        vmax=np.nanmax(data_tab["feh_adopt"].values),
         edgecolor="k",
         linewidths=1.2,
         zorder=1,
@@ -534,16 +552,19 @@ resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=200))
 comp_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=100))
 comp_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=200))
 
-comp_ax.set_xlim(2600, 4350)
-comp_ax.set_ylim(2600, 4350)
+comp_ax.set_xlim(2550, 4400)
+comp_ax.set_ylim(2550, 4400)
 
-resid_ax.set_xlim(2600, 4400)
+resid_ax.set_xlim(2550, 4400)
 
 if relation == "colour_feh":
-    comp_ax.set_title(r"$(BP-RP)-$[Fe/H]")
+    comp_ax.set_title(
+        r"$T_{{\rm eff}}-(BP-RP)-$[Fe/H]     $\chi_\nu^2={:0.2f}$".format(
+            rchi2))
     fig_fn = "paper/mann_colour_relation_fit_feh"
 elif relation == "colour_J-H":
-    comp_ax.set_title(r"$(BP-RP)-(J-H)$")
+    comp_ax.set_title(
+        r"$T_{\rm eff}-(BP-RP)-(J-H)     \chi_\nu^2={:0.2f}$".format(rchi2))
     fig_fn = "paper/mann_colour_relation_fit_j_h"
 
 plt.show()

@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import plumage.utils as pu
 from scipy.optimize import least_squares
 import matplotlib.ticker as plticker
+import astropy.constants as const
+import astropy.units as u
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # -----------------------------------------------------------------------------
@@ -28,15 +30,22 @@ make_ruwe_cut = False
 ruwe_threshold = 1.4
 
 # Inflation factor for K+19 uncertainties
-K19x = 1.0
+K19x = 1.5
 
 N_COEFF = 4
+
+# Number of MC samples to use when recomputing the Mann+2015 radii using Gaia
+# DR3 parallaxes.
+n_samples = 10000
+
+# Maximum fractional precision on Kesseli+2019 radii to use when fitting
+k19_rstar_frac_precision_cut = 0.2
 
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
 def calc_relation_MKs_Fe_H(coeff, MKs, Fe_H,):
-    """Calculate a colour relation of the form:
+    """Calculate a MKs-[Fe/H] relation of the form:
 
     R_star = (a + b * Mks + c * MKs^2) * (1 + f * [Fe/H])
 
@@ -45,16 +54,16 @@ def calc_relation_MKs_Fe_H(coeff, MKs, Fe_H,):
     coeff: 1D float array
         Array of coefficients for polynomial fit.
 
-    colours: 1D float array
-        Array of stellar colours for the adopted photometric colour.
+    MKs: 1D float array
+        Array of stellar MKs absolute magnitudes.
 
-    fehs: 1D float array
+    Fe_H: 1D float array
         Array of stellar [Fe/H] values.
 
     Return
     ------
-    teffs_pred: 1D float array
-        Array of predicted temperatures.
+    rstar_pred: 1D float array
+        Array of predicted radii.
     """
     rstar_pred = (
         coeff[0] + coeff[1]*MKs + coeff[2]*MKs**2) * (1 + coeff[3]*Fe_H)
@@ -70,14 +79,14 @@ def calc_resid_MKs_Fe_H_rstar(coeff, MKs, Fe_H, rstar_real, e_rstar_real):
     coeff: 1D float array
         Array of coefficients for polynomial fit.
 
-    colours: 1D float array
-        Array of stellar colours for the adopted photometric colour.
+    MKs: 1D float array
+        Array of stellar MKs absolute magnitudes.
 
-    fehs: 1D float array
+    Fe_H: 1D float array
         Array of stellar [Fe/H] values.
 
-    teffs_real, e_teffs_real: 1D float array
-        Measured Teff values and associated uncertainties to fit to.
+    rstar_real, e_rstar_real: 1D float array
+        Measured R_star values and associated uncertainties to fit to.
 
     Return
     ------
@@ -91,24 +100,21 @@ def calc_resid_MKs_Fe_H_rstar(coeff, MKs, Fe_H, rstar_real, e_rstar_real):
     return resid**2
 
 
-
 def fit_MKs_Fe_H_radius_relation(MKs, Fe_H, rstar_real, e_rstar_real):
-    """Fit a colour relation of the form:
+    """Fit a R_star-MKs-[Fe/H] relation of the form:
 
-    Teff/3500 = a + bX + cX^2 + dX^3 + eX^4 + f*Y
-
-    Where X is the adopted colour and Y is [Fe/H].
+    R_star = (a + b * Mks + c * MKs^2) * (1 + f * [Fe/H])
 
     Parameters
     ----------
-    colours: 1D float array
-        Array of stellar colours for the adopted photometric colour.
+    MKs: 1D float array
+        Array of stellar MKs absolute magnitudes.
 
-    fehs: 1D float array
+    Fe_H: 1D float array
         Array of stellar [Fe/H] values.
 
-    teffs_real, e_teffs_real: 1D float array
-        Measured Teff values and associated uncertainties to fit to.
+    rstar_real, e_rstar_real: 1D float array
+        Measured R_star values and associated uncertainties to fit to.
 
     Return
     ------
@@ -132,6 +138,46 @@ def fit_MKs_Fe_H_radius_relation(MKs, Fe_H, rstar_real, e_rstar_real):
 
     return coeff, opt_res
 
+
+def calc_rstar(fbol, teff, dist):
+    """Calculate R_star using the Stefan-Boltzmann relation via fbol, teff, and
+    distance.
+
+    Parameters
+    ----------
+    fbol: 1D float array
+        Bolometric fluxes with units 10^-8 erg cm^-2 s^-2 and shape [n_star].
+
+    teff: 1D float array
+        Effective temperatures with units K and shape [n_star].
+
+    dist: 1D float array
+        Distances in parsecs, of shape [n_star].
+
+    Returns
+    -------
+    rstar: 1D float array
+        Stellar radii in units r_sun, of shape [n_star].
+    """
+    # Convert fbol to W/m^2
+    fbol_wm2 = fbol * (10**-11)
+
+    # Convert distance from pc to m
+    pc_to_m = u.pc.to("m")
+    dist_pc = dist * pc_to_m
+
+    # Stefan-Boltzmann constant (W / (K^4 m^2))
+    sigma_sb = const.sigma_sb.value
+
+    # Calculate r_star
+    rstar = 0.5 * np.sqrt(4*fbol_wm2 / (sigma_sb*teff**4)) * dist_pc
+
+    # Convert r_star to solar units
+    m_to_rsun = const.R_sun.value
+    rstar /= m_to_rsun
+
+    return rstar
+
 # -----------------------------------------------------------------------------
 # Import
 # -----------------------------------------------------------------------------
@@ -146,8 +192,88 @@ m15_data = pu.load_info_cat(
     use_mann_code_for_masses=False,
     gdr="dr3",)
 
+# [Optional] Rederive R_star using Gaia DR3 parallaxes
+fbol = m15_data["Fbol"].values
+e_fbol = m15_data["e_Fbol"].values
+
+teff = m15_data["Teff"].values
+e_teff = m15_data["e_Teff"].values
+
+plx = m15_data["plx_dr3"].values
+e_plx = m15_data["e_plx_dr3"].values
+
+dist = 1000 / plx
+e_dist = dist * (e_plx / plx)
+
+# Sample
+n_star = len(m15_data)
+fbol_xN = np.random.normal(loc=fbol, scale=e_fbol, size=(n_samples, n_star))
+teff_xN = np.random.normal(loc=teff, scale=e_teff, size=(n_samples, n_star))
+dist_xN = np.random.normal(loc=dist, scale=e_dist, size=(n_samples, n_star))
+
+rstar_xN = calc_rstar(fbol_xN, teff_xN, dist_xN) 
+
+rstar_mean = np.nanmean(rstar_xN, axis=0)
+rstar_std = np.nanstd(rstar_xN, axis=0)
+
+# Save
+m15_data["R_2015"] = m15_data["R"].values.copy()
+m15_data["e_R_2015"] = m15_data["e_R"].values.copy()
+
+m15_data["R"] = rstar_mean
+m15_data["e_R"] = rstar_std
+
 # ---------------------------------------------
-# Kiman+2019
+# Plot
+bad_ruwe = m15_data["ruwe_dr3"].values > 1.4
+
+delta_r = \
+    (m15_data["R_2015"].values - rstar_mean) / m15_data["R_2015"].values * 100
+med_r = np.median(delta_r[~bad_ruwe])
+std_r = np.std(delta_r[~bad_ruwe])
+
+plt.close("all")
+fig, ax_rstar = plt.subplots()
+
+ax_rstar.errorbar(
+    m15_data["R_2015"].values,
+    rstar_mean,
+    xerr=m15_data["e_R_2015"].values,
+    yerr=rstar_std,
+    linestyle="",
+    marker="o",
+    alpha=0.5)
+aa = np.arange(0.1, 0.75, 0.01)
+ax_rstar.plot(aa, aa, "--", c="k", linewidth=0.5)
+ax_rstar.set_xlabel(r"$R_\star (R_\odot)$, M15")
+
+ax_rstar.set_ylabel(r"$R_\star (R_\odot)$, M15 + Gaia DR3 plx")
+
+ax_rstar.text(
+    x=0.5,
+    y=0.2,
+    s=r"$\sigma_{{R_\star}} = {:0.2f} \pm {:0.2f} \%$ (RUWE < 1.4)".format(
+        med_r, std_r),
+    horizontalalignment="center")
+ax_rstar.legend()
+
+_ = ax_rstar.scatter(
+    m15_data["R_2015"].values[bad_ruwe],
+    rstar_mean[bad_ruwe],
+    marker="o",
+    #c=data_tab["feh_adopt"][adopt_k19],
+    facecolors='none',
+    edgecolor="k",
+    linewidths=1.2,
+    #zorder=1,
+    label="RUWE > 1.4",)
+
+ax_rstar.legend()
+
+plt.savefig("paper/m15_gaia_dr3_rstar.pdf")
+
+# ---------------------------------------------
+# Kesseli+2019
 # ---------------------------------------------
 if include_K19_subdwarfs:
     k19_tsv = "data/K19_all.tsv"
@@ -157,6 +283,12 @@ if include_K19_subdwarfs:
         make_observed_col_bool_on_yes=False,
         use_mann_code_for_masses=False,
         gdr="dr3",)
+
+    # [Optional] Enforce rstar precision
+    rstar_precision = k19_data["e_r_star"].values/k19_data["r_star"].values
+    rstar_mask = rstar_precision < k19_rstar_frac_precision_cut
+
+    k19_data = k19_data[rstar_mask].copy()
 
     # ---------------------------------------------
     # Merge
@@ -200,11 +332,14 @@ if include_K19_subdwarfs:
     # Merge 2MASS data
     # ---------------------------------------------
     data_tab.loc[has_m15, "Qflg_2MASS"] = "AAA"
-    data_tab.loc[only_has_k19, "K_mag"] = data_tab.loc[only_has_k19, "K_mag_k19"]
-    data_tab.loc[only_has_k19, "e_K_mag"] = data_tab.loc[only_has_k19, "e_K_mag_k19"]
-    data_tab.loc[only_has_k19, "Qflg_2MASS"] = data_tab.loc[only_has_k19, "Qflg"]
-
-    data_tab.loc[only_has_k19, "plx_dr3"] = data_tab.loc[has_k19, "plx_dr3_k19"]
+    data_tab.loc[only_has_k19, "K_mag"] = \
+        data_tab.loc[only_has_k19, "K_mag_k19"]
+    data_tab.loc[only_has_k19, "e_K_mag"] = \
+        data_tab.loc[only_has_k19, "e_K_mag_k19"]
+    data_tab.loc[only_has_k19, "Qflg_2MASS"] = \
+        data_tab.loc[only_has_k19, "Qflg"]
+    data_tab.loc[only_has_k19, "plx_dr3"] = \
+        data_tab.loc[has_k19, "plx_dr3_k19"]
 
     # Remove any entries with bad photometry
     if make_ruwe_cut:
@@ -298,7 +433,6 @@ rchi2 = opt_res["cost"] / ndf
 # -----------------------------------------------------------------------------
 # Plotting
 # -----------------------------------------------------------------------------
-plt.close("all")
 fig, comp_ax = plt.subplots(1, sharex=True)
 
 # ---------------------------------------------
@@ -334,6 +468,8 @@ if include_K19_subdwarfs:
         marker="o",
         c=data_tab["feh_adopt"][adopt_k19],
         #facecolors='none',
+        vmin=np.nanmin(data_tab["feh_adopt"].values),
+        vmax=np.nanmax(data_tab["feh_adopt"].values),
         edgecolor="k",
         linewidths=1.2,
         zorder=1,
@@ -359,29 +495,37 @@ if include_K19_subdwarfs:
     delta_pc_m15 = np.nanmedian(resid_m15 / data_tab["R"].values * 100)
     sigma_pc_m15 = np.nanstd(resid_m15 / data_tab["R"].values * 100)
 
+    M15_txt = \
+        r"$\sigma_{{R_\mathregular{{\star}}}}={:+3.2f}\pm{:0.2f}\,\%$ (M15)"
+
     comp_ax.text(
         x=0.35,
-        y=0.2,
-        s=r"$\sigma_{{R_\star}}={:+3.2f}\pm{:0.2f}\,\%$ (M15)".format(
-            delta_pc_m15, sigma_pc_m15),
+        y=0.125,
+        s=M15_txt.format(delta_pc_m15, sigma_pc_m15),
+        transform=comp_ax.transAxes,
         horizontalalignment="left",)
 
     resid_k19 = data_tab["r_star"].values[adopt_k19] - rstar_pred_k19
     delta_k19 = np.nanmedian(resid_k19)
     sigma_k19 = np.nanstd(resid_k19)
 
-    delta_pc_k19 = np.nanmedian(resid_k19 / data_tab["r_star"].values[adopt_k19] * 100)
-    sigma_pc_k19 = np.nanstd(resid_k19 / data_tab["r_star"].values[adopt_k19] * 100)
+    delta_pc_k19 = \
+        np.nanmedian(resid_k19 / data_tab["r_star"].values[adopt_k19] * 100)
+    sigma_pc_k19 = \
+        np.nanstd(resid_k19 / data_tab["r_star"].values[adopt_k19] * 100)
+
+    K19_txt = \
+        r"$\sigma_{{R_\mathregular{{\star}}}}={:+3.2f}\pm{:0.2f}\,\%$ (K19)"
 
     comp_ax.text(
         x=0.35,
-        y=0.15,
-        s=r"$\sigma_{{R_\star}}={:+3.2f}\pm{:0.2f}\,\%$ (K19)".format(
-            delta_pc_k19, sigma_pc_k19),
+        y=0.05,
+        s=K19_txt.format(delta_pc_k19, sigma_pc_k19),
+        transform=comp_ax.transAxes,
         horizontalalignment="left",)
 
 cb1 = fig.colorbar(sc1, ax=comp_ax)
-cb1.set_label("[Fe/H]")
+cb1.ax.set_title("[Fe/H]")
 
 # ---------------------------------------------
 # Residuals axis
@@ -396,11 +540,13 @@ sigma_pc = np.nanstd(resid / data_tab["rstar_adopt"].values * 100)
 e_resid = np.sqrt(
     np.full(resid.shape, resid_std)**2 + data_tab["e_rstar_adopt"].values**2)
 
+all_txt = r"$\sigma_{{R_\mathregular{{\star}}}}={:+3.2f}\pm{:0.2f}\,\%$ (All)"
+
 comp_ax.text(
     x=0.35,
-    y=0.1,
-    s=r"$\sigma_{{R_\star}}={:+3.2f}\pm{:0.2f}\,\%$ (All)".format(
-        delta_pc, sigma_pc),
+    y=0.20,
+    s=all_txt.format(delta_pc, sigma_pc),
+    transform=comp_ax.transAxes,
     horizontalalignment="left",)
 
 # Plot residuals
@@ -434,15 +580,18 @@ if include_K19_subdwarfs:
         resid[adopt_k19],
         marker="o",
         c=data_tab["feh_adopt"][adopt_k19],
+        vmin=np.nanmin(data_tab["feh_adopt"].values),
+        vmax=np.nanmax(data_tab["feh_adopt"].values),
         edgecolor="k",
         linewidths=1.2,
         zorder=1,
         label=label,)
 
 # Other formatting
-comp_ax.set_ylabel(r"$R_\star$ ($R_\odot$, Fit)")
-resid_ax.set_xlabel(r"$R_\star$ ($R_\odot$, Literature)")
-resid_ax.set_ylabel(r"Residual ($R_\odot$)")
+comp_ax.set_ylabel(r"$R_\mathregular{\star}$ ($R_\mathregular{\odot}$, Fit)")
+resid_ax.set_xlabel(
+    r"$R_\mathregular{\star}$ ($R_\mathregular{\odot}$, Literature)")
+resid_ax.set_ylabel(r"Residual ($R_\mathregular{\odot}$)")
 plt.setp(comp_ax.get_xticklabels(), visible=False)
 
 resid_ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
@@ -454,12 +603,15 @@ resid_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
 comp_ax.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.05))
 comp_ax.yaxis.set_major_locator(plticker.MultipleLocator(base=0.1))
 
-comp_ax.set_xlim(0.05, 0.75)
-comp_ax.set_ylim(0.05, 0.75)
+comp_ax.set_xlim(0.075, 0.725)
+comp_ax.set_ylim(0.075, 0.725)
 
-resid_ax.set_xlim(0.05, 0.75)
+resid_ax.set_xlim(0.075, 0.725)
 
-comp_ax.set_title(r"$M_{{K_S}}-$[Fe/H], $\chi_\nu^2={:0.2f}$".format(rchi2))
+title_txt = r"$R_\mathregular{{\star}}-M_{{K_S}}-$[Fe/H]" \
+    + r"     $\chi_\nu^2={:0.2f}$"
+
+comp_ax.set_title(title_txt.format(rchi2))
 fig_fn = "paper/mann_kesseli_MKs_Fe_H_relation_fit"
 
 plt.show()
