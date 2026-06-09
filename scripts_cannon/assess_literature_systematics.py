@@ -2087,6 +2087,8 @@ BP_RP_LIMS_K = (0.52, 1.4)
 ABUND_Y_LIMS_K = (-0.35, 0.35)
 BP_RP_TICKS_K = (0.1, 0.05)
 
+FIG_SIZE = (16, 8)
+
 plot_abundance_trends(
     chem_df=df_comb,
     fit_dict=fit_dict_K,
@@ -2098,7 +2100,8 @@ plot_abundance_trends(
     abund_Y_lims=ABUND_Y_LIMS_K,
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
     fn_label="K",
-    bp_rp_ticks=BP_RP_TICKS_K,)
+    bp_rp_ticks=BP_RP_TICKS_K,
+    figsize=FIG_SIZE,)
 
 # Plot abundance trends for M dwarfs
 BP_RP_LIMS_M = (1.6, 4.8)
@@ -2115,7 +2118,8 @@ plot_abundance_trends(
     abund_Y_lims=ABUND_Y_LIMS_M,
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
     fn_label="M",
-    bp_rp_ticks=BP_RP_TICKS_M,)
+    bp_rp_ticks=BP_RP_TICKS_M,
+    figsize=FIG_SIZE,)
 
 # Plot abundance trends for chemodynamic [X/Fe]
 FE_H_LIMS_CD = (-1.15,0.5)

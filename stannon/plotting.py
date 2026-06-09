@@ -50,6 +50,7 @@ def plot_label_recovery(
     label_pred,
     e_label_pred,
     label_names,
+    n_rows=1,
     plot_reduced_chi2_cb=False,
     reduced_chi2=None,
     teff_lims=(2500,5000),
@@ -133,7 +134,11 @@ def plot_label_recovery(
 
     # Make plot
     n_labels = label_values.shape[1]
-    fig, axes = plt.subplots(1, n_labels)
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_labels//n_rows)
+
+    if n_rows > 1:
+        axes = axes.flatten()
+
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.95, wspace=0.5)
 
     #--------------------------------------------------------------------------
@@ -183,7 +188,8 @@ def plot_label_recovery(
         cmap=cb_cmaps["teff"],
         show_offset=show_offset,
         ticks=teff_ticks,
-        panel_label=panel_label,)
+        panel_label=panel_label,
+        resid_unit="K",)
 
     # Gravity
     pplt.plot_std_comp_generic(
@@ -203,7 +209,8 @@ def plot_label_recovery(
         show_offset=show_offset,
         ticks=logg_ticks,
         panel_label=panel_label,
-        plot_resid_y_label=False,)
+        plot_resid_y_label=False,
+        resid_unit="dex",)
 
     # [Fe/H]]
     pplt.plot_std_comp_generic(
@@ -223,7 +230,8 @@ def plot_label_recovery(
         show_offset=show_offset,
         ticks=feh_ticks,
         panel_label=panel_label,
-        plot_resid_y_label=False,)
+        plot_resid_y_label=False,
+        resid_unit="dex",)
     
     if n_labels > 3:
         # [X/Fe]
@@ -249,9 +257,14 @@ def plot_label_recovery(
                 show_offset=show_offset,
                 ticks=X_Fe_ticks,
                 panel_label=panel_label,
-                plot_resid_y_label=False,)
+                plot_resid_y_label=False,
+                resid_unit="dex",)
 
-    fig.set_size_inches(12/3 * n_labels, 3)
+        # Hide unused axes
+        for ii in range(xfe_i+1, len(axes)):
+            axes[ii].set_visible(False) 
+
+    fig.set_size_inches(12/3 * n_labels/n_rows, 3*n_rows)
     fig.tight_layout()
 
     # Save plot
@@ -2419,6 +2432,7 @@ def plot_spectra_comp_with_atomic_features(
             "spec_comparison_{}{}{}".format(source_id, fn_label, fn_suffix))
 
         plt.savefig("{}.pdf".format(plot_fn))
+        plt.savefig("{}.png".format(plot_fn), dpi=500)
 
 
 def plot_theta_coefficient_barcode_plot(
@@ -2683,6 +2697,7 @@ def plot_theta_coefficient_barcode_plot(
     axes[1].xaxis.set_minor_locator(plticker.MultipleLocator(base=x_ticks[1]))
 
     axes[1].tick_params(axis='both', which='major', labelsize="small")
+    axes[1].tick_params(axis='y', which='major', labelsize="xx-small")
 
     plt.xlabel(r"Wavelength (${\rm \AA}$)")
     
@@ -2701,4 +2716,3 @@ def plot_theta_coefficient_barcode_plot(
             fn_suffix))
 
     plt.savefig("{}.pdf".format(plot_fn))
-    

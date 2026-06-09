@@ -363,6 +363,12 @@ obs_join["e_teff_C21_BP_RP_logg_feh"] = e_teff_C21
 #------------------------------------------------------------------------------
 n_star = len(obs_join)
 
+# Reject any stars that we've flagged as 'not useful'
+is_useful = [iu if type(iu) == bool else False
+             for iu in obs_join["is_useful_std"].values]
+obs_join["is_useful_std"] = is_useful
+is_rejected_std = ~obs_join["is_useful_std"].values
+
 # Apply RUWE cut, but *only* for non-interferometric targets, since unresolved
 # binarity would be revealed there), and apply the mask
 if ls.enforce_ruwe:
@@ -401,6 +407,7 @@ else:
 
 # Combine into a single mask for science target quality
 sci_keep_mask = np.all(np.stack([
+    ~is_rejected_std,
     ~bad_ruwe_mask,
     ~too_distant_mask,
     ~blended_2mass_mask,
@@ -432,7 +439,10 @@ else:
 # Parallaxes are consistent
 if ls.enforce_parallax_consistency:
     delta_plx = np.abs(obs_join["plx_dr3"]-obs_join["plx_dr3_prim"]).values
-    consistent_syst_plx = delta_plx < ls.binary_max_delta_parallax
+    sigma_plx = np.sqrt(
+        obs_join["e_plx_dr3"]**2 + obs_join["e_plx_dr3_prim"]**2).values
+    consistent_syst_plx = \
+        delta_plx < (ls.binary_max_sigma_delta_parallax * sigma_plx)
 else:
     consistent_syst_plx = np.full(n_star, True)
 
@@ -462,6 +472,23 @@ syst_keep_mask = np.all(np.stack([
     good_primary_bp_rp_mask,
     consistent_syst_plx,
     consistent_syst_rvs,]), axis=0)
+
+# Print a summary
+n_cpm = np.sum(is_cpm)
+print("\nBinary Vetting Overview:", "\n", "-"*24, sep="")
+print(" Useful:\t\t{}/{}\t({})".format(
+    np.sum(binary_syst_useful[is_cpm]), n_cpm, ls.enforce_system_useful))
+print(" Prim RUWE:\t\t{}/{}\t({})".format(
+    np.sum(good_fgk_primary_ruwe[is_cpm]), n_cpm, ls.enforce_primary_ruwe))
+print(" Prim BP-RP:\t\t{}/{}\t({})".format(
+    np.sum(good_primary_bp_rp_mask[is_cpm]), n_cpm, ls.enforce_primary_BP_RP_colour))
+print(" Consistent plx:\t{}/{}\t({})".format(
+    np.sum(consistent_syst_plx[is_cpm]), n_cpm, ls.enforce_parallax_consistency))
+print(" Consistent PMs:\t{}/{}\t({})".format(
+    np.sum(consistent_syst_pm[is_cpm]), n_cpm, ls.enforce_pm_consistency))
+print(" Consistent RVs:\t{}/{}\t({})".format(
+    np.sum(consistent_syst_rvs[is_cpm]), n_cpm, ls.enforce_rv_consistency))
+print("\nTotal:\t\t{}/{}".format(np.sum(syst_keep_mask), n_cpm, ))
 
 #------------------------------------------------------------------------------
 # Collating masks

@@ -141,6 +141,7 @@ for plot_reduced_chi2_cb in [False, True]:
         reduced_chi2=reduced_chi2,
         label_names=sm.label_names,
         fn_suffix=fn_label,
+        n_rows=cds.label_recovery_n_rows,
         teff_lims=(2500,4250),
         teff_ticks=(500,250,200,100),
         logg_ticks=(0.25,0.125,0.1,0.05),

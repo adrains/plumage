@@ -892,6 +892,9 @@ def load_info_cat(
     if "wife_obs" not in info_cat:
         info_cat["wife_obs"] = 1
 
+    if "is_useful_std" in info_cat:
+        info_cat["is_useful_std"] = info_cat["is_useful_std"].astype(bool)
+
     # Set Gaia dup column to be boolean
     info_cat["dup{}".format(gdr)] = info_cat["dup{}".format(gdr)].astype(bool)
 

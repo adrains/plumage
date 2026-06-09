@@ -118,17 +118,44 @@ if ms.cannon_comp_apply_extra_broadening:
 # Grab MARCS spectra for just our benchmarks
 wave_norm, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask = \
     stannon.prepare_cannon_spectra_mike(
-        wave=wls,
-        spectra_2D=spec_2D_norm,
-        sigmas_2D=sigma_2D_norm,
+        fits_folder=ms.fits_folder,
+        fits_fn_base=ms.fits_fn_base,
+        fits_label=ms.fits_label,
         wl_min_model=ms.cannon_fits_wl_min_model,
         wl_max_model=ms.cannon_fits_wl_max_model,
-        telluric_trans_2D=np.ones_like(spec_marcs_br),
         telluric_absorption_threshold=0.95,
-        allowable_NaN_telluric_px=5,)
+        allowable_NaN_telluric_px=5,
+        do_synth_lit_import=True,)
+
+# Only continuum normalise those stars with synthetic spectra
+has_synth_spec = np.nansum(fluxes_norm, axis=1) != 0
+
+fluxes_norm_pc, _, _ = \
+    psm.pseudocontinuum_normalise_spectra(
+        wave_norm,
+        fluxes_norm[has_synth_spec],
+        ivars_norm[has_synth_spec],
+        resolving_power_smoothed=ms.pseudocontinuum_smoothing_resolution,)
+
+fluxes_norm[has_synth_spec] = fluxes_norm_pc.copy()
+
+# --------
+# [Optional] Apply extra broadening
+# --------
+if ms.cannon_comp_apply_extra_broadening:
+    fluxes_norm_init = fluxes_norm.copy()
+
+    for spec_i in range(spec_2D_norm.shape[0]):
+        fluxes_norm[spec_i] = instrBroadGaussFast(
+            wvl=wls,
+            flux=fluxes_norm_init[spec_i],
+            resolution=ms.cannon_comp_new_resolving_power,
+            edgeHandling="firstlast",
+            maxsig=5,
+            equid=True,)
 
 # Convert to air wavelengths
-wave_norm = pum.convert_air_to_vacuum_wl(wave_norm)
+#wave_norm = pum.convert_air_to_vacuum_wl(wave_norm)
 
 # Plot Cannon vs MARCS spectra comparison over the entire spectral range
 splt.plot_spectra_comparison(
@@ -166,8 +193,6 @@ splt.plot_spectra_comp_with_atomic_features(
     sm=sm,
     wave_marcs=wave_norm,
     fluxes_marcs_norm=fluxes_norm[adopted_benchmark],
-    wave_telluric=None,
-    trans_telluric=None,
     line_list=line_list_a,
     star_names=obs_join["simbad_name"].values[adopted_benchmark],
     BP_RP=obs_join["BP_RP_dr3"].values[adopted_benchmark],

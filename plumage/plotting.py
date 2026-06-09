@@ -1281,7 +1281,8 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     resid_y_lims=None, plot_scatter=True, ms=2, text_labels=None, 
     print_labels=False, elinewidth=0.5, offset_sig_fig=2, return_axes=False,
     scatter_label=None, panel_label=None, plot_resid_y_label=True, 
-    plot_y_label=True, plot_cbar_label=True, n_decimal_sig_fig=2,):
+    plot_y_label=True, plot_cbar_label=True, n_decimal_sig_fig=2, 
+    resid_unit="",):
     """
     Parameters
     ----------
@@ -1330,6 +1331,9 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
     n_decimal_sig_fig: int, default: 2
         Number of significant figures below which the +/- sign is no longer
         plotted for the systematic bias.
+
+    resid_unit: str, default: ""
+        Unit to show on the annoted residuals.
     """
     # Plot error bars with overplotted scatter points + colour bar
     axis.errorbar(
@@ -1480,7 +1484,7 @@ def plot_std_comp_generic(fig, axis, fit, e_fit, lit, e_lit, colour, fit_label,
             mean_offset = np.abs(mean_offset)
 
         offset_lbl = (r"${:0." + str(int(offset_sig_fig)) + r"f}\pm {:0." 
-                      + str(int(offset_sig_fig)) + r"f}$")
+                      + str(int(offset_sig_fig)) + r"f}$ " + resid_unit)
 
         axis.text(
             x=((x_lims[1]-x_lims[0])/2 + x_lims[0]), 

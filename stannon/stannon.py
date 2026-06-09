@@ -1602,7 +1602,8 @@ def prepare_cannon_spectra_mike(
     wl_min_model,
     wl_max_model,
     telluric_absorption_threshold,
-    allowable_NaN_telluric_px,):
+    allowable_NaN_telluric_px,
+    do_synth_lit_import=False,):
     """Prepares MIKE format spectra for use with the Cannon. The key difference
     here to how we handle WiFeS spectra is that here we perform finer masking
     using the VIPER telluric templates, not just masking out entire bands.
@@ -1649,6 +1650,9 @@ def prepare_cannon_spectra_mike(
         is to be included in the Cannon model, and False where it belongs to
         an emission region or is (collectively, across all stars) considered
         too telluric contaminated to use.
+
+    do_synth_lit_import: boolean, default: False
+        If True, we import synthetic literature fluxes instead of observed.
     """
     # Import from fits
     wave = pu.load_fits_image_hdu(
@@ -1658,19 +1662,31 @@ def prepare_cannon_spectra_mike(
         path=fits_folder,
         arm="r",)
     
-    spectra_2D = pu.load_fits_image_hdu(
-        extension="rest_frame_spec_norm",
-        label=fits_label,
-        fn_base=fits_fn_base,
-        path=fits_folder,
-        arm="r",)
-    
-    sigmas_2D = pu.load_fits_image_hdu(
-        extension="rest_frame_sigma_norm",
-        label=fits_label,
-        fn_base=fits_fn_base,
-        path=fits_folder,
-        arm="r",)
+    # Import observed spectra
+    if not do_synth_lit_import:
+        spectra_2D = pu.load_fits_image_hdu(
+            extension="rest_frame_spec_norm",
+            label=fits_label,
+            fn_base=fits_fn_base,
+            path=fits_folder,
+            arm="r",)
+        
+        sigmas_2D = pu.load_fits_image_hdu(
+            extension="rest_frame_sigma_norm",
+            label=fits_label,
+            fn_base=fits_fn_base,
+            path=fits_folder,
+            arm="r",)
+        
+    # Import synthetic spectra
+    else:
+        spectra_2D = pu.load_fits_image_hdu(
+            extension="rest_frame_synth_lit",
+            label=fits_label,
+            fn_base=fits_fn_base,
+            path=fits_folder,
+            arm="r",)
+        sigmas_2D = np.ones_like(spectra_2D)
     
     telluric_trans_2D = pu.load_fits_image_hdu(
         extension="stellar_frame_telluric_trans",
