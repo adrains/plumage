@@ -1321,6 +1321,7 @@ for ref in samples.keys():
     df = pd.read_csv(
         samples[ref],
         delimiter="\t",
+        comment="#",
         dtype={"source_id":str, "source_id_dr3":str},)
     df.rename(columns={"source_id":"source_id_dr3"}, inplace=True)
     df.set_index("source_id_dr3", inplace=True)
@@ -2074,6 +2075,28 @@ pkl_filename = "data/chemodynamic_polynomials_{}.pkl".format(
 
 with open(pkl_filename, 'wb') as output_file:
     pickle.dump(fit_dict_CD, output_file, pickle.HIGHEST_PROTOCOL)
+
+#------------------------------------------------------------------------------
+# Correct the original catalogue used for chemodynamic systematic computation
+#------------------------------------------------------------------------------
+# We eventually test the accuracy of our chemodynamic mapping against one of
+# the larger literature [X/Fe] samples, but this should be done using the
+# systematic *corrected* [Fe/H] values. Here we crossmatch the corrected [Fe/H]
+# values back to the original catalogues and save to disk.
+cd_refs = ["B16", "A12"]
+cd_dfs = [B16, A12]
+
+for ref, df in zip(cd_refs, cd_dfs):
+    # Crossmatch using limited column selection
+    col = "Fe_H_{}".format(ref)
+    col_uc = "Fe_H_{}_uc".format(ref)
+    cols = [col, col_uc]
+    df.rename(columns={col:"{}_orig".format(col)}, inplace=True)
+    cd_cm = df.join(df_comb[cols], "source_id_dr3", rsuffix="_{}".format(ref))
+
+    # Save to disk
+    fn_new = "data/{}_Fe_H_syst_corr.tsv".format(ref)
+    cd_cm.to_csv(fn_new, sep="\t")
 
 #------------------------------------------------------------------------------
 # Plotting
