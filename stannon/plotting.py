@@ -899,6 +899,8 @@ def plot_cannon_cmd(
     plt.close("all")
     fig, axis = plt.subplots()
 
+    vmin, vmax = np.nanmin(benchmark_feh), np.nanmax(benchmark_feh)
+
     # Plot benchmarks
     scatter = axis.scatter(
         benchmark_colour, 
@@ -908,6 +910,8 @@ def plot_cannon_cmd(
         label="{} ({})".format("Benchmark", len(benchmark_colour)),
         alpha=0.9,
         cmap="viridis",
+        vmin=vmin,
+        vmax=vmax,
     )
 
     cb = fig.colorbar(scatter, ax=axis)
@@ -940,7 +944,9 @@ def plot_cannon_cmd(
             edgecolor="k",
             linewidths=1.2,
             zorder=1,
-            label=label,)
+            label=label,
+            vmin=vmin,
+            vmax=vmax,)
         
     # If we've been given a *second* highlight mask, also plot (but only if it
     # isn't empty).
@@ -956,7 +962,9 @@ def plot_cannon_cmd(
             linewidths=1.2,
             linestyle= (0, (1, 1)),
             zorder=1,
-            label=label,)
+            label=label,
+            vmin=vmin,
+            vmax=vmax,)
 
     plt.legend(loc="best", fontsize="large")
     

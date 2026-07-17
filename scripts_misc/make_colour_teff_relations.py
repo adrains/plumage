@@ -1,6 +1,8 @@
-"""Script to fit Mann+15 photometric relations using Gaia DR3 data.
+"""Script to fit Mann+15 photometric relations using Gaia DR3 data and both the
+Mann+15 and Kesseli+2019 sample of cool dwarfs.
 """
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import plumage.utils as pu
 from scipy.optimize import least_squares
@@ -20,19 +22,26 @@ include_K19_subdwarfs = True
 
 # Whether to make a RUWE cut. Testing with a (BP-RP)-[Fe/H] relation indicates
 # that the RUWE cut results in *worse* performance, so this is not recommended.
-make_ruwe_cut = False
+make_ruwe_cut = True
 ruwe_threshold = 1.4
+
+# Cut on Way+2026 overluminosity
+way26_fn = "data/Way26_overluminous_catalog.csv"
+make_way26_overluminous_cut = True
 
 # Which relation to use (either 'colour_feh' or 'colour_J-H')
 relation = "colour_feh"
 
 # Inflation factor for K+19 uncertainties
-K19x = 1.5
+K19x = 2.0
 
 if relation == "colour_feh":
     N_COEFF = 6
 elif relation == "colour_J-H":
     N_COEFF = 7
+
+# Whether to annotate the fitted polynomial
+do_plot_polynomial_coefficients = True
 
 # -----------------------------------------------------------------------------
 # Functions
@@ -256,6 +265,16 @@ def fit_colour_teff_relation_feh(colours, fehs, teffs_real, e_teffs_real):
 # Import
 # -----------------------------------------------------------------------------
 # ---------------------------------------------
+# Way+2026
+# ---------------------------------------------
+# [Optional] Import the Way+26 sample of Solar Neighbourhood stars with
+# identified overluminosity per Gaia DR3 BP/RP spectra.
+if make_way26_overluminous_cut:
+    way26 = pd.read_csv(way26_fn, dtype={"source_id":str})
+    way26.rename(columns={"source_id":"source_id_dr3"}, inplace=True)
+    way26.set_index("source_id_dr3", inplace=True)
+
+# ---------------------------------------------
 # Mann+2015
 # ---------------------------------------------
 mann_tsv = "data/mann15_all_dr3.tsv"
@@ -314,6 +333,11 @@ if include_K19_subdwarfs:
     if make_ruwe_cut:
         data_tab = data_tab[data_tab["ruwe_dr3"] < 1.4].copy()
 
+    # Way+26 overluminosity cut
+    if make_way26_overluminous_cut:
+        data_tab = data_tab.join(way26["ol"], on="source_id_dr3",)
+        data_tab = data_tab[data_tab["ol"].values != True].copy()
+
     n_star = len(data_tab)
     has_m15 = data_tab["has_m15"]
     has_k19 = data_tab["has_k19"]
@@ -336,7 +360,11 @@ if include_K19_subdwarfs:
     e_teff_adopt[has_m15] = data_tab["e_Teff"].values[has_m15]
 
     teff_adopt[adopt_k19] = data_tab["teff"].values[adopt_k19]
-    e_teff_adopt[adopt_k19] = data_tab["e_teff"].values[adopt_k19] * K19x
+    e_teff_adopt[adopt_k19] = data_tab["e_teff"].values[adopt_k19]
+
+    # Set up sigma scaling mask
+    sigma_scale = np.ones_like(teff_adopt)
+    sigma_scale[adopt_k19] = K19x
 
     data_tab["feh_adopt"] = feh_adopt
     data_tab["teff_adopt"] = teff_adopt
@@ -354,6 +382,9 @@ else:
     if make_ruwe_cut:
         data_tab = data_tab[data_tab["ruwe_dr3"] < 1.4].copy()
 
+    # Set up sigma scaling mask
+    sigma_scale = np.ones_like(data_tab["teff_adopt"].values)
+
 # -----------------------------------------------------------------------------
 # Fitting
 # -----------------------------------------------------------------------------
@@ -367,7 +398,7 @@ if relation == "colour_feh":
         colour,
         data_tab["feh_adopt"].values,
         data_tab["teff_adopt"].values,
-        data_tab["e_teff_adopt"].values)
+        data_tab["e_teff_adopt"].values * sigma_scale,)
 
     teffs_pred = calc_relation_teff_feh(coeffs, colour, data_tab["feh_adopt"],)
 
@@ -377,7 +408,7 @@ elif relation == "colour_J-H":
         colour,
         j_h,
         data_tab["teff_adopt"].values,
-        data_tab["e_teff_adopt"].values)
+        data_tab["e_teff_adopt"].values * sigma_scale,)
 
     teffs_pred = calc_relation_teff_j_h(coeffs, colour, j_h,)
 
@@ -460,7 +491,7 @@ if include_K19_subdwarfs:
 
     comp_ax.text(
         x=0.35,
-        y=0.125,
+        y=0.175,
         s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (M15)".format(
             delta_m15, sigma_m15),
         transform=comp_ax.transAxes,
@@ -472,7 +503,7 @@ if include_K19_subdwarfs:
 
     comp_ax.text(
         x=0.35,
-        y=0.05,
+        y=0.1,
         s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (K19)".format(
             delta_k19, sigma_k19),
         transform=comp_ax.transAxes,
@@ -480,6 +511,44 @@ if include_K19_subdwarfs:
 
 cb1 = fig.colorbar(sc1, ax=comp_ax)
 cb1.ax.set_title("[Fe/H]")
+
+# ---------------------------------------------
+# [Optional] Polynomial
+# ---------------------------------------------
+# Display polynomial coefficients
+if do_plot_polynomial_coefficients:
+    # Construct BP-RP terms
+    exponents = np.arange(1, N_COEFF-1, 1)
+    ft = r"{:0.5}\cdot (BP-RP)^{:0.0f}"
+
+    fit_list = \
+        [ft.format(cc, ee) for (cc, ee) in zip(coeffs[:-1], exponents)]
+            
+    fit_list.insert(0, "{:0.3f}".format(coeffs[0]))
+    fit_txt = r"{}".format("+".join(fit_list))
+
+    # Add in [Fe/H] or J-H term
+    if relation == "colour_feh":
+        fit_txt += r"+{:0.4f}\cdot\mathrm{{[Fe/H]}}".format(coeffs[-1])
+    elif relation == "colour_J-H":
+        fit_txt += r"+{:0.4f}\cdot(J-H)".format(coeffs[-1])
+
+    complete_eq = r"$T_\mathrm{eff}/3500 =" + fit_txt.replace("+-", "-") + r"$"
+
+    # Also display BP-RP limits
+    lims = "\t$[{:0.2f}, {:0.2f}]$".format(
+        np.min(data_tab["BP-RP_dr3"].values),
+        np.max(data_tab["BP-RP_dr3"].values))
+
+    comp_ax.text(
+        x=0.5,
+        y=0.04,
+        s=complete_eq,# + lims,
+        horizontalalignment="center",
+        verticalalignment="center",
+        color="r",
+        fontsize=4.6,
+        transform=comp_ax.transAxes,)
 
 # ---------------------------------------------
 # Residuals axis
@@ -493,7 +562,7 @@ e_resid = np.sqrt(
 
 comp_ax.text(
     x=0.35,
-    y=0.20,
+    y=0.25,
     s=r"$\sigma_{{T_{{\rm eff}}}}={:+3.0f}\pm{:0.0f}\,$K (All)".format(
         resid_offset, resid_std),
     transform=comp_ax.transAxes,

@@ -1,5 +1,6 @@
 """Script to fit MKs-[Fe/H]-R_star relations using Mann+15 and Kesseli+2019.
 """
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plumage.utils as pu
@@ -26,20 +27,33 @@ force_K19_coeff = False
 
 # Whether to make a RUWE cut. Testing with a (BP-RP)-[Fe/H] relation indicates
 # that the RUWE cut results in *worse* performance, so this is not recommended.
-make_ruwe_cut = False
+make_ruwe_cut = True
 ruwe_threshold = 1.4
 
+# Cut on bad quality 2MASS photometry
+make_2MASS_Qflg_cut = True
+
+# Cut on 2MASS contamination flag
+make_2MASS_Cflg_cut = True
+
+# Cut on Way+2026 overluminosity
+way26_fn = "data/Way26_overluminous_catalog.csv"
+make_way26_overluminous_cut = True
+
 # Inflation factor for K+19 uncertainties
-K19x = 1.5
+K19x = 2.0
 
 N_COEFF = 4
 
 # Number of MC samples to use when recomputing the Mann+2015 radii using Gaia
 # DR3 parallaxes.
-n_samples = 10000
+n_samples = 1000000
 
 # Maximum fractional precision on Kesseli+2019 radii to use when fitting
 k19_rstar_frac_precision_cut = 0.2
+
+# Whether to annotate the fitted polynomial
+do_plot_polynomial_coefficients = True
 
 # -----------------------------------------------------------------------------
 # Functions
@@ -182,6 +196,16 @@ def calc_rstar(fbol, teff, dist):
 # Import
 # -----------------------------------------------------------------------------
 # ---------------------------------------------
+# Way+2026
+# ---------------------------------------------
+# [Optional] Import the Way+26 sample of Solar Neighbourhood stars with
+# identified overluminosity per Gaia DR3 BP/RP spectra.
+if make_way26_overluminous_cut:
+    way26 = pd.read_csv(way26_fn, dtype={"source_id":str})
+    way26.rename(columns={"source_id":"source_id_dr3"}, inplace=True)
+    way26.set_index("source_id_dr3", inplace=True)
+
+# ---------------------------------------------
 # Mann+2015
 # ---------------------------------------------
 mann_tsv = "data/mann15_all_dr3.tsv"
@@ -318,10 +342,6 @@ if include_K19_subdwarfs:
     data_tab.loc[has_k19, "ruwe_dr3"] = data_tab.loc[has_k19, "ruwe_dr3_k19"]
     data_tab.loc[has_k19, "plx_dr3"] = data_tab.loc[has_k19, "plx_dr3_k19"]
 
-    # Remove any entries without bad RUWE
-    if make_ruwe_cut:
-        data_tab = data_tab[data_tab["ruwe_dr3"] < 1.4].copy()
-
     n_star = len(data_tab)
     has_m15 = data_tab["has_m15"].values
     has_k19 = data_tab["has_k19"].values
@@ -331,19 +351,21 @@ if include_K19_subdwarfs:
     # ---------------------------------------------
     # Merge 2MASS data
     # ---------------------------------------------
+    # Note that when we do the merge, we assume that any stars from Mann+15
+    # have the highest quality photometric flags.
     data_tab.loc[has_m15, "Qflg_2MASS"] = "AAA"
+    data_tab.loc[has_m15, "Cflg_2MASS"] = "0"
+
     data_tab.loc[only_has_k19, "K_mag"] = \
         data_tab.loc[only_has_k19, "K_mag_k19"]
     data_tab.loc[only_has_k19, "e_K_mag"] = \
         data_tab.loc[only_has_k19, "e_K_mag_k19"]
     data_tab.loc[only_has_k19, "Qflg_2MASS"] = \
         data_tab.loc[only_has_k19, "Qflg"]
+    data_tab.loc[only_has_k19, "Cflg_2MASS"] = \
+        data_tab.loc[only_has_k19, "Cflg"]
     data_tab.loc[only_has_k19, "plx_dr3"] = \
         data_tab.loc[has_k19, "plx_dr3_k19"]
-
-    # Remove any entries with bad photometry
-    if make_ruwe_cut:
-        data_tab = data_tab[data_tab["Qflg_2MASS"] != "AAA"].copy()
     
     # Compute Absolute magnitudes
     dist = 1000 / data_tab["plx_dr3"].values
@@ -367,22 +389,43 @@ if include_K19_subdwarfs:
     e_rstar_adopt[has_m15] = data_tab["e_R"].values[has_m15]
 
     rstar_adopt[adopt_k19] = data_tab["r_star"].values[adopt_k19]
-    e_rstar_adopt[adopt_k19] = data_tab["e_r_star"].values[adopt_k19] * K19x
+    e_rstar_adopt[adopt_k19] = data_tab["e_r_star"].values[adopt_k19]
 
     data_tab["feh_adopt"] = feh_adopt
     data_tab["rstar_adopt"] = rstar_adopt
     data_tab["e_rstar_adopt"] = e_rstar_adopt
 
+    # ---------------------------------------------
+    # Masking
+    # ---------------------------------------------
     # Mask out those stars without 2MASS
     data_tab = data_tab[~np.isnan(data_tab["MKs"])].copy()
 
+    # Remove any entries with non-`AAA` 2MASS photometry
+    if make_2MASS_Qflg_cut:
+        data_tab = data_tab[data_tab["Qflg_2MASS"] == "AAA"].copy()
+
+    # Remove any entries with potentially contaminated 2MASS photometry
+    if make_2MASS_Cflg_cut:
+        data_tab = data_tab[data_tab["Cflg_2MASS"] == "0"].copy()
+
     # RUWE cut
-    data_tab = data_tab[data_tab["ruwe_dr3"].values <= 1.4].copy()
+    if make_ruwe_cut:
+        data_tab = data_tab[data_tab["ruwe_dr3"].values <= 1.4].copy()
+
+    # Way+26 overluminosity cut
+    if make_way26_overluminous_cut:
+        data_tab = data_tab.join(way26["ol"], on="source_id_dr3",)
+        data_tab = data_tab[data_tab["ol"].values != True].copy()
 
     # Update masks
     has_m15 = data_tab["has_m15"].values
     has_k19 = data_tab["has_k19"].values
     adopt_k19 = np.logical_and(~has_m15, has_k19)
+
+    # Set up sigma scaling mask
+    sigma_scale = np.ones_like(data_tab["rstar_adopt"].values)
+    sigma_scale[adopt_k19] = K19x
 
 else:
     data_tab = m15_data
@@ -396,7 +439,10 @@ else:
     data_tab["MKs"] = data_tab["K_mag"] - 5*np.log10(dist/10)
 
     # RUWE cut
-    data_tab = data_tab[data_tab["ruwe_dr3"].values <= 1.4].copy()
+    if make_ruwe_cut:
+        data_tab = data_tab[data_tab["ruwe_dr3"].values <= 1.4].copy()
+
+    sigma_scale = np.ones_like(data_tab["r_star_adopt"].values)
 
 # -----------------------------------------------------------------------------
 # Fitting
@@ -409,7 +455,7 @@ coeffs, opt_res = fit_MKs_Fe_H_radius_relation(
     data_tab["MKs"].values,
     data_tab["feh_adopt"].values,
     data_tab["rstar_adopt"].values,
-    data_tab["e_rstar_adopt"].values)
+    data_tab["e_rstar_adopt"].values * sigma_scale,)
 
 # Force old coefficients for checking
 if force_M15_coeff:
@@ -500,7 +546,7 @@ if include_K19_subdwarfs:
 
     comp_ax.text(
         x=0.35,
-        y=0.125,
+        y=0.175,
         s=M15_txt.format(delta_pc_m15, sigma_pc_m15),
         transform=comp_ax.transAxes,
         horizontalalignment="left",)
@@ -519,13 +565,40 @@ if include_K19_subdwarfs:
 
     comp_ax.text(
         x=0.35,
-        y=0.05,
+        y=0.1,
         s=K19_txt.format(delta_pc_k19, sigma_pc_k19),
         transform=comp_ax.transAxes,
         horizontalalignment="left",)
 
 cb1 = fig.colorbar(sc1, ax=comp_ax)
 cb1.ax.set_title("[Fe/H]")
+
+# ---------------------------------------------
+# [Optional] Polynomial
+# ---------------------------------------------
+# Display polynomial coefficients
+if do_plot_polynomial_coefficients:
+    # Construct polynomial
+    MKs_terms = \
+        r"({:0.5}+{:0.5}\cdot M_{{K_S}}+{:0.5}\cdot M_{{K_S}}^2)".format(
+            coeffs[0], coeffs[1], coeffs[2]).replace("+-", "-")
+    
+    Fe_H_term = r"(1+{:0.3}\cdot\mathrm{{[Fe/H]}})$".format(coeffs[3])
+    
+    complete_eq = r"$R_\mathrm{{\star}}=" + MKs_terms + Fe_H_term
+
+    # Also display BP-RP limits
+    lims = "\t$[{:0.2f}, {:0.2f}]$".format(np.min(MKs), np.max(MKs))
+
+    comp_ax.text(
+        x=0.5,
+        y=0.04,
+        s=complete_eq,# + lims,
+        horizontalalignment="center",
+        verticalalignment="center",
+        color="r",
+        fontsize="x-small",
+        transform=comp_ax.transAxes,)
 
 # ---------------------------------------------
 # Residuals axis
@@ -544,7 +617,7 @@ all_txt = r"$\sigma_{{R_\mathregular{{\star}}}}={:+3.2f}\pm{:0.2f}\,\%$ (All)"
 
 comp_ax.text(
     x=0.35,
-    y=0.20,
+    y=0.25,
     s=all_txt.format(delta_pc, sigma_pc),
     transform=comp_ax.transAxes,
     horizontalalignment="left",)
