@@ -467,7 +467,7 @@ rstar_pred = calc_relation_MKs_Fe_H(coeffs, MKs, data_tab["feh_adopt"],)
 
 # Round coefficients
 coeffs_orig = coeffs.copy()
-coeffs = np.round(coeffs, 4)
+coeffs = np.round(coeffs, 5)
 
 print("Fitted Coefficients:")
 print("\t".join(coeffs.astype(str)))

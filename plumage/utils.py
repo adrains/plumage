@@ -1087,12 +1087,16 @@ def load_info_cat(
 
     # Compute Mann+19 masses from provided code that samples posteriors
     if use_mann_code_for_masses:
+        print("-"*26, "\nComputing Mann+2019 Masses\n", "-"*26, sep="")
         masses = np.full(len(info_cat), np.nan)
         e_masses = np.full(len(info_cat), np.nan)
 
         for star_i, (source_id, star_info) in enumerate(info_cat.iterrows()):
-            # Assign defaults if outside the absolute K bounds of the relation
-            if star_info["K_mag_abs"] < 4 or star_info["K_mag_abs"] > 11:
+            # Assign defaults if outside the absolute K bounds of the relation,
+            # or if we have NaN values.
+            if (star_info["K_mag_abs"] < 4 or star_info["K_mag_abs"] > 11
+                or np.isnan(star_info["K_mag_abs"])
+                or np.isnan(star_info["dist"])):
                 continue
 
             # Calculate masses and uncertainties from code provided at:
@@ -1107,6 +1111,8 @@ def load_info_cat(
 
             masses[star_i] = mass
             e_masses[star_i] = e_mass
+
+        print("-"*26)
 
     # Otherwise just use relations from the paper
     else:

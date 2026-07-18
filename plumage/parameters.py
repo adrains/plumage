@@ -427,6 +427,76 @@ def compute_kesseli_2019_radii(
     return radii, e_radii
 
 
+def compute_mann_kesseli_2026_radii(
+    k_mag_abs,
+    fehs,
+    enforce_M_Ks_bounds=True,
+    enforce_feh_bounds=True,):
+    """Calculates stellar radii based on absolute 2MASS Ks band magnitudes
+    per the empirical relations in Table 1 of Mann et al. 2015, but refitted
+    using scripts_misc/make_mks_feh_radii_relaiton.py using the combined
+    Mann+15 and Kesseli+19 samples of K/M benchmarks. This relation was fit
+    with the following quality cuts:
+     - Gaia DR3 RUWE < 1.4
+     - 2MASS Qflg = 'AAA' *or* integrated Ks photometry from Mann+15
+     - 2MASS Cflg = '0' *or* integrated Ks photometry from Mann+15
+     - sigma_radius < 20%
+
+    Paper:
+        M15: https://iopscience.iop.org/article/10.1088/0004-637X/804/1/64
+        K19: https://ui.adsabs.harvard.edu/abs/2019AJ....157...63K/abstract
+
+    2nd order polynomial for R* in M_Ks with [Fe/H] term (Eqn 5)
+        R* = [a + b*(M_Ks) + c*(M_Ks)^2] * (1 + f*[Fe/H])
+        
+    The relations are valid for:
+        i)   4.6 < M_Ks < 9.9
+        ii)  -1.88 < [Fe/H] < 0.53
+        iii) 0.11 < R* < 0.68 R_sun
+
+    Parameters
+    ----------
+    k_mag_abs: float array
+        Array of absolute 2MASS Ks band magnitudes
+
+    fehs: float array
+        Array of [Fe/H] corresponding to k_mag_abs.
+
+    enforce_M_Ks_bounds, enforce_feh_bounds: boolean, default: True
+        If True, we enforce the M_Ks or [Fe/H] (if using) bounds of the 
+        relations and set stars outside the limits to nan.
+
+    Returns
+    -------
+    radii: float array
+        Resulting stellar radii in solar units.
+
+    e_masses: float array
+        Uncertainties on stellar radii in solar units.
+    """
+    # Values for Eqn 5 in Mann+2015
+    frac_radii_pc_M_Ks_feh = 0.027
+    coeff_M_Ks_feh = np.array([1.93496, -0.3482, 0.01658,])
+    coeff_feh = 0.05538
+
+    # Compute radii
+    radii = polyval(k_mag_abs, coeff_M_Ks_feh) * (1 + coeff_feh * fehs)
+    e_radii = radii * frac_radii_pc_M_Ks_feh
+
+    # Default behaviour is to output NaN where M_Ks or [Fe/H] (if using) are
+    # beyond the bounds of the original relation.
+    if enforce_M_Ks_bounds:
+        outside_bounds = np.logical_or(k_mag_abs < 4.6, k_mag_abs > 9.9)
+        radii[outside_bounds] = np.nan
+        e_radii[outside_bounds] = np.nan
+
+    if enforce_feh_bounds:
+        outside_bounds = np.logical_or(fehs < -1.88, fehs > 0.53)
+        radii[outside_bounds] = np.nan
+        e_radii[outside_bounds] = np.nan
+
+    return radii, e_radii
+
 def compute_logg(masses, e_masses, radii, e_radii,):
     """Compute logg from mass and radius + propagate uncertainties.
 

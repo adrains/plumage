@@ -174,6 +174,19 @@ is_cpm = np.array([type(val) == str for val in obs_join["prim_name"].values])
 obs_join["is_cpm"] = is_cpm
 
 #=========================================
+# Way+2026
+#=========================================
+# Import the Way+26 sample of Solar Neighbourhood stars with identified
+# overluminosity per Gaia DR3 BP/RP spectra.
+way26 = pd.read_csv(ls.way26_fn, dtype={"source_id":str})
+way26.rename(columns={"source_id":"source_id_dr3"}, inplace=True)
+way26.set_index("source_id_dr3", inplace=True)
+
+# Crossmatch with just the overluminous column
+obs_join = obs_join.join(way26["ol"], on="source_id_dr3",)
+obs_join["ol"] = obs_join["ol"].values != True
+
+#=========================================
 # General cleanup
 #=========================================
 # Add a column for K dwarf benchmarks.
@@ -212,6 +225,7 @@ N_STAR_ALL = len(obs_join)
 #------------------------------------------------------------------------------
 # Collate [Fe/H]
 #------------------------------------------------------------------------------
+print("\nCollating [Fe/H]...", "\n", "-"*19, "\n", sep="")
 # Select adopted [Fe/H] values which are needed for empirical Teff relations
 feh_info_all = []
 
@@ -237,6 +251,19 @@ obs_join["feh_temp"] = feh_values.copy()
 #------------------------------------------------------------------------------
 # Calculate R* and logg via empirical relations
 #------------------------------------------------------------------------------
+print("\nCalculating radii...", "\n", "-"*20, "\n", sep="")
+# ---------------------------------------------
+# Mann+2015 + Kesseli+2026 -- combined relation
+# ---------------------------------------------
+r_star_mk26, e_r_star_mk26 = pp.compute_mann_kesseli_2026_radii(
+    k_mag_abs=obs_join["K_mag_abs"].values,
+    fehs=feh_values.copy(),
+    enforce_M_Ks_bounds=True,
+    enforce_feh_bounds=True,)
+
+obs_join["radius_mk26"] = r_star_mk26
+obs_join["e_radius_mk26"] = e_r_star_mk26
+
 # ---------------------------------------------
 # Mann+2015 -- metal rich M-dwarfs
 # ---------------------------------------------
@@ -300,17 +327,11 @@ radius_adopted_ref = np.full(N_STAR_ALL, "").astype(object)
 
 # Loop over all stars
 for star_i, (source_id, star_info) in enumerate(obs_join.iterrows()):
-    # Adopt Mann+2015 for (BP-RP) >= 1.7, [Fe/H] >= -0.5
-    if star_info["K_mag_abs"] >= 4.6 and star_info["feh_temp"] >= -0.5:
-        r_star_adopt[star_i] = r_star_m15[star_i]
-        e_r_star_adopt[star_i] = e_r_star_m15[star_i]
-        radius_adopted_ref[star_i] = "M15"
-
-    # Adopt Kesseli+2019 for (BP-RP) >= 1.7, [Fe/H] < -0.5
-    elif star_info["K_mag_abs"] > 4.6 and star_info["feh_temp"] < -0.5:
-        r_star_adopt[star_i] = r_star_k19[star_i]
-        e_r_star_adopt[star_i] = e_r_star_k19[star_i]
-        radius_adopted_ref[star_i] = "K19"
+    # Adopt joint Mann+15/Kesseli+19 relation for MKs >= 4.6, [Fe/H] >= -1.88
+    if star_info["K_mag_abs"] >= 4.6 and star_info["feh_temp"] >= -1.88:
+        r_star_adopt[star_i] = r_star_mk26[star_i]
+        e_r_star_adopt[star_i] = e_r_star_mk26[star_i]
+        radius_adopted_ref[star_i] = "MK26"
 
     # Adopt Kiman+2024 for (BP-RP) < 1.7
     elif star_info["K_mag_abs"] < 4.6:
@@ -325,6 +346,7 @@ obs_join["r_star_adopt_ref"] = radius_adopted_ref
 # ---------------------------------------------
 # Update logg
 # ---------------------------------------------
+print("\nComputing logg...", "\n", "-"*17, "\n", sep="")
 logg, e_logg = pp.compute_logg(
     masses=obs_join["mass_m19"].values,
     e_masses=obs_join["e_mass_m19"].values,
@@ -337,6 +359,7 @@ obs_join["e_logg_m19"] = e_logg
 #------------------------------------------------------------------------------
 # Calculate Teff via empirical relations
 #------------------------------------------------------------------------------
+print("\nComputing Teff...", "\n", "-"*17, "\n", sep="")
 # Calculate Mann+2015 Teff
 teff_M15, e_teff_M15 = pp.compute_mann_2015_teff(
     colour=obs_join["BP-RP_dr3"].values,
@@ -361,6 +384,7 @@ obs_join["e_teff_C21_BP_RP_logg_feh"] = e_teff_C21
 #------------------------------------------------------------------------------
 # Science target vetting
 #------------------------------------------------------------------------------
+print("\nDoing science target vetting...", "\n", "-"*31, "\n", sep="")
 n_star = len(obs_join)
 
 # Reject any stars that we've flagged as 'not useful'
@@ -377,7 +401,15 @@ if ls.enforce_ruwe:
         obs_join["ruwe_dr3"] > ls.ruwe_threshold)
 else:
     bad_ruwe_mask = np.full(n_star, False)
-        
+
+# Enforce that no stars should be identified as overluminous per Way+26. Again
+# have an exception for interferometric targets.
+if ls.make_way26_overluminous_cut:
+    is_overluminous_mask = np.logical_and(
+        ~np.isnan(obs_join["teff_int"].values), obs_join["ol"].values)
+else:
+    is_overluminous_mask = np.full(n_star, False)
+
 # In local bubble (i.e. minimal reddening)
 if ls.enforce_in_local_bubble:
     too_distant_mask = obs_join["dist"] >= params.LOCAL_BUBBLE_DIST_PC
@@ -409,6 +441,7 @@ else:
 sci_keep_mask = np.all(np.stack([
     ~is_rejected_std,
     ~bad_ruwe_mask,
+    ~is_overluminous_mask,
     ~too_distant_mask,
     ~blended_2mass_mask,
     ~has_aberrant_logg]), axis=0)
@@ -416,6 +449,7 @@ sci_keep_mask = np.all(np.stack([
 #------------------------------------------------------------------------------
 # Binary vetting
 #------------------------------------------------------------------------------
+print("\nDoing binary system vetting...", "\n", "-"*30, "\n", sep="")
 # Enforce the system has not been marked as not useful
 if ls.enforce_system_useful:
     binary_syst_useful = (obs_join["useful"] != "no").values.astype(bool)
@@ -493,6 +527,7 @@ print("\nTotal:\t\t{}/{}".format(np.sum(syst_keep_mask), n_cpm, ))
 #------------------------------------------------------------------------------
 # Collating masks
 #------------------------------------------------------------------------------
+print("\nCollating masks...", "\n", "-"*18, "\n", sep="")
 # Now combine general science target mask with the binary mask (but only apply
 # the binary mask to binary stars.)
 keep_mask = np.logical_and(
@@ -515,6 +550,7 @@ if ls.allow_misc_exceptions:
 # Correcting chemodynamic [X/Fe]
 #------------------------------------------------------------------------------
 if ls.do_CD_polynomial_correction:
+    print("\nCorrecting chemodynamic systematics...","\n","-"*38,"\n",sep="")
     # Load in the fitted polynomials
     with open(ls.CD_polynomial_fn, 'rb') as input_file:
         poly_dict_CD = pickle.load(input_file)
@@ -580,6 +616,7 @@ for col in obs_join.columns.values:
 #------------------------------------------------------------------------------
 # Plotting
 #------------------------------------------------------------------------------
+print("\nPlotting & saving...", "\n", "-"*20, "\n", sep="")
 icb = obs_join["is_cannon_benchmark"].values
 
 splt.plot_cannon_cmd(

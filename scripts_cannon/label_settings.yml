@@ -45,7 +45,7 @@ tsv_secondaries_fn:  "data/cpm_secondaries_dr3.tsv"
 sampled_param_csv: "data/monty_sampled_params_n103.csv"
 
 # Settings to use when importing TSV files
-use_mann_code_for_masses: False
+use_mann_code_for_masses: True
 only_import_in_paper: False #True
 only_import_observed: True #False
 gdr: "dr3"
@@ -102,6 +102,10 @@ BENCHMARK_CITATIONS:
 # Whether we enforce a cut on RUWE for benchmark stars
 ruwe_threshold: 1.4
 enforce_ruwe: False
+
+# Whether we enforce that no star has been identified as overluminous in Way+26
+way26_fn: "data/Way26_overluminous_catalog.csv"
+make_way26_overluminous_cut: True
 
 # Whether we require the system to be within the local bubble for simplified
 # treatment (or assumptions) about reddening
@@ -161,7 +165,7 @@ enforce_primary_BP_RP_colour: True
 # velocity space (given a Galactic potential), but that remains very much TODO.
 
 # Enforce parallax consistency between binary pairs
-binary_max_delta_parallax: 0.2
+binary_max_sigma_delta_parallax: 4
 enforce_parallax_consistency: True
 
 # Enforce a 'normalised' proper motion consistency between binary pairs. We 
