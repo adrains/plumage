@@ -101,7 +101,7 @@ BENCHMARK_CITATIONS:
 #------------------------------------------------------------------------------
 # Whether we enforce a cut on RUWE for benchmark stars
 ruwe_threshold: 1.4
-enforce_ruwe: False
+enforce_ruwe: True
 
 # Whether we enforce that no star has been identified as overluminous in Way+26
 way26_fn: "data/Way26_overluminous_catalog.csv"

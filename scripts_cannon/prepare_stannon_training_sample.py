@@ -184,7 +184,7 @@ way26.set_index("source_id_dr3", inplace=True)
 
 # Crossmatch with just the overluminous column
 obs_join = obs_join.join(way26["ol"], on="source_id_dr3",)
-obs_join["ol"] = obs_join["ol"].values != True
+obs_join["ol"] = obs_join["ol"].values == True
 
 #=========================================
 # General cleanup
@@ -397,7 +397,7 @@ is_rejected_std = ~obs_join["is_useful_std"].values
 # binarity would be revealed there), and apply the mask
 if ls.enforce_ruwe:
     bad_ruwe_mask = np.logical_and(
-        ~np.isnan(obs_join["teff_int"]),
+        np.isnan(obs_join["teff_int"].values),
         obs_join["ruwe_dr3"] > ls.ruwe_threshold)
 else:
     bad_ruwe_mask = np.full(n_star, False)
@@ -406,7 +406,7 @@ else:
 # have an exception for interferometric targets.
 if ls.make_way26_overluminous_cut:
     is_overluminous_mask = np.logical_and(
-        ~np.isnan(obs_join["teff_int"].values), obs_join["ol"].values)
+        np.isnan(obs_join["teff_int"].values), obs_join["ol"].values)
 else:
     is_overluminous_mask = np.full(n_star, False)
 
@@ -445,6 +445,23 @@ sci_keep_mask = np.all(np.stack([
     ~too_distant_mask,
     ~blended_2mass_mask,
     ~has_aberrant_logg]), axis=0)
+
+# Print a summary
+n_std = len(sci_keep_mask)
+print("Science Target Vetting Overview:",)
+print(" Not useful:\t\t\t{}/{}\t({})".format(
+    np.sum(is_rejected_std), n_std, True))
+print(" Bad RUWE (excl. int):\t\t{}/{}\t({})".format(
+    np.sum(bad_ruwe_mask), n_std, ls.enforce_ruwe))
+print(" Overluminous (excl. int):\t{}/{}\t({})".format(
+    np.sum(is_overluminous_mask), n_std, ls.make_way26_overluminous_cut))
+print(" Outside local bubble:\t\t{}/{}\t({})".format(
+    np.sum(too_distant_mask), n_std, ls.enforce_in_local_bubble))
+print(" Blended 2MASS:\t\t\t{}/{}\t({})".format(
+    np.sum(blended_2mass_mask), n_std, ls.enforce_2mass_unblended))
+print(" Aberrant logg:\t\t\t{}/{}\t({})".format(
+    np.sum(has_aberrant_logg), n_std, ls.enforce_aberrant_logg))
+print("\nTotal:\t\t\t\t{}/{}".format(np.sum(sci_keep_mask), n_std, ))
 
 #------------------------------------------------------------------------------
 # Binary vetting
@@ -509,7 +526,7 @@ syst_keep_mask = np.all(np.stack([
 
 # Print a summary
 n_cpm = np.sum(is_cpm)
-print("\nBinary Vetting Overview:", "\n", "-"*24, sep="")
+print("Binary Vetting Overview:",)
 print(" Useful:\t\t{}/{}\t({})".format(
     np.sum(binary_syst_useful[is_cpm]), n_cpm, ls.enforce_system_useful))
 print(" Prim RUWE:\t\t{}/{}\t({})".format(
@@ -522,7 +539,7 @@ print(" Consistent PMs:\t{}/{}\t({})".format(
     np.sum(consistent_syst_pm[is_cpm]), n_cpm, ls.enforce_pm_consistency))
 print(" Consistent RVs:\t{}/{}\t({})".format(
     np.sum(consistent_syst_rvs[is_cpm]), n_cpm, ls.enforce_rv_consistency))
-print("\nTotal:\t\t{}/{}".format(np.sum(syst_keep_mask), n_cpm, ))
+print("\nTotal:\t\t\t{}/{}".format(np.sum(syst_keep_mask), n_cpm, ))
 
 #------------------------------------------------------------------------------
 # Collating masks
