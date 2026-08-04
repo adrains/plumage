@@ -192,10 +192,11 @@ def correct_chemodynamic_abundance_trends(
     chem_df,
     species_to_correct,
     comp_ref,
-    CD_ref="SM25",
+    CD_ref="CD_KM",
     comp_ref_secondary=None,
     poly_order=2,
     outlier_dex=0.3,
+    Fe_H_limits=(-1.0,2.0),
     outer_points_to_drop=2,):
     """Function to put our chemodynamic abundances on the same scale (or as
     best we can) as an adopted literature scale. We do this by performing
@@ -221,7 +222,7 @@ def correct_chemodynamic_abundance_trends(
     comp_ref: str
         The reference abundance scale to correct to, e.g. 'VF05'.
 
-    CD_ref: str
+    CD_ref: str, default: 'CD_KM'
         Reference string for our chemodynamic sample.
 
     comp_ref_secondary: str, default: None
@@ -234,6 +235,11 @@ def correct_chemodynamic_abundance_trends(
     outlier_dex: default: 0.3
         Residuals beyond +/- outlier_dex are excluded when fitting the 
         polynomial in order to prevent outliers affecting the fit.
+
+    Fe_H_limits: float tuple, default: (-1.0, 2.0)
+        [Fe/H] limits to enforce when correcting residuals used to prevent the
+        fit being weighted by the poorly sampled metal poor tail of the
+        distribution.
 
     outer_points_to_drop: int, default 2
         In order to prevent potentially sparsely sampled edge points from 
@@ -293,12 +299,18 @@ def correct_chemodynamic_abundance_trends(
         e_resid = np.sqrt(chem_df[e_abund_ref].values**2
                             + chem_df[e_abund_comp].values**2)
         
+        Fe_H = chem_df["Fe_H_{}".format(comp_ref_adopt)].values
+
         # Perform polynomial fitting
         n_overlap = np.sum(~np.isnan(resid))
-        resid_mask = ~np.isnan(resid)
-        fit_mask = np.logical_and(resid_mask, np.abs(resid) < outlier_dex)
 
-        Fe_H = chem_df["Fe_H_{}".format(comp_ref_adopt)].values
+        # Construct mask to exclude outliers, and points beyond [Fe/H] bounds.
+        is_nan = ~np.isnan(resid)
+        is_outlier = np.abs(resid) > outlier_dex
+        within_Fe_H_bounds = np.logical_and(
+            Fe_H > Fe_H_limits[0], Fe_H < Fe_H_limits[1])
+
+        fit_mask = np.all((~is_nan, ~is_outlier, within_Fe_H_bounds),axis=0)
         
         poly = np.polynomial.Polynomial.fit(
             Fe_H[fit_mask], resid[fit_mask], poly_order)
@@ -310,14 +322,15 @@ def correct_chemodynamic_abundance_trends(
         # of the overlapping sample. However, for our correction we'll
         # evaluate it several points in from each end to prevent outliers
         # from having too much of an influence.
-        Fe_H_sorted = Fe_H[resid_mask].copy()
+        Fe_H_sorted = Fe_H[~is_nan].copy()
         Fe_H_sorted.sort()
 
         i_min = outer_points_to_drop
         i_max = len(Fe_H_sorted) - outer_points_to_drop
 
-        min_Fe_H = Fe_H_sorted[i_min]
-        max_Fe_H = Fe_H_sorted[i_max]
+        # Adopt either these *or* the [Fe/H] limit (whichever is tighter)
+        min_Fe_H = np.nanmax([Fe_H_sorted[i_min], Fe_H_limits[0]])
+        max_Fe_H = np.nanmin([Fe_H_sorted[i_max], Fe_H_limits[1]])
         
         # Store bounds in polynomial object for plotting later
         poly.Fe_H_bounds = (min_Fe_H, max_Fe_H)
@@ -1036,14 +1049,14 @@ def plot_chemodynamic_one_to_one_recovery(
         Fe_H_ref = chem_df["Fe_H_{}".format(comp_ref)].values
 
         # Grab chemodynamic data
-        X_Fe_CD = chem_df["{}_SM25".format(species)].values
-        e_X_Fe_CD = chem_df["e_{}_SM25".format(species)].values
+        X_Fe_CD = chem_df["{}_CD_ref".format(species)].values
+        e_X_Fe_CD = chem_df["e_{}_CD_ref".format(species)].values
 
         #=============================================
         # Compute corrected [X/Fe]
         #=============================================
         # Grab the polynomial and its bounds in [Fe/H]
-        poly = poly_dict_CD[("SM25", species)]
+        poly = poly_dict_CD[("CD_ref", species)]
         Fe_H_bounds = poly.Fe_H_bounds
         
         # Work out beyond bounds
@@ -1200,7 +1213,8 @@ samples = {
     "D19":"data/D19_gaia_all.tsv",      # Individual sigmas
     "RB20":"data/RB20_dr3_all.tsv",     # Const sigma for: all
     "M20":"data/M20_gaia_all.tsv",      # Const sigma for: all
-    "SM25":"data/SM25_X_Fe_chemodynamic_Ti_Ca_Na_Al_Mg.tsv",# Invidivual sigmas
+    "CD_ref":"data/chemodynamic_X_Fe_A12_Ti_Ca_Mg.tsv", # Invidivual sigmas
+    "CD_KM":"data/chemodynamic_X_Fe_KM_Ti_Ca_Mg.tsv",   # Invidivual sigmas
 }
 
 # Mapping of chemical species within each sample
@@ -1231,7 +1245,8 @@ species_all = {
             "Fe", "Ni", "Y"],
     "M20":["Fe",],# "C", "Na", "Mg", "Al", "Si", "Ca", "Sc", "Ti", "V", "Cr",
            #"Mn", "Co", "Ni", "Zn",],
-    "SM25":["Na", "Mg", "Al", "Ca", "Ti"],
+    "CD_ref":["Mg", "Ca", "Ti"],
+    "CD_KM":["Mg", "Ca", "Ti"],
 }
 
 # Mapping of abundance uncertainties for those samples with constant adopted
@@ -1304,7 +1319,7 @@ sigmas = {
 ENFORCE_K_DWARF_BP_RP_COLOUR_CUT = False
 K_DWARF_BP_RP_MAX = 1.7
 cool_dwarf_catalogues = \
-    ["RA12", "M14", "G14a", "G14b", "M15", "T15E", "T15M", "D19", "M20", "SM25"]
+    ["RA12", "M14", "G14a", "G14b", "M15", "T15E", "T15M", "D19", "M20", "CD_KM"]
 
 # Set to true to drop columns related to abundances we're not correcting for
 # systematics. This prevents bloat in the number of columns, and is important
@@ -1901,24 +1916,47 @@ dataframes_cut["M20"] = M20[cols].copy()
 #=========================================
 # Monty GALAH+Gaia [X/Fe] predictions
 #=========================================
-SM25 = dataframes["SM25"]
-has_sid = np.array([sid not in default_ids for sid in SM25.index.values])
-SM25 = SM25[has_sid].copy()
-n_SM25 = len(SM25)
+# Note that we need to import *two* separate chemodynamic catalogues:
+# 1) Our *reference* chemodynamic catalogue for computing systematics,
+CD_ref = dataframes["CD_ref"]
+has_sid = np.array([sid not in default_ids for sid in CD_ref.index.values])
+CD_ref = CD_ref[has_sid].copy()
+n_CD_ref = len(CD_ref)
 
-abund_cols_old = ["[{}/Fe]".format(ss) for ss in species_all["SM25"]]
-abund_cols_new = ["{}_Fe_SM25".format(ss) for ss in species_all["SM25"]]
+abund_cols_old = ["[{}/Fe]".format(ss) for ss in species_all["CD_ref"]]
+abund_cols_new = ["{}_Fe_CD_ref".format(ss) for ss in species_all["CD_ref"]]
 
-SM25.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+CD_ref.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
 
-sigma_cols_old = ["e_[{}/Fe]".format(ss) for ss in species_all["SM25"]]
-sigma_cols_new = ["e_{}_Fe_SM25".format(ss) for ss in species_all["SM25"]]
-SM25.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+sigma_cols_old = ["e_[{}/Fe]".format(ss) for ss in species_all["CD_ref"]]
+sigma_cols_new = ["e_{}_Fe_CD_ref".format(ss) for ss in species_all["CD_ref"]]
+CD_ref.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
 
 # Create new subset dataframe of just abundances and uncertainties
 cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
 cols.append("bp_rp")
-dataframes_cut["SM25"] = SM25[cols].copy()
+dataframes_cut["CD_ref"] = CD_ref[cols].copy()
+
+#=========================================
+# 2) Our *benchmark* chemodynamic catalogue.
+CD_KM = dataframes["CD_KM"]
+has_sid = np.array([sid not in default_ids for sid in CD_KM.index.values])
+CD_KM = CD_KM[has_sid].copy()
+n_CD_KM = len(CD_KM)
+
+abund_cols_old = ["[{}/Fe]".format(ss) for ss in species_all["CD_KM"]]
+abund_cols_new = ["{}_Fe_CD_KM".format(ss) for ss in species_all["CD_KM"]]
+
+CD_KM.rename(columns=dict(zip(abund_cols_old, abund_cols_new)), inplace=True)
+
+sigma_cols_old = ["e_[{}/Fe]".format(ss) for ss in species_all["CD_KM"]]
+sigma_cols_new = ["e_{}_Fe_CD_KM".format(ss) for ss in species_all["CD_KM"]]
+CD_KM.rename(columns=dict(zip(sigma_cols_old, sigma_cols_new)), inplace=True)
+
+# Create new subset dataframe of just abundances and uncertainties
+cols = [val for pair in zip(abund_cols_new, sigma_cols_new) for val in pair]
+cols.append("bp_rp")
+dataframes_cut["CD_KM"] = CD_KM[cols].copy()
 
 #------------------------------------------------------------------------------
 # Massaging things
@@ -1970,9 +2008,9 @@ OUTLIER_DEX = 0.3
 
 # K dwarfs. Note: we need to give a secondary reference here since VF05 doesn't
 # have all [X/Fe] of interest. 
-species_to_correct_K = ["Fe_H", "Ti_H", "Mg_H", "Ca_H", "Na_H", "Al_H"]
+species_to_correct_K = ["Fe_H", "Ti_H", "Mg_H", "Ca_H",]
 comp_ref_K = "VF05"
-comp_ref_secondary_K = "B16"
+comp_ref_secondary_K = "A12"
 references_to_compare_K = np.array(["R07", "A12", "B16", "M18", "L18", "RB20"])
 
 print("K Dwarfs\n--------")
@@ -2017,16 +2055,18 @@ sp.compute_X_Fe(
 # Default polynomial order and outlier rejection options
 POLY_ORDER_CD = 3
 OUTLIER_DEX_CD = 0.3
+CD_Fe_H_LIMS = (-1.0, 2.0)
 
-species_to_correct_CD = ["Mg_Fe", "Ca_Fe", "Ti_Fe", "Na_Fe", "Al_Fe"]
-comp_ref_CD = "B16"
-references_to_compare_CD = "SM25"
+species_to_correct_CD = ["Mg_Fe", "Ca_Fe", "Ti_Fe",]
+comp_ref_CD = "A12"
+references_to_compare_CD = "CD_ref"
 
 fit_dict_CD = correct_chemodynamic_abundance_trends(
     chem_df=df_comb,
     species_to_correct=species_to_correct_CD,
     comp_ref=comp_ref_CD,
     CD_ref=references_to_compare_CD,
+    Fe_H_limits=CD_Fe_H_LIMS,
     poly_order=POLY_ORDER_CD,
     outlier_dex=OUTLIER_DEX_CD,)
 
@@ -2106,7 +2146,7 @@ for ref, df in zip(cd_refs, cd_dfs):
 DO_LIMIT_Y_EXTENT = True
 
 # Plot abundance trends for K dwarfs
-BP_RP_LIMS_K = (0.52, 1.4)
+BP_RP_LIMS_K = (0.52, 1.5)
 ABUND_Y_LIMS_K = (-0.35, 0.35)
 BP_RP_TICKS_K = (0.1, 0.05)
 
@@ -2145,7 +2185,7 @@ plot_abundance_trends(
     figsize=FIG_SIZE,)
 
 # Plot abundance trends for chemodynamic [X/Fe]
-FE_H_LIMS_CD = (-1.15,0.5)
+FE_H_LIMS_CD = (-1.5,0.6)
 ABUND_Y_LIMS_CD = (-0.55, 0.55)
 FE_H_TICKS_CD = (0.2, 0.1)
 

@@ -575,10 +575,10 @@ if ls.do_CD_polynomial_correction:
     # Loop over all abundance labels (ignoring [Fe/H]) and perform correction
     for X_Fe in ls.abundance_labels[1:]:
         # Column name for abundance
-        X_Fe_col = "{}_SM25".format(X_Fe)
+        X_Fe_col = "{}_CD_KM".format(X_Fe)
 
         # Grab the polynomial and its bounds in [Fe/H]
-        poly = poly_dict_CD[("SM25", X_Fe)]
+        poly = poly_dict_CD[("CD_ref", X_Fe)]
         Fe_H_bounds = poly.Fe_H_bounds
         
         # Work out beyond bounds

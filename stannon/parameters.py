@@ -15,7 +15,8 @@ def prepare_labels(
     abundance_labels,
     synth_params_available=False,
     mid_K_BP_RP_bound=1.7,
-    mid_K_MKs_bound=4.6,):
+    mid_K_MKs_bound=4.6,
+    mid_K_BP_RP_trustworthy_X_Fe=1.3,):
     """Prepare our set of training labels using our hierarchy of parameter 
     source preferences.
 
@@ -56,9 +57,14 @@ def prepare_labels(
         Upper BP-RP bound beyond which we no longer consider direct 
         determination of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
 
-    mid_K_MKs_bound: float
+    mid_K_MKs_bound: float, default: 4.6
         Upper MKs bound beyond which we no longer consider direct determination
         of [Fe/H] or [X/Fe] from high-R spectroscopy reliable.
+
+    mid_K_BP_RP_trustworthy_X_Fe: float, default: 1.3
+        BP-RP thresholdt redder than which we do not consider K dwarfs to have 
+        trustworthy [X/Fe] values, as this represents the limit of our 
+        systematic correction.
 
     Updated
     -------
@@ -114,7 +120,8 @@ def prepare_labels(
                     mid_K_MKs_bound=mid_K_MKs_bound,
                     abund_order_k=abund_order_k,
                     abund_order_m=abund_order_m,
-                    abund_order_binary=abund_order_binary,)
+                    abund_order_binary=abund_order_binary,
+                    mid_K_BP_RP_trustworthy_X_Fe=mid_K_BP_RP_trustworthy_X_Fe,)
 
             label_values[star_i, 2+abund_i] = abund_value
             label_sigmas[star_i, 2+abund_i] = abund_sigma
@@ -276,7 +283,8 @@ def select_abund_label(
     mid_K_MKs_bound,
     abund_order_k,
     abund_order_m,
-    abund_order_binary,):
+    abund_order_binary,
+    mid_K_BP_RP_trustworthy_X_Fe,):
     """Produces our adopted [Fe/H] or [X/Fe] values for this specific star
     based on our ranking of literature sources where we preferentially take
     sources earlier in the list. 
@@ -300,6 +308,11 @@ def select_abund_label(
     abund_order_k, abund_order_m, abund_order_binary: str list
         Abund order of preference (highest priority to lowest) for K dwarfs,
         M dwarfs, and binaries respectively.
+
+    mid_K_BP_RP_trustworthy_X_Fe: float
+        BP-RP thresholdt redder than which we do not consider K dwarfs to have 
+        trustworthy [X/Fe] values, as this represents the limit of our 
+        systematic correction.
 
     Returns
     -------
@@ -348,10 +361,10 @@ def select_abund_label(
         # particular [X/Fe] (and it should only ever be [X/Fe] that fails, 
         # never [Fe/H] as that is required for Teff and logg) then we can
         # select a chemodynamic default. However, doing this means that we then
-        # need to always do a joing check for whether a star is a binary, and
-        # whether this particular [X/Fe] label is from SM25 or not.
+        # need to always do a joint check for whether a star is a binary, and
+        # whether this particular [X/Fe] label is from CD mapping or not.
         if abund_source == "" and abund != "Fe_H":
-            ref = "SM25"
+            ref = "CD_KM"
             abund_col = "{}_{}".format(abund, ref)
             e_abund_col = "e_{}_{}".format(abund, ref)
 
@@ -370,6 +383,12 @@ def select_abund_label(
     # We have to enforce our colour cut on K dwarfs as we can't trust directly
     # determined abundances below a certain threshold.
     elif is_mid_K:
+        # If we have a K dwarf redder than our trustworthy [X/Fe] threshold,
+        # we'll restrict the set of abundance sources to just chemodynamics.
+        if (abund != "Fe_H" and 
+            star_info["BP-RP_dr3"] > mid_K_BP_RP_trustworthy_X_Fe):
+            abund_order_k = ["CD_KM"]
+
         for ref in abund_order_k:
             # Construct the column name and check it exists
             abund_col = "{}_{}".format(abund, ref)

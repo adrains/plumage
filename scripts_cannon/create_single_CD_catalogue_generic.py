@@ -1,0 +1,130 @@
+"""Script to compile separately sampled chemodynamic [X/Fe] from into a single
+file for use when running assess_literature_systematics.py.
+"""
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Reference sample. Set this to 'KM' when running the benchmark sample, and to
+# e.g. 'A12' when running the reference sample.
+ref = "A12"
+
+# Abundances to consider
+abund_X = ["Ti", "Ca", "Mg"]
+
+# Reference samples
+# columns: [GaiaID [X/Fe]_true [X/Fe]_pred]
+base_fn = "data/cd_samples/260803_{}_{}Fe_Pred.dat"
+X_Fe_map_fns = [base_fn.format(ref, xfe) for xfe in abund_X]
+
+ref_tsv = "data/A12_gaia_all.tsv"
+#ref_tsv = "data/std_info.tsv"
+
+# -----------------------------------------------------------------------------
+# Combine our reference sample
+# -----------------------------------------------------------------------------
+ref_dfs = []
+
+# Import all [X/Fe] samples
+for fn in X_Fe_map_fns:
+    df = pd.read_csv(fn, delim_whitespace=True, dtype={"GaiaID":str})
+    df.rename(columns={"GaiaID":"source_id_dr3"}, inplace=True)
+    df.set_index("source_id_dr3", inplace=True)
+    df.sort_index(inplace=True)
+    ref_dfs.append(df)
+
+# Collate all reference samples into a single dataframe.
+assert len(set(tuple(df.index.values) for df in ref_dfs)) == 1
+
+# Use first DataFrame as a base, to which we'll insert additional [X/Fe]. This
+# has the problem that we disconnect [X/Fe] from the other sampled parameters
+# since SM looks to have run each [X/Fe] separately, but we're not using the
+# other parameters so this should be fine.
+ref_CD_df = ref_dfs[0].copy()
+
+for df in ref_dfs[1:]:
+    # [X/Fe] columns are the 1st and 2nd columns
+    cols = df.columns.values
+    X_Fe = cols[0]
+    e_X_Fe = cols[1]
+
+    ref_CD_df.insert(
+        loc=len(ref_CD_df.columns), column=X_Fe, value=df[X_Fe].values)
+    ref_CD_df.insert(
+        loc=len(ref_CD_df.columns), column=e_X_Fe, value=df[e_X_Fe].values)
+
+# Import original reference catalogue
+ref_all_df = pd.read_csv(
+    ref_tsv,
+    delimiter="\t",
+    dtype={"source_id":str, "source_id_dr3":str},
+    comment="#",)
+ref_all_df.rename(
+    columns={"source_id":"source_id_dr3",
+             "BP-RP_dr3":"bp_rp",
+             "ra_dr3":"ra",
+             "dec_dr3":"dec"},
+    inplace=True,)
+ref_all_df.set_index("source_id_dr3", inplace=True)
+
+# Crossmatch this so we can grab RA, DEC, BP-RP
+ref_comb = ref_CD_df.join(ref_all_df, "source_id_dr3",)
+
+# Now grab just the relevant columns to append to the bottom of the KM DF
+X_Fe_cols = ["[{}/Fe]_pred".format(xfe) for xfe in abund_X]
+X_Fe_cols_new = ["[{}/Fe]".format(xfe) for xfe in abund_X]
+
+columns = ["ra", "dec",] + X_Fe_cols + ["bp_rp"]
+
+ref_selected = ref_comb[columns].copy()
+
+ref_selected.rename(
+    columns={key:value for key, value in zip(X_Fe_cols, X_Fe_cols_new)},
+    inplace=True,)
+
+# Add in dummy columns
+e_X_Fe_cols = ["e_[{}/Fe]".format(xfe) for xfe in abund_X]
+
+dummy_cols = ["e_ra", "e_dec", "dist", "e_dist", "pm_ra", "e_pm_ra", "pm_dec",
+    "e_pm_dec", "rv", "e_rv", "[Fe/H]", "e_[Fe/H]", "vphi", "e_vphi",] \
+        + e_X_Fe_cols
+
+for col in dummy_cols:
+    ref_selected[col] = np.nan
+
+# Finally, re-order
+#ref_selected = ref_selected[MK_df.columns.values].copy()
+
+# -----------------------------------------------------------------------------
+# Diagnostic plot
+# -----------------------------------------------------------------------------
+plt.close("all")
+fig, axes = plt.subplots(nrows=len(abund_X), sharex=True, figsize=(10,6))
+
+for i, x in enumerate(abund_X):
+    resid = ref_comb["[{}/Fe]_true".format(x)].values \
+        - ref_comb["[{}/Fe]_pred".format(x)].values
+    bp_rp = ref_comb["bp_rp"].values
+    mn = np.nanmedian(resid)
+    std = np.nanstd(resid)
+    axes[i].plot(bp_rp, resid, ".")
+    axes[i].hlines(
+        0, np.nanmin(bp_rp), np.nanmax(bp_rp), linestyles="dashed", color="k")
+    axes[i].text(
+        x=0.8,
+        y=0.2,
+        s=r"${:0.2f} \pm {:0.2f}$ dex".format(mn, std),
+        transform=axes[i].transAxes,
+        horizontalalignment="center")
+    axes[i].set_title(x)
+    axes[i].set_ylabel(r"$\Delta$[{}/Fe]".format(x))
+axes[i].set_xlabel(r"$BP-RP$")
+plt.tight_layout()
+plt.savefig("paper/CD_vs_{}_X_Fe.pdf".format(ref))
+
+# -----------------------------------------------------------------------------
+# Save
+# -----------------------------------------------------------------------------
+save_fn = "data/chemodynamic_X_Fe_{}_{}.tsv".format(ref, "_".join(abund_X))
+
+ref_selected.to_csv(save_fn, sep="\t")
