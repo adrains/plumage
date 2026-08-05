@@ -406,7 +406,7 @@ references = (ls.ABUND_ORDER_K
 
 # These references are to be considered 'This Work'.
 # TODO: update each to be more descriptive.
-ref_this_work = ["SM25", "M15er", "M19"]
+ref_this_work = ["CD_KM", "M15er", "M19"]
 
 # Table summarising benchmark sample
 st.make_table_sample_summary(

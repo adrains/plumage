@@ -431,7 +431,7 @@ def plot_label_recovery_per_source(
         # Add a panel for directly measured [X/Fe]. To do this, we count all
         # sources excluding the chemodynamic source.
         n_X_Fe_src = set(obs_join[~is_cpm]["label_source_{}".format(label)])
-        n_X_Fe_src.remove("SM25")
+        n_X_Fe_src.remove("CD_KM")
 
         if len(n_X_Fe_src) > 0:
             n_X_Fe_labels += 1
@@ -582,7 +582,7 @@ def plot_label_recovery_per_source(
         # Directly measured [X/Fe]
         X_Fe_direct = np.logical_and(
             ~is_cpm,
-            obs_join["label_source_{}".format(label)].values != "SM25",)
+            obs_join["label_source_{}".format(label)].values != "CD_KM",)
 
         if np.sum(X_Fe_direct) > 0:
             #X_Fe_mask = obs_join["is_mid_k_dwarf"].values
@@ -634,8 +634,8 @@ def plot_label_recovery_per_source(
             ax_i += 1
 
         # Chemodynamic [X/Fe]
-        X_Fe_CD = obs_join["{}_SM25".format(label)].values
-        e_X_Fe_CD = obs_join["e_{}_SM25".format(label)].values
+        X_Fe_CD = obs_join["{}_CD_KM".format(label)].values
+        e_X_Fe_CD = obs_join["e_{}_CD_KM".format(label)].values
         X_Fe_mask = ~np.isnan(X_Fe_CD)
 
         pplt.plot_std_comp_generic(
