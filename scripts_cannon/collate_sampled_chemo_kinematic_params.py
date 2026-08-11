@@ -1,6 +1,7 @@
 """Script to save mean and standard deviation of GALAH+Gaia sampled parameters,
-including predicted [Ti/Fe] abundances.
+including predicted [X/Fe] abundances.
 """
+import os
 import pandas as pd
 import numpy as np
 import glob
@@ -8,15 +9,31 @@ import glob
 # -----------------------------------------------------------------------------
 # Setup + Settings
 # -----------------------------------------------------------------------------
-X_Fe = "[Mg/Fe]"
-X_Fe_label = X_Fe[1:-1].replace("/", "_")
+# The individual elements we want to import
+abund = ["Ti", "Mg", "Ca"]
 
-path_wc = "/Users/arains/Dropbox/AdamTiDists/2025/MgCa/MDwarfs/MgResults/*PullsSymmetricErrors"
+# Formatted abundance labels with [X/Fe] notation (for column names)
+X_Fe = ["[{}/Fe]_pred".format(xh) for xh in abund]
+
+# Formatted abundance labels with XFe notation (for file names)
+X_Fe_label = ["{}Fe".format(xh) for xh in abund]
+
+# Import all files via glob
+path_wc = "/Users/arains/Dropbox/AdamTiDists/2026_PaperII/Results/Benchmark_Errors/*PullsSymmetricErrors"
 sample_files = glob.glob(path_wc)
 
+if len(sample_files) == 0:
+    raise Exception("No files found!")
+else:
+    print("{} files found.".format(len(sample_files)))
+
+# Details for our ouput filename, <path>/<label>_<abundances>_Pred.csv
+run_label = "260811_KM"
+out_path = "/Users/arains/Dropbox/code/plumage/data/cd_samples/"
+
 # Setup mean and sigma columns for dataframe and interleave
-cols_mean = ["ra", "dec", "dist", "pm_ra", "pm_dec",  "rv", "[Fe/H]", "vphi", 
-             X_Fe]
+cols_mean = \
+    ["ra", "dec", "dist", "pm_ra", "pm_dec",  "rv", "[Fe/H]", "vphi",] + X_Fe
 
 cols_sigma = ["e_{}".format(col) for col in cols_mean]
 
@@ -54,8 +71,10 @@ df = df.reindex(columns=cols_all)
 df.index.name = "source_id_dr3"
 
 # Add dummy BP-RP column
-df["bp_rp"] = np.nan
+#df["bp_rp"] = np.nan
 
 # Save
-df.to_csv("data/monty_sampled_params_{}_n{:0.0f}.csv".format(
-    X_Fe_label, n_stars), sep="\t")
+out_fn = os.path.join(
+    out_path, 
+    "{}_{}_Pred.csv".format(run_label, "_".join(X_Fe_label)))
+df.to_csv(out_fn, sep="\t")

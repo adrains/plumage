@@ -304,13 +304,13 @@ def correct_chemodynamic_abundance_trends(
         # Perform polynomial fitting
         n_overlap = np.sum(~np.isnan(resid))
 
-        # Construct mask to exclude outliers, and points beyond [Fe/H] bounds.
-        is_nan = ~np.isnan(resid)
+        # Mask to exclude NaNs, outliers, and points beyond [Fe/H] bounds.
+        is_nan = np.isnan(resid)
         is_outlier = np.abs(resid) > outlier_dex
         within_Fe_H_bounds = np.logical_and(
             Fe_H > Fe_H_limits[0], Fe_H < Fe_H_limits[1])
 
-        fit_mask = np.all((~is_nan, ~is_outlier, within_Fe_H_bounds),axis=0)
+        fit_mask = np.all((~is_nan, ~is_outlier, within_Fe_H_bounds), axis=0)
         
         poly = np.polynomial.Polynomial.fit(
             Fe_H[fit_mask], resid[fit_mask], poly_order)
@@ -1214,7 +1214,7 @@ samples = {
     "RB20":"data/RB20_dr3_all.tsv",     # Const sigma for: all
     "M20":"data/M20_gaia_all.tsv",      # Const sigma for: all
     "CD_ref":"data/chemodynamic_X_Fe_A12_Ti_Ca_Mg.tsv", # Invidivual sigmas
-    "CD_KM":"data/chemodynamic_X_Fe_KM_Ti_Ca_Mg.tsv",   # Invidivual sigmas
+    "CD_KM":"data/chemodynamic_X_Fe_KM_Ti_Mg_Ca.tsv",   # Invidivual sigmas
 }
 
 # Mapping of chemical species within each sample
