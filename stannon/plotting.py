@@ -915,7 +915,7 @@ def plot_cannon_cmd(
     )
 
     cb = fig.colorbar(scatter, ax=axis)
-    cb.set_label("[Fe/H]")
+    cb.ax.set_title("[Fe/H]")
 
     # Plot science targets, making sure to not plot any science targets beyond
     # the extent of our benchmarks

@@ -194,7 +194,9 @@ obs_join["ol"] = obs_join["ol"].values == True
 # sequence in BP-RP and M_Ks.
 has_mid_k_reference = np.any([
         ~np.isnan(obs_join["Fe_H_VF05"].values),
+        ~np.isnan(obs_join["Fe_H_R07"].values),
         ~np.isnan(obs_join["Fe_H_A12"].values),
+        ~np.isnan(obs_join["Fe_H_M13"].values),
         ~np.isnan(obs_join["Fe_H_B16"].values),
         ~np.isnan(obs_join["Fe_H_M18"].values),
         ~np.isnan(obs_join["Fe_H_L18"].values),
@@ -208,11 +210,6 @@ is_mid_k_dwarf = np.logical_and(
     obs_join["BP-RP_dr3"].values < ls.mid_K_BP_RP_bound)
 
 obs_join["is_mid_k_dwarf"] = is_mid_k_dwarf
-
-# Load in and crossmatch with sampled params
-sp_df = pd.read_csv(ls.sampled_param_csv, dtype={"source_id_dr3":str},)
-sp_df.set_index("source_id_dr3", inplace=True)
-obs_join = obs_join.join(sp_df, "source_id_dr3")
 
 # Finally clean this and remove duplicate columns
 cols = obs_join.columns.values

@@ -32,6 +32,9 @@ else:
     base_fn = "data/cd_samples/260803_{}_{}Fe_Pred.dat"
     X_Fe_map_fns = [base_fn.format(ref, xfe) for xfe in abund_X]
 
+sampled_cols = ["e_ra", "e_dec", "dist", "e_dist", "pm_ra", "e_pm_ra", 
+    "pm_dec", "e_pm_dec", "rv", "e_rv", "[Fe/H]", "e_[Fe/H]", "vphi", "e_vphi"]
+
 # -----------------------------------------------------------------------------
 # Combine our reference sample
 # -----------------------------------------------------------------------------
@@ -48,11 +51,19 @@ else:
     ref_dfs = []
 
     # Import all [X/Fe] samples
-    for fn in X_Fe_map_fns:
+    for fn, xfe in zip(X_Fe_map_fns, abund_X):
         df = pd.read_csv(fn, delim_whitespace=True, dtype={"GaiaID":str})
         df.rename(columns={"GaiaID":"source_id_dr3"}, inplace=True)
         df.set_index("source_id_dr3", inplace=True)
         df.sort_index(inplace=True)
+
+        # Add in dummy columns that the reference sample doesn't have, but the
+        # MCed sampled does have.
+        dummy_cols = sampled_cols + ["e_[{}/Fe]_pred".format(xfe)]
+
+        for col in dummy_cols:
+            df[col] = np.nan
+
         ref_dfs.append(df)
 
     # Collate all reference samples into a single dataframe.
@@ -92,30 +103,28 @@ ref_all_df.set_index("source_id_dr3", inplace=True)
 # Crossmatch this so we can grab RA, DEC, BP-RP
 ref_comb = ref_CD_df.join(ref_all_df, "source_id_dr3", rsuffix="_obs")
 
-# Now grab just the relevant columns to append to the bottom of the KM DF
+# Construct abundance value and error columns
 X_Fe_cols = ["[{}/Fe]_pred".format(xfe) for xfe in abund_X]
 X_Fe_cols_new = ["[{}/Fe]".format(xfe) for xfe in abund_X]
 
-columns = ["ra", "dec",] + X_Fe_cols + ["bp_rp"]
+e_X_Fe_cols = ["e_[{}/Fe]_pred".format(xfe) for xfe in abund_X]
+e_X_Fe_cols_new = ["e_[{}/Fe]".format(xfe) for xfe in abund_X]
+
+# Interleave
+X_Fe_cols_all = \
+    [xx for sublist in zip(X_Fe_cols, e_X_Fe_cols) for xx in sublist]
+X_Fe_cols_new_all = \
+    [xx for sublist in zip(X_Fe_cols_new, e_X_Fe_cols_new) for xx in sublist]
+
+# Now grab just the relevant columns to append to the bottom of the KM DF
+columns = ["ra", "dec",] + sampled_cols + ["bp_rp"] + X_Fe_cols_all
 
 ref_selected = ref_comb[columns].copy()
 
+# Rename to remove '_pred'
 ref_selected.rename(
-    columns={key:value for key, value in zip(X_Fe_cols, X_Fe_cols_new)},
+    columns={key:value for key, value in zip(X_Fe_cols_all, X_Fe_cols_new_all)},
     inplace=True,)
-
-# Add in dummy columns
-e_X_Fe_cols = ["e_[{}/Fe]".format(xfe) for xfe in abund_X]
-
-dummy_cols = ["e_ra", "e_dec", "dist", "e_dist", "pm_ra", "e_pm_ra", "pm_dec",
-    "e_pm_dec", "rv", "e_rv", "[Fe/H]", "e_[Fe/H]", "vphi", "e_vphi",] \
-        + e_X_Fe_cols
-
-for col in dummy_cols:
-    ref_selected[col] = np.nan
-
-# Finally, re-order
-#ref_selected = ref_selected[MK_df.columns.values].copy()
 
 # -----------------------------------------------------------------------------
 # Diagnostic plot
@@ -156,3 +165,5 @@ if not using_single_sampled_file:
 save_fn = "data/chemodynamic_X_Fe_{}_{}.tsv".format(ref, "_".join(abund_X))
 
 ref_selected.to_csv(save_fn, sep="\t")
+
+print("Saved to: {}".format(save_fn))

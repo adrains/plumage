@@ -34,6 +34,12 @@ do_exclude_high_res_Fe_H_from_single_stars: True
 # The high-res [Fe/H] spectroscopic studies to be considered above.
 high_res_Fe_H_studies: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20"]
 
+# Hard cut on MKs magnitude. Mann+2019 suggests that the 'safer' range is:
+# 4.5 < MKs < 10.5 (0.08 < M* < 0.70 Msun). This takes precedence over the
+# gradient cut below. Note that do_use_subset_of_benchmark_sample must be True
+# for this to take effect.
+force_conservative_bright_MKs_cut: False
+
 # Parameterising the BP-RP - M_Ks main sequence by a linear line, we use two
 # lines perpendicularto this to denote the cool K dwarf boundary, and the warm
 # M dwarf boundary when training separate models. The main sequence line is:

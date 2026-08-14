@@ -419,6 +419,10 @@ def plot_abundance_trends(
     figsize: float tuple, default: (16, 10)
         Size of the plotted figure for each species.
     """
+    # Properties of the statistic box
+    text_box_properties = dict(
+        facecolor="white", edgecolor="grey", alpha=0.75, boxstyle="Round")
+
     # Loop over all species
     for species in species_to_correct:
         # First we need to count the number of references that actually have
@@ -432,7 +436,7 @@ def plot_abundance_trends(
         if ("{}_{}".format(species, comp_ref) not in chem_df.columns
             and comp_ref_secondary is not None):
             comp_ref_2nd_i = int(np.where(
-                references_to_compare_K == comp_ref_secondary)[0])
+                references_to_compare == comp_ref_secondary)[0])
             comp_mask[comp_ref_2nd_i] = False
 
         plt.close("all")
@@ -450,9 +454,9 @@ def plot_abundance_trends(
         
         fig.subplots_adjust(
             left=0.05,
-            bottom=0.05,
+            bottom=0.1,
             right=0.98,
-            top=0.97,
+            top=0.95,
             hspace=0.01,
             wspace=0.01)
 
@@ -582,12 +586,12 @@ def plot_abundance_trends(
 
             axes[ref_i, 0].text(
                 x=0.5,
-                y=0.25,
+                y=0.2,
                 s=txt,
                 horizontalalignment="center",
                 verticalalignment="center",
                 transform=axes[ref_i, 0].transAxes,
-                bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+                bbox=text_box_properties,)
             
             # Display polynomial coefficients
             n_order = n_order = len(poly.coef) - 1
@@ -654,7 +658,7 @@ def plot_abundance_trends(
                 horizontalalignment="center",
                 verticalalignment="center",
                 transform=axes[ref_i, 1].transAxes,
-                bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+                bbox=text_box_properties,)
             
             if do_limit_y_extent:
                 axes[ref_i, 1].set_ylim(abund_Y_lims[0], abund_Y_lims[1])
@@ -758,11 +762,15 @@ def plot_chemodynamic_abundance_trends(
     
     fig.subplots_adjust(
         left=0.05,
-        bottom=0.05,
+        bottom=0.1,
         right=0.99,
-        top=0.97,
+        top=0.95,
         hspace=0.01,
         wspace=0.01)
+    
+    # Properties of the statistic box
+    text_box_properties = dict(
+        facecolor="white", edgecolor="grey", alpha=0.75, boxstyle="Round")
 
     # Loop over all species
     for sp_i, species in enumerate(species_to_correct):
@@ -913,7 +921,7 @@ def plot_chemodynamic_abundance_trends(
             horizontalalignment="center",
             verticalalignment="center",
             transform=axes[sp_i, 0].transAxes,
-            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+            bbox=text_box_properties,)
         
         # Display polynomial coefficients
         n_order = n_order = len(poly.coef) - 1
@@ -985,7 +993,7 @@ def plot_chemodynamic_abundance_trends(
             horizontalalignment="center",
             verticalalignment="center",
             transform=axes[sp_i, 1].transAxes,
-            bbox=dict(facecolor="grey", edgecolor="None", alpha=0.5),)
+            bbox=text_box_properties,)
         
         if do_limit_y_extent:
             axes[sp_i, 1].set_ylim(abund_Y_lims[0], abund_Y_lims[1])
@@ -2106,6 +2114,8 @@ save_filename = "data/lit_chemistry_corrected_{}.tsv".format(
 # Dump corrected DataFrame
 df_comb.to_csv(save_filename, sep="\t")
 
+print("\nSaved corrected literature samples: {}".format(save_filename))
+
 # 2) Then we have to save the [X/Fe] polynomials for the chemodynamic sample.
 # These won't be corrected here, but later when we've adopted an [Fe/H] value
 # as we don't currently have an 'adopted' [Fe/H] value in the same way we have
@@ -2115,6 +2125,8 @@ pkl_filename = "data/chemodynamic_polynomials_{}.pkl".format(
 
 with open(pkl_filename, 'wb') as output_file:
     pickle.dump(fit_dict_CD, output_file, pickle.HIGHEST_PROTOCOL)
+
+print("Saved chemodynamic [X/Fe] polynomials: {}".format(pkl_filename))
 
 #------------------------------------------------------------------------------
 # Correct the original catalogue used for chemodynamic systematic computation
@@ -2150,7 +2162,10 @@ BP_RP_LIMS_K = (0.52, 1.5)
 ABUND_Y_LIMS_K = (-0.35, 0.35)
 BP_RP_TICKS_K = (0.1, 0.05)
 
-FIG_SIZE = (16, 8)
+FIG_SIZE = (16, 5)
+
+# Only plot systematic corrections for those studies actually in the paper.
+REFERENCES_FOR_PAPER_K = np.array(["A12", "B16", "M18", "L18",])
 
 plot_abundance_trends(
     chem_df=df_comb,
@@ -2158,7 +2173,7 @@ plot_abundance_trends(
     species_to_correct=species_to_correct_K,
     comp_ref=comp_ref_K,
     comp_ref_secondary=comp_ref_secondary_K,
-    references_to_compare=references_to_compare_K,
+    references_to_compare=REFERENCES_FOR_PAPER_K,
     bp_rp_lims=BP_RP_LIMS_K,
     abund_Y_lims=ABUND_Y_LIMS_K,
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
@@ -2171,12 +2186,15 @@ BP_RP_LIMS_M = (1.6, 4.8)
 ABUND_Y_LIMS_M = (-0.5, 0.5)
 BP_RP_TICKS_M = (0.2, 0.1)
 
+# Only plot systematic corrections for those studies actually in the paper.
+REFERENCES_FOR_PAPER_M = np.array(["RA12", "G14a", "G14b", "T15E", "T15M",])
+
 plot_abundance_trends(
     chem_df=df_comb,
     fit_dict=fit_dict_M,
     species_to_correct=species_to_correct_M,
     comp_ref=comp_ref_M,
-    references_to_compare=references_to_compare_M,
+    references_to_compare=REFERENCES_FOR_PAPER_M,
     bp_rp_lims=BP_RP_LIMS_M,
     abund_Y_lims=ABUND_Y_LIMS_M,
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
@@ -2199,9 +2217,10 @@ plot_chemodynamic_abundance_trends(
     abund_Y_lims=ABUND_Y_LIMS_CD,
     do_limit_y_extent=DO_LIMIT_Y_EXTENT,
     Fe_H_ticks=FE_H_TICKS_CD,
-    figsize=(16,10))
+    figsize=FIG_SIZE,)
 
 # Plot literature recovery for chemodynamic correction
+# TODO: UserWarning: Warning: converting a masked element to nan.
 plot_chemodynamic_one_to_one_recovery(
     chem_df=df_comb,
     species_to_plot=species_to_correct_CD,

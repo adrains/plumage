@@ -65,21 +65,27 @@ if cs.do_use_subset_of_benchmark_sample:
     # Grab mask of candidate benchmarks
     icb = obs_join["is_cannon_benchmark"].values
 
-    # Accept those benchmarks fainter (> M_Ks) than the warm M_Ks bound
-    warm_MKs_bounds = (
-        cs.BP_RP_vs_M_Ks_cut_gradient * bp_rp + cs.M_Ks_intercept_warm)
-    within_warm_MKs_bounds = M_Ks >= warm_MKs_bounds
+    # Adopt the 'safe' MKs bounds as suggested by Mann+2019 of MKs > 4.5
+    if cs.force_conservative_bright_MKs_cut:
+        adopted_benchmark = np.logical_and(icb, M_Ks > 4.5)
 
-    # Accept those benchmarks brighter (< M_Ks) than the cool M_Ks bound
-    cool_MKs_bounds = (
-        cs.BP_RP_vs_M_Ks_cut_gradient * bp_rp + cs.M_Ks_intercept_cool)
-    within_cool_MKs_bound = M_Ks <= cool_MKs_bounds
+    # Otherwise adopt the gradient in MKs and BP-RP space approach
+    else:
+        # Accept those benchmarks fainter (> M_Ks) than the warm M_Ks bound
+        warm_MKs_bounds = (
+            cs.BP_RP_vs_M_Ks_cut_gradient * bp_rp + cs.M_Ks_intercept_warm)
+        within_warm_MKs_bounds = M_Ks >= warm_MKs_bounds
 
-    # Adopt benchmarks candidate benchmarks within the warm and cool bounds
-    within_bounds = np.logical_and(
-        within_warm_MKs_bounds, within_cool_MKs_bound)
-    
-    adopted_benchmark = np.logical_and(icb, within_bounds)
+        # Accept those benchmarks brighter (< M_Ks) than the cool M_Ks bound
+        cool_MKs_bounds = (
+            cs.BP_RP_vs_M_Ks_cut_gradient * bp_rp + cs.M_Ks_intercept_cool)
+        within_cool_MKs_bound = M_Ks <= cool_MKs_bounds
+
+        # Adopt benchmarks candidate benchmarks within the warm and cool bounds
+        within_bounds = np.logical_and(
+            within_warm_MKs_bounds, within_cool_MKs_bound)
+        
+        adopted_benchmark = np.logical_and(icb, within_bounds)
 
     # [Optional] Make an additional cut to only use [Fe/H] directly determined
     # from high-resolution spectroscopy for binary stars, i.e. exclude [Fe/H]

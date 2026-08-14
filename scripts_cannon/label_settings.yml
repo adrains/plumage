@@ -41,8 +41,8 @@ CD_polynomial_fn: "data/chemodynamic_polynomials_Fe_Ti_Mg_Ca.pkl"
 tsv_primaries_fn: "data/cpm_primaries_dr3.tsv"
 tsv_secondaries_fn:  "data/cpm_secondaries_dr3.tsv"
 
-# CSV file of sampled chemo-dynamic parameters
-sampled_param_csv: "data/monty_sampled_params_n103.csv"
+## CSV file of sampled chemo-dynamic parameters
+#sampled_param_csv: "data/monty_sampled_params_n103.csv"
 
 # Settings to use when importing TSV files
 use_mann_code_for_masses: True

@@ -84,7 +84,7 @@ def make_table_sample_summary(
         warnings.simplefilter("ignore", category=RuntimeWarning)
         # ---------------------------------------------------------------------
         # Teff
-        # --------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # All teffs
         median_teff_sigma = np.median(benchmarks["label_adopt_sigma_teff"])
         teff_str = \
@@ -113,7 +113,8 @@ def make_table_sample_summary(
         median_teff_m15_er_sigma = np.median(
             benchmarks[adopted_m15_er]["label_adopt_sigma_teff"])
         
-        ref = r"M (\citealt{mann_how_2015}, \citealt{kesseli_radii_2019})"
+        ref = (r"This Work (\citetalias{mann_how_2015}+"
+               r"\citetalias{kesseli_radii_2019})")
 
         teff_m15_er_row = \
             r"& {} & {:0.0f}\,K & {:d} & {:d} & {:d} \\".format(
@@ -129,7 +130,7 @@ def make_table_sample_summary(
         median_teff_c21_sigma = \
             np.median(benchmarks[adopted_c21]["label_adopt_sigma_teff"])
         
-        ref = r"K \citep{casagrande_galah_2021}"
+        ref = r"\citet{casagrande_galah_2021}"
 
         teff_c21_row = \
             r"& {} & {:0.0f}\,K & {:d} & {:d} & {:d} \\".format(
@@ -144,16 +145,100 @@ def make_table_sample_summary(
             [teff_row, teff_int_row, teff_m15_er_row, teff_c21_row, "\\hline",]
 
         # ---------------------------------------------------------------------
+        # Mass
+        # ---------------------------------------------------------------------
+        # All masses
+        masses = benchmarks["mass_m19"].values
+        e_masses = benchmarks["e_mass_m19"].values
+
+        pc_mass = np.median(e_masses / masses * 100)
+
+        ref = r"\citet{mann_how_2019}"
+
+        mass_row = \
+            r"$M_\star$ & {} & {:0.1f}\,\% & {:d} & {:d} & {:d}\\".format(
+                ref,                        # reference
+                pc_mass,                    # median %
+                n_benchmarks,               # with
+                0,                          # without
+                n_benchmarks,)              # adopted
+
+        # Add mass row
+        table_rows += [mass_row, "\\hline",]
+
+        # ---------------------------------------------------------------------
+        # Radius
+        # ---------------------------------------------------------------------
+        # All radii
+        radii = benchmarks["r_star_adopt"].values
+        e_radii = benchmarks["e_r_star_adopt"].values
+
+        pc_radii = e_radii / radii * 100
+
+        radii_str = \
+            r"$R_\star$ & All & {:0.1f}\,\% & {:d} & {:d} & {:d} \\"
+        radii_row = radii_str.format(
+                np.median(pc_radii),            # median %
+                n_benchmarks,                   # with
+                0,                              # without
+                n_benchmarks,)                  # adopted
+
+        # Rains+26 updated Mann+15 + Kesseli+19 (Empirical Relations)
+        radii_mk26 = benchmarks["radius_mk26"].values
+        e_radii_mk26 = benchmarks["e_radius_mk26"].values
+        pc_radii_mk26 = e_radii_mk26 / radii_mk26 * 100
+
+        has_mk26_er = ~np.isnan(benchmarks["radius_mk26"].values)
+        adopted_mk26_er = benchmarks["r_star_adopt_ref"].values == "MK26"
+        
+        ref = (r"This Work (\citetalias{mann_how_2015}+"
+               r"\citetalias{kesseli_radii_2019})")
+
+        radii_mk26_er_row = \
+            r"& {} & {:0.1f}\,\% & {:d} & {:d} & {:d} \\".format(
+                ref,                             # reference
+                np.median(pc_radii_mk26[has_mk26_er]),# median sigma
+                np.sum(has_mk26_er),             # with
+                np.sum(~has_mk26_er),            # without
+                np.sum(adopted_mk26_er),)        # adopted
+        
+        # Kiman+24
+        radii_k24 = benchmarks["radius_k24"].values
+        e_radii_k24 = benchmarks["e_radius_k24"].values
+        pc_radii_k24 = e_radii_k24 / radii_k24 * 100
+
+        has_k24 = ~np.isnan(benchmarks["radius_k24"].values)
+        adopted_k24 = benchmarks["r_star_adopt_ref"].values == "K24"
+        
+        ref = r"\citet{kiman_accurate_2024}"
+
+        radii_k24_row = \
+            r"& {} & {:0.1f}\,\% & {:d} & {:d} & {:d} \\".format(
+                ref,                            # reference
+                np.median(pc_radii_k24[has_k24]),   # median %
+                np.sum(has_k24),                # with
+                np.sum(~has_k24),               # without
+                np.sum(adopted_k24),)           # adopted
+        
+        # Add radii rows
+        table_rows += \
+            [radii_row, radii_mk26_er_row, radii_k24_row, "\\hline",]
+        
+        # ---------------------------------------------------------------------
         # logg
         # ---------------------------------------------------------------------
         # All loggs
         median_logg_sigma = np.median(benchmarks["label_adopt_sigma_logg"])
+
+        ref = "This Work"
+
         logg_row = \
-            r"$\log g$ & All & {:0.2f}\,dex & {:d} & {:d} & {:d}\\".format(
-            median_logg_sigma,              # median sigma
-            n_benchmarks,                   # with
-            0,                              # without
-            n_benchmarks,)                  # adopted
+            r"$\log g$ & {} & {:0.2f}\,dex & {:d} & {:d} & {:d}\\".format(
+                ref,                        # reference
+                median_logg_sigma,          # median sigma
+                n_benchmarks,               # with
+                0,                          # without
+                n_benchmarks,)              # adopted
 
         # Add logg row
         table_rows += [logg_row, "\\hline",]
@@ -199,7 +284,7 @@ def make_table_sample_summary(
                     benchmarks[adopted_ref][label_sigma_col].values)
                 
                 if chem_ref in ref_this_work:
-                    citation = "TW"
+                    citation = "Chemodynamic"
                 else:
                     citation = r"\citet{{{}}}".format(reference_dict[chem_ref])
 
