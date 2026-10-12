@@ -1,0 +1,55 @@
+# This file contains the common set of parameters used to adopt labels for the
+# Gaia + APOGEE crossmatch. Stars passing these quality cuts have the 
+# *potential* to be included in the training sample, but might still be
+# excluded for scope reasons.
+#
+# This is part of a series of Cannon scripts. The main sequence is:
+# 1) scripts_gaia/collate_rvs_spectra.py
+# 2) scripts_gaia/prepare_gaia_rvs_training.py
+# 3) scripts_gaia/train_stannon_gaia_rvs.py
+# 4) scripts_gaia/make_stannon_diagnostics_gaia_rvs.py
+#
+# Where the values in this file currently apply to item 2).
+#
+# YAML specifications: https://yaml.org/spec/1.2.2/
+
+#------------------------------------------------------------------------------
+# Fits files
+#------------------------------------------------------------------------------
+fits_folder: "spectra"
+fits_fn_base: "rvs_spectra"
+fits_label: "APOGEE_DR17"
+
+#------------------------------------------------------------------------------
+# Gaia + RVS spectra Quality Cuts
+#------------------------------------------------------------------------------
+# Whether we enforce a cut on RUWE
+ruwe_threshold: 1.4
+enforce_ruwe: True
+
+# Spectra quality cuts
+min_rvs_snr: 100
+
+# Parallax quality cuts
+min_gaia_parallax_over_error: 20
+allow_negative_parallaxes: False
+
+#------------------------------------------------------------------------------
+# APOGEE Quality Cuts
+#------------------------------------------------------------------------------
+# Spectra quality cuts
+min_apogee_snr: 100
+
+# Parameter uncertainties
+
+# APOGEE flags
+APOGEE_ASPCAPFLAG: 1
+APOGEE_PARAMFLAG: 1
+APOGEE_STARFLAG: 1
+APOGEE_RV_FLAG: 1
+
+#------------------------------------------------------------------------------
+# Abundance Priorities + abundances to determine labels for
+#------------------------------------------------------------------------------
+# Abundance labels to compute, e.g. ['Fe_H', 'Ti_Fe'].
+abundance_labels: ["Fe_H", "Ti_Fe", "Ca_Fe", "Mg_Fe",]

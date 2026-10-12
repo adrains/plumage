@@ -5,21 +5,27 @@ import numpy as np
 import pandas as pd
 from glob import glob
 from tqdm import tqdm
-import matplotlib.cm as cm
 from astropy.io import fits
 from astropy.table import Table
-import matplotlib.pyplot as plt
 from collections import Counter
 
+# Gaia RVS wavelength scale settings
 N_RVS_PX = 2401
 RVS_WAVE_MIN = 846
 RVS_WAVE_MAX = 870
 RVS_WAVE_DELTA = 0.01
 
+# Import settings (TODO: move to YAML settings file)
+MIN_SNR = 100
+MIN_PARALLAX_OVER_ERROR = 20
+
+# Save settings
+FITS_SAVE_PATH = "/priv/mulga2/arains/gaia_rvs/"
+
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
-def read_single_rvs_csv(csv_fn):
+def read_single_rvs_csv(csv_fn, min_snr=None,):
     """Reads a single Gaia RVS CSV and returns the wavelengths, fluxes, sigmas,
     and an associated DataFrame.
 
@@ -27,6 +33,9 @@ def read_single_rvs_csv(csv_fn):
     ----------
     csv_fn: str
         Filename of the csv to import. We expect these to be 'csv.gz' files.
+
+    min_snr: float
+        Minimum RVS spectrum SNR, below which we drop stars.
 
     Returns
     -------
@@ -75,13 +84,24 @@ def read_single_rvs_csv(csv_fn):
     snr = np.nanmedian(fluxes/e_fluxes, axis=1)
     rvs_df["rvs_snr"] = snr
 
+    # [Optional] Make a SNR cut here
+    if min_snr is not None:
+        is_high_snr = snr >= min_snr
+
+        fluxes = fluxes[is_high_snr]
+        e_fluxes = e_fluxes[is_high_snr]
+        rvs_df = rvs_df[is_high_snr]
+
+    # TODO: compute an emission metric
+    pass
+
     # Construct wavelength scale
     wave = np.arange(RVS_WAVE_MIN, RVS_WAVE_MAX+RVS_WAVE_DELTA, RVS_WAVE_DELTA)
 
     return wave, fluxes, e_fluxes, rvs_df
 
 
-def read_all_rvs_csv(rvs_folder, max_files_to_import=1E10):
+def read_all_rvs_csv(rvs_folder, min_snr=None,):
     """Imports a folder of many Gaia RVS spectra CSVs files, imports them each
     separately via repeated calls to read_single_rvs_csv, then collates them
     together into a single DataFrame and set of wave/flux/sigma arrays.
@@ -90,6 +110,9 @@ def read_all_rvs_csv(rvs_folder, max_files_to_import=1E10):
     ----------
     rvs_folder: str
         Folder of Gaia RVS spectra in CSV form to import.
+
+    min_snr: float
+            Minimum RVS spectrum SNR, below which we drop stars.
 
     Returns
     -------
@@ -112,15 +135,12 @@ def read_all_rvs_csv(rvs_folder, max_files_to_import=1E10):
     desc = "Collating Gaia RVS csv files"
 
     for csv_i, csv_fn in enumerate(tqdm(all_csvs, leave=False, desc=desc)):
-        wave_1D, fluxes, e_fluxes, rvs_df = read_single_rvs_csv(csv_fn)
+        wave_1D, fluxes, e_fluxes, rvs_df = read_single_rvs_csv(
+            csv_fn=csv_fn, min_snr=min_snr,)
 
         fluxes_list.append(fluxes)
         e_fluxes_list.append(e_fluxes)
         rvs_df_list.append(rvs_df)
-
-        # For testing, allow us to break out after only importing N files.
-        if csv_i > max_files_to_import:
-            break
 
     # Collate all arrays and dataframes
     fluxes_2D = np.vstack(fluxes_list)
@@ -312,22 +332,22 @@ def save_to_new_apogee_fits(
 
     # HDU 1: wavelength scale
     wave_img =  fits.PrimaryHDU(wave_1D)
-    wave_img.header["EXTNAME"] = ("WAVE_1D", "Gaia RVS wavelength scale.")
+    wave_img.header["EXTNAME"] = ("WAVE_RVS", "Gaia RVS wavelength scale.")
     hdu.append(wave_img)
 
     # HDU 2: RVS flux values
     spec_img =  fits.PrimaryHDU(fluxes_2D)
-    spec_img.header["EXTNAME"] = ("SPECTRA_RVS", "Gaia RVS fluxes.")
+    spec_img.header["EXTNAME"] = ("SPEC_RVS", "Gaia RVS fluxes.")
     hdu.append(spec_img)
 
     # HDU 3: RVS flux uncertainties
     e_spec_img =  fits.PrimaryHDU(sigmas_2D)
-    e_spec_img.header["EXTNAME"] = ("SIGMAS_RVS", "Gaia RVS uncertainties.")
+    e_spec_img.header["EXTNAME"] = ("SIGMA_RVS", "Gaia RVS uncertainties.")
     hdu.append(e_spec_img)
 
     # HDU 4: table of Gaia + APOGEE information
     obs_tab = fits.BinTableHDU(Table.from_pandas(dataframe.reset_index()))
-    obs_tab.header["EXTNAME"] = ("INFO_TAB", "Dataframe of Gaia/APOGEE info.")
+    obs_tab.header["EXTNAME"] = ("OBS_TAB", "Dataframe of Gaia/APOGEE info.")
     hdu.append(obs_tab)
     
     # Done, save
@@ -338,17 +358,18 @@ def save_to_new_apogee_fits(
 # Main body
 # -----------------------------------------------------------------------------
 # Import the spectra
-csv_fn = "/Users/adamrains/data/RvsMeanSpectrum_000000-003111.csv.gz"
-rvs_folder = "/Users/adamrains/data/rvs/"
+#rvs_folder = "/Users/adamrains/data/rvs/"
+rvs_folder = "/priv/mulga2/arains/gaia_rvs/"
 
-print("Ingesting spectra...")
-wave, fluxes, e_fluxes, rvs_df = read_all_rvs_csv(rvs_folder)
+print("Ingesting Gaia RVS spectra...")
+wave, fluxes, e_fluxes, rvs_df = read_all_rvs_csv(rvs_folder, min_snr=MIN_SNR)
 
 # -----------------------------------------------------------------------------
 # Gaia crossmatch
 # -----------------------------------------------------------------------------
 # Import Gaia data, convert to pandas DataFrame
-gaia_fits_fn = "/Users/adamrains/data/all_rvs-result.fits"
+#gaia_fits_fn = "/Users/adamrains/data/all_rvs-result.fits"
+gaia_fits_fn = "/priv/mulga2/arains/gaia_rvs/all_rvs-result.fits"
 
 with fits.open(gaia_fits_fn, mode="readonly") as fits_file:
     gaia_tab = Table(fits_file["votable"].data)
@@ -362,8 +383,11 @@ gaia_df_cm = rvs_df.join(other=gaia_df, on="source_id", rsuffix="_2")
 # -----------------------------------------------------------------------------
 # APOGEE import
 # -----------------------------------------------------------------------------
-# Import Gaia data, convert to pandas DataFrame
-apogee_fits_fn = "/Users/adamrains/data/allStarLite-dr17-synspec_rev1.fits"
+# Import APOGEE fits and remove duplicates
+#apogee_fits_fn = "/Users/adamrains/data/allStarLite-dr17-synspec_rev1.fits"
+apogee_fits_fn = "/priv/mulga2/arains/gaia_rvs/allStarLite-dr17-synspec_rev1.fits"
+
+print("Importing and preparing APOGEE data...")
 
 apogee_df = import_apogee_fits(apogee_fits_fn)
 
@@ -372,12 +396,14 @@ apogee_df_1x = remove_duplicates_from_apogee_dataframe(apogee_df)
 # -----------------------------------------------------------------------------
 # Crossmatch Gaia fits and APOGEE fits
 # -----------------------------------------------------------------------------
-print("Crossmatching APOGEE...")
+print("Crossmatching Gaia x APOGEE...")
 # Crossmatch spectra with APOGEE catalogue
-apogee_df_cm = gaia_df_cm.join(other=apogee_df_1x, on="source_id", rsuffix="_2")
+apogee_df_cm = gaia_df_cm.join(
+    other=apogee_df_1x, on="source_id", rsuffix="_2")
 
 # Apply quality cuts
-has_good_plx = apogee_df_cm["parallax_over_error"].values > 20
+has_good_plx = \
+    apogee_df_cm["parallax_over_error"].values > MIN_PARALLAX_OVER_ERROR
 has_apogee = ~np.isnan(apogee_df_cm["FE_H"].values)
 
 passes_quality_cuts = np.logical_and(has_good_plx, has_apogee)
@@ -389,60 +415,5 @@ fluxes_2D = fluxes[passes_quality_cuts,:]
 sigmas_2D = e_fluxes[passes_quality_cuts,:]
 
 # Save
-save_to_new_apogee_fits(wave, fluxes_2D, sigmas_2D, gaia_df_cut)
-
-# -----------------------------------------------------------------------------
-# Plot
-# -----------------------------------------------------------------------------
-bp_rp_all = gaia_df_cut["bp_rp"].values
-bp_rp_min = np.nanmin(bp_rp_all)
-bp_rp_max = np.nanmax(bp_rp_all)
-cmap = cm.get_cmap("magma")
-
-plt.close("all")
-fig_spec, axis_spec = plt.subplots(1, figsize=(18,8))
-for star_i in range(len(gaia_df_cut)):
-    if gaia_df_cut.iloc[star_i]["rvs_snr"] > 30:
-        bp_rp = bp_rp_all[star_i]
-        colour = cmap((bp_rp-bp_rp_min)/(bp_rp_max-bp_rp))
-        axis_spec.plot(wave, fluxes[star_i], linewidth=0.1, c=colour)
-        sc = axis_spec.scatter(0,1,c=bp_rp, cmap=cmap.reversed(), vmin=bp_rp_min, vmax=bp_rp_max)
-axis_spec.set_xlabel("Wavelength (nm)")
-axis_spec.set_xlim(RVS_WAVE_MIN-10*RVS_WAVE_DELTA,RVS_WAVE_MAX+10*RVS_WAVE_DELTA)
-
-cb = fig_spec.colorbar(sc, ax=axis_spec, fraction=0.05)
-cb.ax.set_title(r"$BP-RP$")
-
-fig_spec.subplots_adjust(left=0.05, bottom=0.075, right=1.0, top=0.95,)
-
-# ---------
-dist = 1000 / gaia_df_cut["parallax"].values
-e_dist = gaia_df_cut["parallax_error"].values
-M_G = gaia_df_cut["phot_g_mean_mag"].values - 5*np.log10(dist/10)
-
-Fe_Hs = gaia_df_cut["FE_H"].values
-
-fig_cmd, axis_cmd = plt.subplots(1, figsize=(8,6))
-sc = axis_cmd.scatter(x=bp_rp_all, y=M_G, c=Fe_Hs, cmap="cividis")
-
-cb = fig_cmd.colorbar(sc, ax=axis_cmd,)
-cb.ax.set_title("[Fe/H]")
-
-axis_cmd.set_xlabel(r"$BP-RP$")
-axis_cmd.set_ylabel(r"$M_G$")
-
-axis_cmd.set_ylim(13, -5)
-fig_cmd.tight_layout()
-
-
-# ---------
-is_ms = np.logical_and(dist < 300, bp_rp_all > 1.3)
-fig_cmd, axis_ms = plt.subplots(ncols=2, figsize=(12,6))
-axis_ms[0].hist(gaia_df_cut["phot_rp_mean_mag"].values[is_ms], 100)
-axis_ms[1].hist(dist[is_ms], 100)
-
-
-axis_ms[0].set_xlabel(r"$RP$")
-axis_ms[1].set_xlabel(r"Distance (pc)")
-
-fig_cmd.tight_layout()
+save_to_new_apogee_fits(
+    wave, fluxes_2D, sigmas_2D, gaia_df_cut, path=FITS_SAVE_PATH)

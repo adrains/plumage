@@ -1,0 +1,207 @@
+"""Script to prepare the training dataset for use when training a Cannon model
+based on Gaia RVS spectra and APOGEE stellar parameters. The resulting training
+labels are saved to our fits file. Note that stars prepared in this way
+represent *potential* training stars that might be used as part of the training
+sample for a given Cannon model--we need not use all possible stars.
+"""
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+import plumage.utils as pu
+import stannon.utils as su
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+from collections import OrderedDict
+
+#------------------------------------------------------------------------------
+# Settings
+#------------------------------------------------------------------------------
+label_settings = "scripts_gaia/gaia_rvs_label_settings.yml"
+ls = su.load_yaml_settings(label_settings)
+
+#------------------------------------------------------------------------------
+# Imports
+#------------------------------------------------------------------------------
+obs_tab = pu.load_fits_table(
+    extension="OBS_TAB",
+    label=ls.fits_label,
+    fn_base=ls.fits_fn_base,
+    path=ls.fits_folder,)
+
+wave = pu.load_fits_image_hdu(
+    extension="wave",
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,
+    label=ls.fits_label,
+    arm="RVS")
+
+spectra_2D = pu.load_fits_image_hdu(
+    extension="spec",
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,
+    label=ls.fits_label,
+    arm="RVS")
+
+sigmas_2D = pu.load_fits_image_hdu(
+    extension="sigma",
+    path=ls.fits_folder,
+    fn_base=ls.fits_fn_base,
+    label=ls.fits_label,
+    arm="RVS",)
+
+#------------------------------------------------------------------------------
+# Quality cuts
+#------------------------------------------------------------------------------
+# APOGEE bitmasks
+apogee_target_bitmask = obs_tab["APOGEE_TARGET1"].values.astype(np.int32)
+apogee_star_bitmask = obs_tab["STARFLAG"].values.astype(np.int32)
+apogee_snr = obs_tab["SNR"].values
+
+# Gaia flags
+ruwe = obs_tab["ruwe"].values
+
+is_candidate_benchmark = np.all([
+    apogee_target_bitmask == 0,
+    apogee_star_bitmask == 0,
+    apogee_snr >= ls.min_apogee_snr,
+    ruwe < ls.ruwe_threshold,], axis=0)
+
+# Save this mask back to table
+obs_tab["is_candidate_benchmark"] = is_candidate_benchmark
+
+pu.save_fits_table(
+    extension="OBS_TAB",
+    dataframe=obs_tab,
+    label=ls.fits_label,
+    fn_base=ls.fits_fn_base,
+    path=ls.fits_folder,)
+
+#------------------------------------------------------------------------------
+# Diagnostic Plots
+#------------------------------------------------------------------------------
+# Gaia RVS wavelength scale settings
+N_RVS_PX = 2401
+WAVE_MIN = 846
+WAVE_MAX = 870
+WAVE_DELTA = 0.01
+
+N_BM = np.sum(is_candidate_benchmark)
+obs_tab_bm = obs_tab[is_candidate_benchmark].copy()
+spectra_2D_bm = spectra_2D[is_candidate_benchmark]
+sigmas_2D_bm = sigmas_2D[is_candidate_benchmark]
+
+bp_rp_all = obs_tab_bm["bp_rp"].values
+bp_rp_min = np.nanmin(bp_rp_all)
+bp_rp_max = np.nanmax(bp_rp_all)
+cmap = cm.get_cmap("magma")
+
+#=========================================
+# Plot #1: spectra colour-coded by BP-RP
+#=========================================
+plt.close("all")
+
+fig_spec, axis_spec = plt.subplots(1, figsize=(18,8))
+
+for star_i in tqdm(range(N_BM), desc="Plotting spectra", leave=False):
+    if obs_tab_bm.iloc[star_i]["rvs_snr"] > 30:
+        bp_rp = bp_rp_all[star_i]
+        colour = cmap.reversed()((bp_rp-bp_rp_min)/(bp_rp_max))
+        axis_spec.plot(wave, spectra_2D_bm[star_i], linewidth=0.1, c=colour)
+
+        # HACK so that we have something to pass to the colourbar
+        sc = axis_spec.scatter(
+            0,1,c=bp_rp, cmap=cmap.reversed(), vmin=bp_rp_min, vmax=bp_rp_max)
+
+axis_spec.set_xlabel("Wavelength (nm)")
+axis_spec.set_xlim(WAVE_MIN-20*WAVE_DELTA,WAVE_MAX+20*WAVE_DELTA)
+
+cb = fig_spec.colorbar(sc, ax=axis_spec, fraction=0.05)
+cb.ax.set_title(r"$BP-RP$")
+
+fig_spec.subplots_adjust(left=0.05, bottom=0.075, right=1.0, top=0.95,)
+
+# Plot line list
+line_list = pd.read_csv(
+    "data/contursi21_gspec_linelist.tsv", delimiter="\t", comment="#")
+
+# Get the colour map for our lines
+cmap = cm.get_cmap("cubehelix")
+
+# Count how many unique species are in the line list
+unique_species = list(set(line_list["El"].values))
+unique_species.sort()
+n_unique_species = len(unique_species)
+colour_i = (np.arange(n_unique_species+2)/(n_unique_species+2))[:-1]
+species_mapping_dict = OrderedDict(zip(unique_species, colour_i))
+
+species_plotted = []
+
+for line_i, line_data in line_list.iterrows():
+    species = line_data["El"]
+    # Offset
+    min_y = 1.07; max_y = 1.25
+    height = (max_y - min_y) / n_unique_species
+    species_i = np.argwhere(np.array(unique_species) == species)
+    offset = species_i.item() * height
+
+    # Label lines on spectral plot
+    axis_spec.vlines(
+        x=line_data["lambdaVac"],
+        ymin=min_y+offset,
+        ymax=min_y+height+offset,
+        linewidth=1,
+        colors=cmap(species_mapping_dict[species]),
+        label=species,
+        alpha=0.6,)
+
+    if species not in species_plotted:
+        species_plotted.append(species)
+
+        axis_spec.text(
+            x=WAVE_MIN-10*WAVE_DELTA,
+            y =min_y+height/2+offset,
+            s=species,
+            horizontalalignment="left",
+            verticalalignment="center",
+            fontsize="xx-small",
+            color=cmap(species_mapping_dict[species]),)
+
+# Legend
+handles, labels = axis_spec.get_legend_handles_labels()
+ii = np.argsort(labels)
+by_label = OrderedDict(zip(np.array(labels)[ii], np.array(handles)[ii]))
+leg = axis_spec.legend(
+    handles=by_label.values(),
+    labels=by_label.keys(),
+    loc="lower center",
+    ncol=n_unique_species,
+    fontsize="medium",)
+
+for legobj in leg.legendHandles:
+    legobj.set_linewidth(1.5)
+
+fig_spec.savefig("plots/gaia_rvs_selected_spectra.pdf")
+
+#=========================================
+# Plot #2: CMD colour-coded by [Fe/H]
+#=========================================
+dist = 1000 / obs_tab_bm["parallax"].values
+e_dist = obs_tab_bm["parallax_error"].values
+M_G = obs_tab_bm["phot_g_mean_mag"].values - 5*np.log10(dist/10)
+
+Fe_Hs = obs_tab_bm["FE_H"].values
+
+fig_cmd, axis_cmd = plt.subplots(1, figsize=(8,6))
+sc = axis_cmd.scatter(x=bp_rp_all, y=M_G, c=Fe_Hs, cmap="cividis")
+
+cb = fig_cmd.colorbar(sc, ax=axis_cmd,)
+cb.ax.set_title("[Fe/H]")
+
+axis_cmd.set_xlabel(r"$BP-RP$")
+axis_cmd.set_ylabel(r"$M_G$")
+
+axis_cmd.set_title(r"$N_{{\rm stars}}={:0.0f}$".format(N_BM))
+
+axis_cmd.set_ylim(13, -5)
+fig_cmd.tight_layout()
+fig_cmd.savefig("plots/gaia_rvs_selected_cmd.pdf")

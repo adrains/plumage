@@ -662,7 +662,7 @@ def load_fits_image_hdu(
 
     # Ensure correct value of arm is passed
     arm = arm.upper()
-    valid_arms = ("B", "R", "BR")
+    valid_arms = ("B", "R", "BR", "RVS")
     
     if arm not in valid_arms:
         raise ValueError("Arm must be in {}".format())
