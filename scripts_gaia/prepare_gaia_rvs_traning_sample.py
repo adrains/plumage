@@ -14,6 +14,84 @@ import matplotlib.pyplot as plt
 from collections import OrderedDict
 
 #------------------------------------------------------------------------------
+# Functions
+#------------------------------------------------------------------------------
+def prepare_labels(
+    obs_tab,
+    base_labels,
+    abundance_labels,):
+    """Prepare our set of training labels (currently only from APOGEE) and add
+    new columns to obs_tab in the Stannon-expected format. The columns added
+    are: ['label_adopt_<>', 'label_adopt_sigma_<>', 'label_adopt_var_<>',
+    'label_source_<>']  per label, as well as two global masks:
+    ['has_base_label_set', 'has_complete_label_set']. The DataFrame is updated
+    in place.
+
+    Parameters
+    ----------
+    obs_tab: pandas DataFrame
+        Pandas dataframe crossmatch containing observation Gaia and APOGEE
+        information.
+
+    base_labels, abundance_labels: str list
+        Base (e.g. ['teff', 'logg', 'Fe_H']) and abundance labels (e.g. 
+        ['Ti_Fe', 'Ca_Fe', 'Si_Fe']) to collate for each star.
+
+    Updated
+    -------
+    obs_tab: DataFrame
+        New columns added to DataFrame corresponding to adopted labels.
+    """
+    # Initialise for convenience
+    labels = base_labels + abundance_labels
+    n_labels = len(labels)
+    n_stars = len(obs_tab)
+
+    # Initialise label vector
+    label_values = np.full( (n_stars, n_labels), np.nan)
+    label_sigmas = np.full( (n_stars, n_labels), np.nan)
+    label_variances = np.full( (n_stars, n_labels), np.nan)
+
+    # Initialise record of label source/s
+    label_sources = np.full( (n_stars, n_labels), "").astype(object)
+
+    # By default everything has APOGEE labels, so we can just assign everything
+    # accordingly before working with any exceptions
+    for label_i, label in enumerate(labels):
+        APOGEE_value_col = label.upper()
+        APOGEE_sigma_col = "{}_ERR".format(label.upper())
+
+        label_values[:, label_i] = obs_tab[APOGEE_value_col]
+        label_sigmas[:, label_i] = obs_tab[APOGEE_sigma_col]
+        label_variances[:, label_i] = obs_tab[APOGEE_sigma_col]**2
+        label_sources[:, label_i] = "APOGEE"
+
+        # Add new columns, being careful to provide the indices of the new
+        # columns so that pandas can do the table join properly.
+        obs_tab["label_adopt_{}".format(label)] = \
+            pd.Series(label_values[:,label_i], index=obs_tab.index)
+        obs_tab["label_adopt_sigma_{}".format(label)] = \
+            pd.Series(label_sigmas[:,label_i], index=obs_tab.index)
+        obs_tab["label_adopt_var_{}".format(label)] = \
+            pd.Series(label_variances[:,label_i], index=obs_tab.index)
+        obs_tab["label_source_{}".format(label)] = \
+            pd.Series(label_sources[:,label_i], index=obs_tab.index)
+
+    # Assign masks
+    has_base_label_set = np.any(
+        ~np.logical_or(np.isnan(label_values[:,:3]), 
+                       np.isnan(label_sigmas[:,:3])), axis=1)
+
+    has_complete_label_set = np.any(
+            ~np.logical_or(np.isnan(label_values), 
+                           np.isnan(label_sigmas)), axis=1)
+
+    # Add corresponding mask to the dataframe
+    obs_tab["has_base_label_set"] = has_base_label_set
+    obs_tab["has_complete_label_set"] = has_complete_label_set
+
+
+#------------------------------------------------------------------------------
 # Settings
 #------------------------------------------------------------------------------
 label_settings = "scripts_gaia/gaia_rvs_label_settings.yml"
@@ -68,6 +146,9 @@ is_candidate_benchmark = np.all([
 
 # Save this mask back to table
 obs_tab["is_candidate_benchmark"] = is_candidate_benchmark
+
+# Format labels
+prepare_labels(obs_tab, ls.base_labels, ls.abundance_labels)
 
 pu.save_fits_table(
     extension="OBS_TAB",
@@ -181,6 +262,7 @@ for legobj in leg.legendHandles:
     legobj.set_linewidth(1.5)
 
 fig_spec.savefig("plots/gaia_rvs_selected_spectra.pdf")
+fig_spec.savefig("plots/gaia_rvs_selected_spectra.png", dpi=400)
 
 #=========================================
 # Plot #2: CMD colour-coded by [Fe/H]
@@ -205,3 +287,4 @@ axis_cmd.set_title(r"$N_{{\rm stars}}={:0.0f}$".format(N_BM))
 axis_cmd.set_ylim(13, -5)
 fig_cmd.tight_layout()
 fig_cmd.savefig("plots/gaia_rvs_selected_cmd.pdf")
+fig_cmd.savefig("plots/gaia_rvs_selected_cmd.png", dpi=400)
