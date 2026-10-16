@@ -138,9 +138,28 @@ apogee_snr = obs_tab["SNR"].values
 # Gaia flags
 ruwe = obs_tab["ruwe"].values
 
+# Create mask ensuring that all (relevant) APOGEE parameters are unflagged. The
+# parameter flags are: ['TEFF_FLAG', 'LOGG_FLAG', 'LOGVMICRO_FLAG', 'M_H_FLAG',
+# 'C_M_FLAG', 'N_M_FLAG', 'ALPHA_M_FLAG', 'LGVSINI_FLAG', 'PARAM_O_FLAG'].
+has_reliable_params = np.full(obs_tab.shape[0], True)
+for param in ls.param_flags_to_check:
+    has_reliable_params = np.logical_and(
+        has_reliable_params, 
+        obs_tab[param].values == 0)
+
+# Create mask ensuring that all [X/Fe] are unflagged
+has_reliable_X_Fe = np.full(obs_tab.shape[0], True)
+for X_Fe in ls.abundance_labels:
+    has_reliable_X_Fe = np.logical_and(
+        has_reliable_X_Fe, 
+        obs_tab["{}_FLAG".format(X_Fe.upper())].values == 0)
+
+# Create a mask for what we'll consider a candidate training star
 is_candidate_benchmark = np.all([
     apogee_target_bitmask == 0,
     apogee_star_bitmask == 0,
+    has_reliable_params,
+    has_reliable_X_Fe,
     apogee_snr >= ls.min_apogee_snr,
     ruwe < ls.ruwe_threshold,], axis=0)
 

@@ -39,6 +39,7 @@ allow_negative_parallaxes: False
 #------------------------------------------------------------------------------
 # Spectra quality cuts
 min_apogee_snr: 100
+max_apogee_vsini: 25
 
 # Parameter uncertainties
 
@@ -48,8 +49,13 @@ APOGEE_PARAMFLAG: 1
 APOGEE_STARFLAG: 1
 APOGEE_RV_FLAG: 1
 
+# We ensure that these APOGEE parameters flags == 0. Note that doing this for
+# the logg flag removes anything spectroscopically identified as RGB or RC.
+param_flags_to_check: ["TEFF_FLAG",]
+
 #------------------------------------------------------------------------------
 # Abundance Priorities + abundances to determine labels for
 #------------------------------------------------------------------------------
 # Abundance labels to compute, e.g. ['Fe_H', 'Ti_Fe'].
-abundance_labels: ["Fe_H", "Ti_Fe", "Ca_Fe", "Mg_Fe",]
+base_labels: ["teff", "logg", "Fe_H",]
+abundance_labels: ["Ti_Fe", "Ca_Fe", "Si_Fe",]

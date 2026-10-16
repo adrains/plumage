@@ -1,6 +1,7 @@
 """Initial working script for APOGEE + Gaia RVS crossmatch.
 """
 import os
+import socket
 import numpy as np
 import pandas as pd
 from glob import glob
@@ -18,9 +19,6 @@ RVS_WAVE_DELTA = 0.01
 # Import settings (TODO: move to YAML settings file)
 MIN_SNR = 100
 MIN_PARALLAX_OVER_ERROR = 20
-
-# Save settings
-FITS_SAVE_PATH = "/priv/mulga2/arains/gaia_rvs/"
 
 # -----------------------------------------------------------------------------
 # Functions
@@ -152,9 +150,9 @@ def read_all_rvs_csv(rvs_folder, min_snr=None,):
 
 def import_apogee_fits(apogee_fits_fn):
     """Imports an APOGEE data release fits file (e.g. DR17) as a pandas
-    DataFrame. We drop all 2D columns with the exception of [X/H] and e_[X/H]
-    which are added as individual 1D columns, and drop all observations without
-    a valid Gaia EDR3 crossmatch.
+    DataFrame. We drop all 2D columns with the exception of [X/H], e_[X/H], and
+    the stellar parameter flags, which are all added as individual 1D columns,
+    and drop all observations without a valid Gaia EDR3 crossmatch.
 
     Parameters
     ----------
@@ -178,6 +176,18 @@ def import_apogee_fits(apogee_fits_fn):
         dtype_dict = {"GAIAEDR3_SOURCE_ID":str}
         apogee_df = apogee_tab[cols].to_pandas().astype(dtype=dtype_dict,)
 
+        # The APOGEE fits table stores some data as multi-dimensional columns
+        # under a single column name, with the individual column names stored
+        # in a separate fits HDU. These cannot simply be converted to a pandas
+        # DataFrame the same as normal 1D columns can, and we must concatenate
+        # these to the DataFrame ourselves later. Currently we do this for
+        # [X/H] values and sigmas, and parameter flags.
+
+        # Extract parameter flags array and convert to individual columns
+        param_flags = apogee_tab["PARAMFLAG"].data
+        param_flag_symbols = fits_file[3].data["PARAM_SYMBOL"][0].tolist()
+        param_flag_cols = ["{}_FLAG".format(sym) for sym in param_flag_symbols]
+
         # Grab the element order for the [X/H] value and sigma arrays
         XX = fits_file[3].data["ELEM_SYMBOL"][0].tolist()
 
@@ -190,14 +200,18 @@ def import_apogee_fits(apogee_fits_fn):
         X_H_sigmas = apogee_tab["X_H_ERR"].data
 
         # Interleave [X/H] and e_[X/H] data + column names
-        XX_comb = np.full((X_H_values.shape[0], X_H_values.shape[1]*2), np.nan)
-        XX_comb[:, 0::2] = X_H_values
-        XX_comb[:, 1::2] = X_H_sigmas
+        X_H_data = np.full((X_H_values.shape * np.array([1,2])), np.nan)
+        X_H_data[:, 0::2] = X_H_values
+        X_H_data[:, 1::2] = X_H_sigmas
 
-        col_names = [i for sublist in zip(XX_col, e_XX_col) for i in sublist]
+        X_H_cols = [i for sublist in zip(XX_col, e_XX_col) for i in sublist]
+
+        # Combine parameter flag columns with [X/H] columns
+        col_names = param_flag_cols + X_H_cols
+        multi_col_data = np.concatenate((param_flags, X_H_data), axis=1)
 
         # Add [X/H] columns back in by DataFrame concatenation
-        X_H_df = pd.DataFrame(columns=col_names, data=XX_comb)
+        X_H_df = pd.DataFrame(columns=col_names, data=multi_col_data)
         apogee_df = pd.concat([apogee_df, X_H_df], axis=1)
 
         # Drop any targets without a Gaia crossmatch, reset indexing
@@ -357,10 +371,23 @@ def save_to_new_apogee_fits(
 # -----------------------------------------------------------------------------
 # Main body
 # -----------------------------------------------------------------------------
-# Import the spectra
-#rvs_folder = "/Users/adamrains/data/rvs/"
-rvs_folder = "/priv/mulga2/arains/gaia_rvs/"
+# Set paths depending on which machine we're running on
+machine = socket.gethostname()
 
+if machine == "future":
+    rvs_folder = "/Users/adamrains/data/rvs/"
+    gaia_fits_fn = "/Users/adamrains/data/all_rvs-result.fits"
+    apogee_fits_fn = "/Users/adamrains/data/allStarLite-dr17-synspec_rev1.fits"
+    fits_save_path = "spectra/"
+
+elif machine == "motley.anu.edu.au":
+    rvs_folder = "/priv/mulga2/arains/gaia_rvs/"
+    gaia_fits_fn = "/priv/mulga2/arains/gaia_rvs/all_rvs-result.fits"
+    apogee_fits_fn = \
+        "/priv/mulga2/arains/gaia_rvs/allStarLite-dr17-synspec_rev1.fits"
+    fits_save_path = "/priv/mulga2/arains/gaia_rvs/"
+
+# Import the spectra
 print("Ingesting Gaia RVS spectra...")
 wave, fluxes, e_fluxes, rvs_df = read_all_rvs_csv(rvs_folder, min_snr=MIN_SNR)
 
@@ -368,9 +395,6 @@ wave, fluxes, e_fluxes, rvs_df = read_all_rvs_csv(rvs_folder, min_snr=MIN_SNR)
 # Gaia crossmatch
 # -----------------------------------------------------------------------------
 # Import Gaia data, convert to pandas DataFrame
-#gaia_fits_fn = "/Users/adamrains/data/all_rvs-result.fits"
-gaia_fits_fn = "/priv/mulga2/arains/gaia_rvs/all_rvs-result.fits"
-
 with fits.open(gaia_fits_fn, mode="readonly") as fits_file:
     gaia_tab = Table(fits_file["votable"].data)
     gaia_df = gaia_tab.to_pandas().astype(dtype={"source_id":str})
@@ -384,9 +408,6 @@ gaia_df_cm = rvs_df.join(other=gaia_df, on="source_id", rsuffix="_2")
 # APOGEE import
 # -----------------------------------------------------------------------------
 # Import APOGEE fits and remove duplicates
-#apogee_fits_fn = "/Users/adamrains/data/allStarLite-dr17-synspec_rev1.fits"
-apogee_fits_fn = "/priv/mulga2/arains/gaia_rvs/allStarLite-dr17-synspec_rev1.fits"
-
 print("Importing and preparing APOGEE data...")
 
 apogee_df = import_apogee_fits(apogee_fits_fn)
@@ -416,4 +437,4 @@ sigmas_2D = e_fluxes[passes_quality_cuts,:]
 
 # Save
 save_to_new_apogee_fits(
-    wave, fluxes_2D, sigmas_2D, gaia_df_cut, path=FITS_SAVE_PATH)
+    wave, fluxes_2D, sigmas_2D, gaia_df_cut, path=fits_save_path)
