@@ -12,6 +12,7 @@ import stannon.utils as su
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 from collections import OrderedDict
+from astropy.stats import sigma_clip
 
 #------------------------------------------------------------------------------
 # Functions
@@ -91,6 +92,75 @@ def prepare_labels(
     obs_tab["has_complete_label_set"] = has_complete_label_set
 
 
+def flag_Ca_triplet_emission(
+    wave_1D,
+    spectra_2D,
+    Ca_triplet_windows_nm,
+    sigma_threshold,
+    wing_width_nm=0.05,):
+    """Flags those stars with Ca triplet emission by comparing line cores and
+    wings. Can run on a list of lines, or a single line.
+
+    Parameters
+    ----------
+    wave_1D: 1D float array
+        Wavelength array of shape [n_px].
+
+    spectra_2D: 2D float array
+        Gaia RVS spectra array of shape [n_star, n_px].
+
+    Ca_triplet_windows_nm: 2D float array
+        List of [min,max] wavelength line core ranges to inspect for emission.
+
+    sigma_threshold: float
+        Sigma clipping threshold for assessing emission.
+
+    wing_width_nm: float
+        The width either side of the line core to treat as the wing.
+
+    Returns
+    -------
+    has_Ca_triplet_emission: 1D bool array
+        Boolean array where True indicates line emission, of shape [n_star].
+    """
+    # Create a Ca triplet mask
+    is_Ca_triplet_core = np.full(spectra_2D.shape[1], False)
+    is_Ca_triplet_wing = np.full(spectra_2D.shape[1], False)
+
+    for line in Ca_triplet_windows_nm:
+        # Compute a mask for the line cores
+        (core_min, core_max) = line
+        
+        is_Ca_triplet_core = np.logical_or(
+            is_Ca_triplet_core,
+            np.logical_and(wave_1D >= core_min, wave_1D <= core_max))
+
+        # Compute a mask for the line wings
+        wing_min = core_min - wing_width_nm
+        wing_max = core_max + wing_width_nm
+
+        is_Ca_triplet_wing = np.logical_or(
+            is_Ca_triplet_wing,
+            np.logical_or(
+                np.logical_and(wave_1D >= wing_min, wave_1D <= core_min),
+                np.logical_and(wave_1D >= core_max, wave_1D <= wing_max)))
+    
+    # Compute difference between maximum core flux and minimum wing flux
+    Ca_triplet_core_max = np.nanmax(spectra_2D[:,is_Ca_triplet_core], axis=1)
+    Ca_triplet_wing_min = np.nanmin(spectra_2D[:,is_Ca_triplet_wing], axis=1)
+    Ca_triplet_delta = Ca_triplet_core_max - Ca_triplet_wing_min
+
+    # Sigma clip based on this difference
+    is_sc = sigma_clip(Ca_triplet_delta, sigma=sigma_threshold).mask
+
+    # Also enforce that the core has more flux than the line
+    Ca_triplet_wing_med = np.nanmedian(spectra_2D[:,is_Ca_triplet_wing],axis=1)
+    core_gt_wing = Ca_triplet_core_max > Ca_triplet_wing_med
+
+    has_Ca_triplet_emission = np.logical_and(is_sc, core_gt_wing)
+
+    return has_Ca_triplet_emission
+
 #------------------------------------------------------------------------------
 # Settings
 #------------------------------------------------------------------------------
@@ -138,6 +208,17 @@ apogee_snr = obs_tab["SNR"].values
 # Gaia flags
 ruwe = obs_tab["ruwe"].values
 
+# Compute Ca triplet emission
+has_Ca_triplet_emission = flag_Ca_triplet_emission(
+    wave_1D=wave,
+    spectra_2D=spectra_2D,
+    Ca_triplet_windows_nm=ls.Ca_triplet_windows,
+    sigma_threshold=ls.emission_sigma_to_mask,
+    wing_width_nm=ls.wing_width_nm,)
+
+obs_tab["has_Ca_triplet_emission"] = \
+    pd.Series(has_Ca_triplet_emission, index=obs_tab.index)
+
 # Create mask ensuring that all (relevant) APOGEE parameters are unflagged. The
 # parameter flags are: ['TEFF_FLAG', 'LOGG_FLAG', 'LOGVMICRO_FLAG', 'M_H_FLAG',
 # 'C_M_FLAG', 'N_M_FLAG', 'ALPHA_M_FLAG', 'LGVSINI_FLAG', 'PARAM_O_FLAG'].
@@ -161,6 +242,7 @@ is_candidate_benchmark = np.all([
     has_reliable_params,
     has_reliable_X_Fe,
     apogee_snr >= ls.min_apogee_snr,
+    ~has_Ca_triplet_emission,
     ruwe < ls.ruwe_threshold,], axis=0)
 
 # Save this mask back to table
