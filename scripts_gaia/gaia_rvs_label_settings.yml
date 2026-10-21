@@ -34,6 +34,15 @@ min_rvs_snr: 100
 min_gaia_parallax_over_error: 20
 allow_negative_parallaxes: False
 
+# Whether to mask emission fetures
+do_mask_Ca_emission: True
+emission_sigma_to_mask: 2
+Ca_triplet_windows:
+#  - [850.0, 850.1]
+  - [854.4, 854.5]
+#  - [866.4, 866.5]
+wing_width_nm: 0.05
+
 #------------------------------------------------------------------------------
 # APOGEE Quality Cuts
 #------------------------------------------------------------------------------

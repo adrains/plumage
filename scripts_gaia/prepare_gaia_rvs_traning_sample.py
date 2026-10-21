@@ -88,8 +88,17 @@ def prepare_labels(
                            np.isnan(label_sigmas)), axis=1)
 
     # Add corresponding mask to the dataframe
-    obs_tab["has_base_label_set"] = has_base_label_set
-    obs_tab["has_complete_label_set"] = has_complete_label_set
+    obs_tab["has_base_label_set"] = \
+        pd.Series(has_base_label_set, index=obs_tab.index)
+    obs_tab["has_complete_label_set"] = \
+        pd.Series(has_complete_label_set, index=obs_tab.index)
+
+    # Compute the final mask
+    icb = np.logical_and(
+        obs_tab["is_candidate_benchmark"].values,
+        obs_tab["has_complete_label_set"].values,)
+
+    obs_tab["is_cannon_benchmark"] = pd.Series(icb, index=obs_tab.index)
 
 
 def flag_Ca_triplet_emission(
@@ -198,6 +207,19 @@ sigmas_2D = pu.load_fits_image_hdu(
     arm="RVS",)
 
 #------------------------------------------------------------------------------
+# Computing extra columns
+#------------------------------------------------------------------------------
+# Compute distance and M_G, TODO: use Bailer-Jones distances
+dist = 1000 / obs_tab["parallax"].values
+e_dist = obs_tab["parallax_error"].values
+M_G = obs_tab["phot_g_mean_mag"].values - 5*np.log10(dist/10)
+
+# Save back to DataFrame
+obs_tab["dist"] = pd.Series(dist, index=obs_tab.index)
+obs_tab["e_dist"] = pd.Series(e_dist, index=obs_tab.index)
+obs_tab["M_G"] = pd.Series(M_G, index=obs_tab.index)
+
+#------------------------------------------------------------------------------
 # Quality cuts
 #------------------------------------------------------------------------------
 # APOGEE bitmasks
@@ -246,7 +268,8 @@ is_candidate_benchmark = np.all([
     ruwe < ls.ruwe_threshold,], axis=0)
 
 # Save this mask back to table
-obs_tab["is_candidate_benchmark"] = is_candidate_benchmark
+obs_tab["is_candidate_benchmark"] = \
+    pd.Series(is_candidate_benchmark, index=obs_tab.index)
 
 # Format labels
 prepare_labels(obs_tab, ls.base_labels, ls.abundance_labels)
@@ -368,10 +391,7 @@ fig_spec.savefig("plots/gaia_rvs_selected_spectra.png", dpi=400)
 #=========================================
 # Plot #2: CMD colour-coded by [Fe/H]
 #=========================================
-dist = 1000 / obs_tab_bm["parallax"].values
-e_dist = obs_tab_bm["parallax_error"].values
-M_G = obs_tab_bm["phot_g_mean_mag"].values - 5*np.log10(dist/10)
-
+M_G = obs_tab_bm["M_G"].values
 Fe_Hs = obs_tab_bm["FE_H"].values
 
 fig_cmd, axis_cmd = plt.subplots(1, figsize=(8,6))

@@ -1831,6 +1831,92 @@ def prepare_cannon_spectra_wifes(
     return wls, fluxes_norm, ivars_norm, bad_px_mask, adopted_wl_mask
 
 
+def prepare_cannon_spectra_gaia_rvs(
+    fits_folder,
+    fits_fn_base,
+    fits_label,
+    wl_min_model,
+    wl_max_model,):
+    """Importts WiFeS format spectra and associated masks for use with the 
+    Cannon.
+
+    Parameters
+    ----------
+    fits_folder: string
+        Path to save the fits file to.
+
+    fits_fn_base: string, default: "spectra"
+        Base string of filename.
+    
+    fits_label: string
+        Unique label (e.g. std, TESS) for the resulting fits file.
+
+    wl_min_model, wl_max_model: float
+        Minumum and maximum wavelengths to train the Cannon on.
+
+    Returns
+    -------
+    wave: 1D float array
+        Adopted wavelength scale for Cannon model considering wavelength
+        limits, of shape [N_px].
+    
+    spectra_2D, ivars_2D: 2D float array
+        Adopted fluxes and inverse variances, of shape [N_obs, N_px].
+    
+    bad_px_mask_2D: 2D boolean array
+        Bad pixel mask, True where pixels are nonfinite values, [N_obs, N_px].
+    
+    adopted_wl_mask: boolean array
+        Global adopted wavelength values mask, True where the pixel/wavelength
+        is to be included in the Cannon model.
+    """
+    # Load in rest-frame pseudocontinuum normalised spectra
+    wave = pu.load_fits_image_hdu(
+        extension="wave",
+        path=fits_folder,
+        fn_base=fits_fn_base,
+        label=fits_label,
+        arm="RVS") * 10         # Convert to Å
+    
+    spectra_2D = pu.load_fits_image_hdu(
+        extension="spec",
+        path=fits_folder,
+        fn_base=fits_fn_base,
+        label=fits_label,
+        arm="RVS")
+    
+    sigmas_2D = pu.load_fits_image_hdu(
+        extension="sigma",
+        path=fits_folder,
+        fn_base=fits_fn_base,
+        label=fits_label,
+        arm="RVS",)
+
+    ivars_2D = 1/sigmas_2D**2
+    
+    # Construct mask for nonfinite px (masked regions are *TRUE*) and use to
+    # mask spectra.
+    bad_px_mask = np.logical_or(
+        ~np.isfinite(spectra_2D),
+        ~np.isfinite(ivars_2D))
+
+    spectra_2D[bad_px_mask] = 1.0
+    ivars_2D[bad_px_mask] = 0
+
+    # TODO: Construct a mask for DIBs
+    pass
+    
+    # Construct mask for emission regions - useful regions are *TRUE*
+    # HACK: ignored at the moment
+    adopted_wl_mask = np.full(wave.size, True)
+
+    # Enforce minimum and maximum wavelengths
+    adopted_wl_mask = \
+        adopted_wl_mask * (wave > wl_min_model) * (wave < wl_max_model)
+    
+    return wave, spectra_2D, ivars_2D, bad_px_mask, adopted_wl_mask
+
+
 def prepare_cannon_spectra_normalisation(
     wls,
     spectra,
