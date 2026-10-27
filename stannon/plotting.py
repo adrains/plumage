@@ -134,7 +134,7 @@ def plot_label_recovery(
 
     # Make plot
     n_labels = label_values.shape[1]
-    fig, axes = plt.subplots(nrows=n_rows, ncols=n_labels//n_rows)
+    fig, axes = plt.subplots(nrows=n_rows, ncols=int(np.ceil(n_labels/n_rows)))
 
     if n_rows > 1:
         axes = axes.flatten()
