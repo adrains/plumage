@@ -973,13 +973,18 @@ class Stannon(object):
         max_iter,
         log_refresh_step,
         show_timing=True,
-        n_statistical_samples=1,):
-        """Runs leave-one-out cross validation for the current training set,
-        and saves the N predicted labels as self.cross_val_labels.
+        n_statistical_samples=1,
+        do_LOOCV=True,
+        k_folds=10,
+        k_fold_CV_rng_seed=None,):
+        """Runs cross validation (either leave-one-out or k-fold) for the
+        current training set, and saves the N predicted labels as 
+        self.cross_val_labels.
 
-        To do this, we initialise a new Stannon model with the data from N-1
-        objects, train it, and use it to predict the value of the missing
-        benchmark. We then repreat this for all N benchmarks.
+        To do this, we initialise a new Stannon model with the data from 
+        n_star-n_per_fold objects, train it, and use it to predict the value of
+        the missing n_per_fold benchmark/s. We then repreat this for all
+        benchmarks or k-folds.
 
         TODO: parallelise.
 
@@ -1011,6 +1016,18 @@ class Stannon(object):
             If > 1, we run MC sampling by sampling the uncertainties on the
             fluxes in order to predict the means *and* standard deviations on
             the cross-validation labels.
+
+        do_LOOCV: boolean, default: True
+            If True, we run leave-one-out cross validation. If False, we run
+            k-fold cross validation using k_folds.
+
+        k_folds: float, default: 10
+            How many folds to break the training sample into if running k-fold
+            cross validation.
+
+        k_fold_CV_rng_seed: float, default: None
+            The random seed for randomising the assignment of stars into each
+            of the k-folds.
         """
         print("\n", "%"*100, "%"*100, sep="\n",)
         print("\n\t\t\t\t\tRunning cross validation\n",)
@@ -1022,25 +1039,54 @@ class Stannon(object):
         self.cross_val_sigmas = np.full_like(self.training_labels, np.nan)
         self.cross_val_chi2 = np.full(self.S, np.nan)
 
-        # Do leave-one-out training and testing for all. To do this, we create
-        # a duplicate object containing data on N-1 benchmarks, train, and test
-        for std_i in range(self.S):
+        # The algorithm as written generalises to LOOCV when k_folds = n_star.
+        # Force this if do_LOOCV = True.
+        if do_LOOCV:
+            k_folds = self.S
+
+        # Compute the number of stars per fold, noting that the kth fold might
+        # have fewer stars if the the sample is not evenly divisble by k.
+        n_per_fold = int(np.ceil(self.S / k_folds))
+
+        # Create indices for each of the folds
+        folds = np.arange(k_folds)
+
+        # Create an array of indices that will assign each star to one of the k
+        # folds.
+        fold_ii = np.repeat(folds, n_per_fold)[:self.S]
+        
+        # If doing k-fold cross validation, randomly shuffle these indices.
+        if not do_LOOCV:
+            rng = np.random.default_rng(k_fold_CV_rng_seed)
+            rng.shuffle(fold_ii)
+
+            # TODO keep track of these indices
+            pass
+
+        # Run cross-validation and testing for all. To do this, we create
+        # a duplicate object containing data on n_star-n_per_fold benchmarks,
+        # train, and test on the left out n_per_fold benchmarks. If doing LOOCV
+        # then n_per_fold = 1.
+        for fold_i in folds:
             print("\n\n", "-"*100, sep="",)
-            print("Leave one out validation {:0.0f}/{:0.0f}".format(
-                std_i+1, self.S),)
+            if do_LOOCV:
+                print("Leave one out cross validation {:0.0f}/{:0.0f}".format(
+                    fold_i+1, self.S),)
+            else:
+                print("k-fold cross validation {:0.0f}/{:0.0f}".format(
+                    fold_i+1, k_folds),)
             print("-"*100,)
 
-            # Make a mask with which we will mask out the std_i'th benchmark
-            dm = np.full(self.S, True)
-
-            # Mask out the standard to be left out
-            dm[std_i] = False
+            # Make a mask where True are all the stars in the k-1 folds to be
+            # used for training, and False are the stars in the fold left out
+            # for testing.
+            dm = fold_ii != fold_i
 
             # Duplicate the object. Since the best approach is to initialise
-            # the object with one fewer benchmark, the easiest solution is to
-            # just initialise a new object rather than using the deep copy
-            # function to make sure all the changes cascade properly. As such,
-            # this new object will have S = N-1.
+            # the object with n_per_fold fewer benchmark/s, the easiest
+            # solution is to just initialise a new object rather than using the
+            # deep copy function to make sure all the changes cascade properly.
+            # As such, this new object will have S = n_star - n_per_fold.
             # TODO: this can probably be handled by the deep copy function?
             cv_sm = Stannon(
                 training_data=copy.deepcopy(self.training_data[dm]),
@@ -1056,7 +1102,7 @@ class Stannon(object):
                 data_mask=copy.deepcopy(self.data_mask[dm]),
                 bad_px_mask=copy.deepcopy(self.bad_px_mask[dm]),)
 
-            # Train this new Cannon model on N-1 benchmarks
+            # Train this new Cannon model on N-n_per_fold benchmarks
             cv_sm.train_cannon_model(
                 suppress_stan_output=suppress_stan_output,
                 init_uncertainty_model_with_basic_model=\
@@ -1064,7 +1110,7 @@ class Stannon(object):
                 max_iter=max_iter,
                 log_refresh_step=log_refresh_step,)
 
-            # Predict labels for the missing standard
+            # Predict labels for the left training sample
             # Option 1) predict the labels once using real spectra + sigmas
             if n_statistical_samples == 1:
                 labels_pred, labels_err, fit_chi2 = cv_sm.infer_labels(
@@ -1072,9 +1118,9 @@ class Stannon(object):
                     test_data_ivars=self.masked_data_ivar[~dm])
             
                 # Store predicted label value, statistical uncertainty, & chi2
-                self.cross_val_labels[std_i] = labels_pred
-                self.cross_val_sigmas[std_i] = labels_err
-                self.cross_val_chi2[std_i] = fit_chi2
+                self.cross_val_labels[~dm] = labels_pred
+                self.cross_val_sigmas[~dm] = labels_err
+                self.cross_val_chi2[~dm] = fit_chi2
 
             # Option 2) predict label means *and* their standard deviations
             # by running label prediction N times via a MC approach. This also
@@ -1087,9 +1133,9 @@ class Stannon(object):
                         n_samples=n_statistical_samples,)
 
                 # Store predicted label mean and standard deviations
-                self.cross_val_labels[std_i] = labels_pred
-                self.cross_val_sigmas[std_i] = labels_sigma
-                self.cross_val_chi2[std_i] = fit_chi2
+                self.cross_val_labels[~dm] = labels_pred
+                self.cross_val_sigmas[~dm] = labels_sigma
+                self.cross_val_chi2[~dm] = fit_chi2
 
         if show_timing:
             t_elapsed = datetime.now() - start_time
@@ -1912,7 +1958,7 @@ def prepare_cannon_spectra_gaia_rvs(
 
     # Enforce minimum and maximum wavelengths
     adopted_wl_mask = \
-        adopted_wl_mask * (wave > wl_min_model) * (wave < wl_max_model)
+        adopted_wl_mask * (wave >= wl_min_model) * (wave <= wl_max_model)
     
     return wave, spectra_2D, ivars_2D, bad_px_mask, adopted_wl_mask
 
