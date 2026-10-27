@@ -20,7 +20,7 @@
 
 # This is our model 'label' which serves as a simple shorthand name for the
 # model in question, e.g. 'MK' for a model including both M and K dwarfs.
-model_label: "M"
+model_label: "KM"
 
 # If False, we don't make any cuts to our sample and simply adopt all 
 # benchmarks with 'is_cannon_benchmark' = True.
@@ -29,7 +29,7 @@ do_use_subset_of_benchmark_sample: True
 # Whether we trust and want to use [Fe/H] values directly-determined from high-
 # resolution spectroscopy, or only allow these for binary systems. If True, we
 # exclude most K-dwarf [Fe/H] literature sources.
-do_exclude_high_res_Fe_H_from_single_stars: True
+do_exclude_high_res_Fe_H_from_single_stars: False
 
 # The high-res [Fe/H] spectroscopic studies to be considered above.
 high_res_Fe_H_studies: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20"]
@@ -38,7 +38,7 @@ high_res_Fe_H_studies: ["VF05", "B16", "M13", "A12", "L18", "M18", "R07", "RB20"
 # 4.5 < MKs < 10.5 (0.08 < M* < 0.70 Msun). This takes precedence over the
 # gradient cut below. Note that do_use_subset_of_benchmark_sample must be True
 # for this to take effect.
-force_conservative_bright_MKs_cut: False
+force_conservative_bright_MKs_cut: True
 
 # Parameterising the BP-RP - M_Ks main sequence by a linear line, we use two
 # lines perpendicularto this to denote the cool K dwarf boundary, and the warm
@@ -83,10 +83,24 @@ max_iter: 500000
 # testing--so this can be updated here. 
 refresh_rate_frac: 10000
 
-# Whether to run leave-one-out cross validation on Cannon model. If yes, the
-# cross validation is done using the same suppress_stan_output, 
-# init_with_basic_model, and max_iter settings as the original training.
+# Whether to run cross validation (either leave-one-out, or k-fold) on our 
+# Cannon model. If True, the cross validation is done using the same
+# suppress_stan_output, init_with_basic_model, and max_iter settings as the
+# original training.
 do_cross_validation: True
+
+# If True, we run leave-one-out cross-validation as our cross-validation
+# algorithm. If False, we run k-fold cross-validation using the k_folds and 
+# k_fold_CV_rng_seed settings below.
+do_LOOCV: False
+
+# If running k-fold validation, how many folds to split the dataset into. 
+# Cross-validation will then be run k times, training on k-1 folds and testing
+# on the kth fold each time. 
+k_folds: 10
+
+# The random seed to use for randomly assigning stars to each fold.
+k_fold_CV_rng_seed: 20100914
 
 # Whether to do MC sampling during cross-validation to get a better idea of the
 # internal uncertainties on a trained Cannon model. Set to 1 to not do MC
@@ -138,7 +152,8 @@ uniform_var_frac_error: 0.01
 # lit_std_scale_fac = [0.1, 0.1, 0.1, 0.1] means that we adopt
 # uncertainties 10x smaller than observed for each label of a four label model.
 # This only takes effect if use_label_uniform_variances is set to False. Set to 
-# an array of ones if we don't want to scale the uncertainties.
+# an array of ones if we don't want to scale the uncertainties (this is done by
+# default if using the basic model).
 lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
 # Also for testing and as a complement to the previous setting we can scale the
