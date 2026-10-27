@@ -3,6 +3,15 @@ based on Gaia RVS spectra and APOGEE stellar parameters. The resulting training
 labels are saved to our fits file. Note that stars prepared in this way
 represent *potential* training stars that might be used as part of the training
 sample for a given Cannon model--we need not use all possible stars.
+
+This is part of a series of Cannon scripts in scripts_gaia/:
+  1) collate_spectra_gaia_rvs.py
+  2) prepare_training_sample_gaia_rvs.py
+  3) train_stannon_gaia_rvs.py
+  4) make_stannon_diagnostics_gaia_rvs.py
+  4) run_stannon_gaia_rvs.py
+
+The parameters for this script can be found in label_settings_gaia_rvs.yml.
 """
 import numpy as np
 import pandas as pd
@@ -256,6 +265,9 @@ for X_Fe in ls.abundance_labels:
     has_reliable_X_Fe = np.logical_and(
         has_reliable_X_Fe, 
         obs_tab["{}_FLAG".format(X_Fe.upper())].values == 0)
+
+# TODO: passed_quality_cuts column
+pass
 
 # Create a mask for what we'll consider a candidate training star
 is_candidate_benchmark = np.all([

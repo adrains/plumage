@@ -1,0 +1,156 @@
+# This file contains the common set of parameters used to train a Gaia RVS
+# specific Cannon model.
+#
+# This is part of a series of Cannon scripts in scripts_gaia:
+#   1) collate_spectra_gaia_rvs.py
+#   2) prepare_training_sample_gaia_rvs.py
+#   3) train_stannon_gaia_rvs.py
+#   4) make_stannon_diagnostics_gaia_rvs.py
+#   4) run_stannon_gaia_rvs.py
+#
+# Where the values in this file currently apply to 3).
+#
+# YAML specifications: https://yaml.org/spec/1.2.2/
+
+#------------------------------------------------------------------------------
+# Training Sample
+#------------------------------------------------------------------------------
+# This section sets the training sample we adopt for this current training of
+# the Cannon, with adopted benchmarks drawn from our pool of potential stars
+# which have a) passed all quality cuts, and b) have a complete set of labels.
+
+# This is our model 'label' which serves as a simple shorthand name for the
+# model in question, e.g. 'MK' for a model including both M and K dwarfs.
+model_label: "full_cmd"
+
+# If False, we don't make any cuts to our sample and simply adopt all 
+# benchmarks with 'is_cannon_benchmark' = True.
+do_use_subset_of_benchmark_sample: False
+
+# Limits on CMD
+BP_RP_lims: [-100,100]
+M_G_lims: [5,100]
+
+#------------------------------------------------------------------------------
+# Model Settings
+#------------------------------------------------------------------------------
+# Suppress ouput from Stan during training. It is recommended to always have
+# this on for the label_uncertainties model since it takes much longer to
+# converge than the less complex basic model.
+suppress_stan_output: true
+
+# Whether to initialise theta and s2 vectors for a label uncertainty model
+# using the vectors from a trained basic model. The idea is that, even though
+# these will ultimately be different, it's a better initial guess than just 
+# starting with an array of zeroes. Initial testing bears this out, as the log
+# probability starting points from a naive initial guess are radically
+# different from those informed by a basic model (log prob -500,000 vs +260,000
+# for a test case 842 px model)
+init_with_basic_model: false
+
+# The maximum amount of iterations Stan will run while fitting the model. The
+# label_uncertainty model requires a higher number of iterations to converge,
+# though preliminary testing indicates the model is ~mostly converge after the
+# first ~10% of iterations and the remaining 90% are "fine tuning"--useful to
+# know for testing purposes to save time. Note that the basic model is trained
+# pixel-by-pixel with each pixel taking approximately a few hundred iterations
+# to converge, so max_iter isn't really relevant here.
+max_iter: 500000
+
+# By default Stan only logs a fitting update once every max_iter/10 iterations.
+# For large max_iter values, this might not be frequent enough--especially when
+# testing--so this can be updated here. 
+refresh_rate_frac: 10000
+
+# Whether to run cross validation (either leave-one-out, or k-fold) on our 
+# Cannon model. If True, the cross validation is done using the same
+# suppress_stan_output, init_with_basic_model, and max_iter settings as the
+# original training.
+do_cross_validation: True
+
+# If True, we run leave-one-out cross-validation as our cross-validation
+# algorithm. If False, we run k-fold cross-validation using the k_folds and 
+# k_fold_CV_rng_seed settings below.
+do_LOOCV: False
+
+# If running k-fold validation, how many folds to split the dataset into. 
+# Cross-validation will then be run k times, training on k-1 folds and testing
+# on the kth fold each time. 
+k_folds: 10
+
+# The random seed to use for randomly assigning stars to each fold.
+k_fold_CV_rng_seed: 20100914
+
+# Whether to do MC sampling during cross-validation to get a better idea of the
+# internal uncertainties on a trained Cannon model. Set to 1 to not do MC
+# sampling and just do a single label inference per star when cross-validating.
+n_cross_val_samples: 100
+
+# Whether to do sigma clipping using trained Cannon model. If True, an initial
+# Cannon model is trained and its model spectra are used to sigma clip bad 
+# pixels to not be considered for the subsequently trained and adopted model.
+# Note that this can potentially cause unexpected results if the initial
+# Cannon model is poorly trained, so best to leave as False when testing.
+do_iterative_bad_px_masking: True
+flux_sigma_to_clip: 6.5
+
+# Minimum and maximum wavelengths for Cannon model
+wl_min_model: 8460
+wl_max_model: 8700
+
+# The Cannon model to use - either the 'basic' traditional Cannon model, or a
+# model with label uncertainties. If modelling abundances, the version with
+# label uncertainties should be used. Either 'basic' or 'label_uncertainties'.
+# For a 3-term model, the basic model (on motley) takes of order ~1 min to
+# train, and the label uncertainties model takes of order ~20 min. The latter 
+# increases to ~33 min when training a 4 term model with [Ti/H]. Note that
+# these numbers are for a *single* model, and that cross validation increases
+# the runtime by a factor of N_stars. TODO: update these numbers.
+model_type: "basic"
+
+# Polynomial order of Cannon model. Currently only 1 (linear) and 2 (quadratic,
+# default) are supported.
+cannon_order: 2
+
+# For testing purposes, we can run with uniform label variances instead of the
+# literature uncertainties. To do this, we assign every label the same
+# percentage uncertainty. For instance, uniform_var_frac_error = 0.01 means
+# that all labels have a 1% uncertainty. If this is set to False, we instead
+# run with the observed label uncertainties.
+use_label_uniform_variances: False
+uniform_var_frac_error: 0.01
+
+# To constrain the parameter space (or just for testing) when using the label
+# uncertainties model, we can rescale the literature uncertainties by a
+# constant amount on a per-label basis. For instance, setting 
+# lit_std_scale_fac = [0.1, 0.1, 0.1, 0.1] means that we adopt
+# uncertainties 10x smaller than observed for each label of a four label model.
+# This only takes effect if use_label_uniform_variances is set to False. Set to 
+# an array of ones if we don't want to scale the uncertainties (this is done by
+# default if using the basic model).
+lit_std_scale_fac: [1.0, 1.0, 1.0, 1.0, 1.0]
+
+# Also for testing and as a complement to the previous setting we can scale the
+# uncertainties on the spectra itself. spectra_std_scale_fac < 1.0 mean that
+# we're artifically increasing the SNR of the spectrum.
+spectra_std_scale_fac: 1.0
+
+# Pointers to fits file of spectra + parameters to train the Cannon on.
+fits_folder: "spectra"
+fits_fn_base: "rvs_spectra"
+fits_label: "APOGEE_DR17"
+
+# Format of data, must be ['wifes', 'mike']
+spectra_format: "wifes"
+
+# Path to save trained Cannon model to
+model_save_path: "spectra"
+
+# Whether to fit for abundances. At the moment our abundance heirarchy is
+# Montes+18 > Valenti+Fischer05 > Adibekyan+12. Not recommended to fit > 1-2.
+# Available options (for Montes+18, which is the most complete): 
+# Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
+# Select as e.g.["X_H",..] or leave empty to not use abundances.
+abundance_labels: ["Ti_Fe", "Ca_Fe", "Ni_Fe", "Si_Fe"]
+
+base_labels: ["teff", "logg", "Fe_H",]

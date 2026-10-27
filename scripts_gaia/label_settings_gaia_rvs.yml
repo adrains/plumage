@@ -3,13 +3,14 @@
 # *potential* to be included in the training sample, but might still be
 # excluded for scope reasons.
 #
-# This is part of a series of Cannon scripts. The main sequence is:
-# 1) scripts_gaia/collate_rvs_spectra.py
-# 2) scripts_gaia/prepare_gaia_rvs_training.py
-# 3) scripts_gaia/train_stannon_gaia_rvs.py
-# 4) scripts_gaia/make_stannon_diagnostics_gaia_rvs.py
+# This is part of a series of Cannon scripts in scripts_gaia:
+#   1) collate_spectra_gaia_rvs.py
+#   2) prepare_training_sample_gaia_rvs.py
+#   3) train_stannon_gaia_rvs.py
+#   4) make_stannon_diagnostics_gaia_rvs.py
+#   4) run_stannon_gaia_rvs.py
 #
-# Where the values in this file currently apply to item 2).
+# Where the values in this file currently apply to 2).
 #
 # YAML specifications: https://yaml.org/spec/1.2.2/
 
