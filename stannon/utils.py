@@ -330,8 +330,13 @@ def load_cannon_settings(yaml_path):
     
     yaml_dict["is_cross_validated"] = yaml_dict["do_cross_validation"]
 
-    # Do a consistency check
-    if len(yaml_dict["lit_std_scale_fac"]) != yaml_dict["n_labels"]:
+    # If using the basic model, default lit_std_scale_fac to an array of 1s. If
+    # using the label uncertainties model, however, we need to check for length
+    # consistency and return an exception if the arrays aren't the same length.
+    if yaml_dict["model_type"] == "basic":
+        yaml_dict["lit_std_scale_fac"] = np.ones(yaml_dict["n_labels"])
+
+    elif len(yaml_dict["lit_std_scale_fac"]) != yaml_dict["n_labels"]:
         raise ValueError("Cannon setting lit_std_scale_fac length != n_labels")
 
     # Finally convert to our wrapper object form and return
