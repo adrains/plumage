@@ -142,13 +142,14 @@ for plot_reduced_chi2_cb in [False, True]:
         label_names=sm.label_names,
         fn_suffix=fn_label,
         n_rows=cds.label_recovery_n_rows,
-        teff_lims=(2500,4250),
-        teff_ticks=(500,250,200,100),
-        logg_ticks=(0.25,0.125,0.1,0.05),
-        feh_lims=(-1.1,0.65),
-        feh_ticks=(0.5,0.25,0.4,0.2),
-        X_Fe_lims=(-0.3,0.4),
-        X_Fe_ticks=(0.2,0.1,0.2,0.1),
+        teff_lims=cds.label_recovery_lims_teff,
+        teff_ticks=cds.label_recovery_ticks_teff,
+        logg_lims=cds.label_recovery_lims_logg,
+        logg_ticks=cds.label_recovery_ticks_logg,
+        feh_lims=cds.label_recovery_lims_Fe_H,
+        feh_ticks=cds.label_recovery_ticks_Fe_H,
+        X_Fe_lims=cds.label_recovery_lims_X_Fe,
+        X_Fe_ticks=cds.label_recovery_ticks_X_Fe,
         plot_folder=save_folder,)
 
     # Plot label recovery per literature source, not just for adopted values.
@@ -163,12 +164,14 @@ for plot_reduced_chi2_cb in [False, True]:
         fn_suffix=fn_label,
         plot_reduced_chi2_cb=plot_reduced_chi2_cb,
         reduced_chi2=reduced_chi2,
-        teff_lims=(2800,5000),
-        feh_lims=(-1.1,0.65),
-        X_Fe_lims=(-0.3,0.4),
-        teff_ticks=(500,250,200,100),
-        feh_ticks=(0.5,0.25,0.25,0.125),
-        X_Fe_ticks=(0.2,0.1,0.2,0.1),
+        teff_lims=cds.label_recovery_lims_teff,
+        teff_ticks=cds.label_recovery_ticks_teff,
+        logg_lims=cds.label_recovery_lims_logg,
+        logg_ticks=cds.label_recovery_ticks_logg,
+        feh_lims=cds.label_recovery_lims_Fe_H,
+        feh_ticks=cds.label_recovery_ticks_Fe_H,
+        X_Fe_lims=cds.label_recovery_lims_X_Fe,
+        X_Fe_ticks=cds.label_recovery_ticks_X_Fe,
         plot_folder=save_folder,)
 
     # Plot [X/Fe] label recovery for binary sources
@@ -185,8 +188,8 @@ for plot_reduced_chi2_cb in [False, True]:
             abundance_labels=cds.abundance_labels,
             plot_reduced_chi2_cb=plot_reduced_chi2_cb,
             reduced_chi2=reduced_chi2[is_binary],
-            X_Fe_lims=(-0.3,0.4),
-            X_Fe_ticks=(0.2,0.1,0.2,0.1),
+            X_Fe_lims=cds.label_recovery_lims_X_Fe,
+            X_Fe_ticks=cds.label_recovery_ticks_X_Fe,
             plot_folder=save_folder,)
 
 #------------------------------------------------------------------------------
