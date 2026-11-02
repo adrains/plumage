@@ -17,7 +17,7 @@ RVS_WAVE_MAX = 870
 RVS_WAVE_DELTA = 0.01
 
 # Import settings (TODO: move to YAML settings file)
-MIN_SNR = 100
+MIN_SNR = 50
 MIN_PARALLAX_OVER_ERROR = 20
 
 # -----------------------------------------------------------------------------
@@ -225,7 +225,9 @@ def remove_duplicates_from_apogee_dataframe(apogee_df,):
     """Removes duplicate observations from the APOGEE data release fits file
     imported via import_apogee_fits() by selecting retaining only the highest
     SNR exposure per target. The returned dataframe uses Gaia source_id as
-    index.
+    index. Note that N_apogee_ids > N_source_ids, and that there does not seem
+    a 1:1 match between them as only removing APOGEE ID duplicates still leaves
+    Gaia source_id duplicates. As such, we need to remove duplicates in Gaia.
 
     Parameters
     ----------
@@ -244,38 +246,38 @@ def remove_duplicates_from_apogee_dataframe(apogee_df,):
     id_checked = set()
 
     # Count duplicates in advance
-    apogee_ids = apogee_df["APOGEE_ID"].values
-    dup_id_counter = Counter(apogee_ids)
-    has_dup = np.array([dup_id_counter[aid] > 1 for aid in apogee_ids])
+    source_ids = apogee_df["GAIAEDR3_SOURCE_ID"].values
+    dup_id_counter = Counter(source_ids)
+    has_dup = np.array([dup_id_counter[aid] > 1 for aid in source_ids])
 
     # Loop over all rows, skipping if we've already checked this ID, and
     # selecting only the highest SNR entry for each duplicate observation.
     desc = "Selecting highest-SNR of duplicate exposures"
 
     # Pre-select the duplicate ids, snrs, and indices for speed
-    dup_apogee_ids = apogee_df["APOGEE_ID"].values[has_dup]
+    dup_source_ids = apogee_df["GAIAEDR3_SOURCE_ID"].values[has_dup]
     dup_snrs = apogee_df["SNR"].values[has_dup]
     dup_indices = apogee_df.index.values[has_dup]
 
     for obs_i in tqdm(range(n_obs), desc=desc,leave=False):
-        apogee_id = apogee_df.iloc[obs_i]["APOGEE_ID"]
+        source_id = apogee_df.iloc[obs_i]["GAIAEDR3_SOURCE_ID"]
 
         # If we've already checked this ID, continue
-        if apogee_id in id_checked:
+        if source_id in id_checked:
             continue
 
         # If there's only a single exposure, no masking required
-        elif dup_id_counter[apogee_id] == 1:
+        elif dup_id_counter[source_id] == 1:
             # Flag to be kept
             keep_mask[obs_i] = True
 
             # Add to the set
-            id_checked.add(apogee_id)
+            id_checked.add(source_id)
 
         # Duplicate ID, masking required
-        elif dup_id_counter[apogee_id] > 1:
+        elif dup_id_counter[source_id] > 1:
             # Just operate on the subset that are confirmed duplicates
-            has_id = dup_apogee_ids == apogee_id
+            has_id = dup_source_ids == source_id
 
             # Determine observation with maximum SNR
             dup_i_max_snr = np.argmax(dup_snrs[has_id])
@@ -285,7 +287,7 @@ def remove_duplicates_from_apogee_dataframe(apogee_df,):
             keep_mask[obs_i_max_snr] = True
 
             # Add to the set
-            id_checked.add(apogee_id)
+            id_checked.add(source_id)
 
         # Shouldn't be able to get here?
         else:
@@ -293,6 +295,8 @@ def remove_duplicates_from_apogee_dataframe(apogee_df,):
 
     # Use the mask to select only one observation of each star
     apogee_df_1x = apogee_df[keep_mask].copy()
+
+    assert len(set(apogee_df_1x.index)) == len(apogee_df_1x.index)
 
     # Update index to Gaia source_id and return
     apogee_df_1x.rename(
@@ -436,5 +440,6 @@ fluxes_2D = fluxes[passes_quality_cuts,:]
 sigmas_2D = e_fluxes[passes_quality_cuts,:]
 
 # Save
+label = "APOGEE_DR17_SNR{}".format(MIN_SNR)
 save_to_new_apogee_fits(
-    wave, fluxes_2D, sigmas_2D, gaia_df_cut, path=fits_save_path)
+    wave,fluxes_2D, sigmas_2D, gaia_df_cut, path=fits_save_path, label=label,)
