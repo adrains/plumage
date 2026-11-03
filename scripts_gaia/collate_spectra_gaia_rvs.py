@@ -17,8 +17,16 @@ RVS_WAVE_MAX = 870
 RVS_WAVE_DELTA = 0.01
 
 # Import settings (TODO: move to YAML settings file)
-MIN_SNR = 50
+MIN_SNR = 40
 MIN_PARALLAX_OVER_ERROR = 20
+
+# Settings for applying cuts to the CMD
+DO_APPLY_CMD_LIMIS = True
+BP_RP_BOUNDS = (0.8, 2.5)
+M_G_BOUNDS = (-4, 4)
+
+# If True, we require stars to have been observed by *both* APOGEE and Gaia
+ONLY_KEEP_TARGETS_IN_APOGEE = True
 
 # -----------------------------------------------------------------------------
 # Functions
@@ -408,6 +416,54 @@ print("Crossmatching Gaia...")
 # Crossmatch spectra with main Gaia catalogue
 gaia_df_cm = rvs_df.join(other=gaia_df, on="source_id", rsuffix="_2")
 
+#-----------------------------------
+# TODO: crossmatch with Bailer-Jones
+#-----------------------------------
+pass
+
+#-----------------------------------
+# Add in extra columns
+#-----------------------------------
+# Compute distance and M_G, TODO: use Bailer-Jones distances
+dist = 1000 / gaia_df_cm["parallax"].values
+e_dist = gaia_df_cm["parallax_error"].values
+M_G = gaia_df_cm["phot_g_mean_mag"].values - 5*np.log10(dist/10)
+BP_RP = gaia_df_cm["bp_rp"].values 
+
+# Create new columns to add back to DataFrame
+new_cols = [
+    pd.Series(dist, index=gaia_df_cm.index, name="dist"),
+    pd.Series(e_dist, index=gaia_df_cm.index, name="e_dist"),
+    pd.Series(M_G, index=gaia_df_cm.index, name="M_G"),]
+
+#-----------------------------------
+# Quality and [Optional] Sample cuts
+#-----------------------------------
+# [Optional] Apply cuts in BP-RP - M_G space
+if DO_APPLY_CMD_LIMIS:
+    within_BP_RP_lims = np.logical_and(
+        BP_RP > BP_RP_BOUNDS[0], BP_RP < BP_RP_BOUNDS[1])
+
+    within_M_G_lims = np.logical_and(
+        M_G > M_G_BOUNDS[0], M_G < M_G_BOUNDS[1])
+
+else:
+    within_BP_RP_lims = np.full(gaia_df_cm.shape[0], True)
+    within_M_G_lims = np.full(gaia_df_cm.shape[0], True)
+
+# Parallax quality cut
+has_good_plx = \
+    gaia_df_cm["parallax_over_error"].values > MIN_PARALLAX_OVER_ERROR
+
+# Create a combined mask
+star_is_selected = np.all(
+    [has_good_plx, within_BP_RP_lims, within_M_G_lims], axis=0)
+
+# Add in newly computed coclumns and mask the result
+gaia_df_cm = pd.concat([gaia_df_cm]+new_cols, axis=1)[star_is_selected]
+fluxes_2D = fluxes[star_is_selected,:]
+sigmas_2D = e_fluxes[star_is_selected,:]
+
 # -----------------------------------------------------------------------------
 # APOGEE import
 # -----------------------------------------------------------------------------
@@ -426,18 +482,17 @@ print("Crossmatching Gaia x APOGEE...")
 apogee_df_cm = gaia_df_cm.join(
     other=apogee_df_1x, on="source_id", rsuffix="_2")
 
-# Apply quality cuts
-has_good_plx = \
-    apogee_df_cm["parallax_over_error"].values > MIN_PARALLAX_OVER_ERROR
-has_apogee = ~np.isnan(apogee_df_cm["FE_H"].values)
+# [Optional] Apply quality cuts
+if ONLY_KEEP_TARGETS_IN_APOGEE:
+    keep_mask = ~np.isnan(apogee_df_cm["FE_H"].values)
+else:
+    keep_mask = np.full(apogee_df_cm.shape[0], True)
 
-passes_quality_cuts = np.logical_and(has_good_plx, has_apogee)
-
-gaia_df_cut = apogee_df_cm[passes_quality_cuts]
+gaia_df_cut = apogee_df_cm[keep_mask]
 
 # Apply to fluxes
-fluxes_2D = fluxes[passes_quality_cuts,:]
-sigmas_2D = e_fluxes[passes_quality_cuts,:]
+fluxes_2D = fluxes_2D[keep_mask,:]
+sigmas_2D = sigmas_2D[keep_mask,:]
 
 # Save
 label = "APOGEE_DR17_SNR{}".format(MIN_SNR)

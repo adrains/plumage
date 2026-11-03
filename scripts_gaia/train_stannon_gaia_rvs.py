@@ -22,6 +22,152 @@ from datetime import datetime
 from collections import Counter
 
 #------------------------------------------------------------------------------
+# Functions
+#------------------------------------------------------------------------------
+def apply_snr_cuts_per_Fe_H_bin(
+    Fe_H,
+    snr,
+    is_candidate_mask,
+    Fe_H_bin_bounds,
+    Fe_H_bin_min_snr,
+    N_star_per_bin_max,
+    method,
+    rng_seed,):
+    """Function to assign candidate training sample stars to one of a number of
+    [Fe/H] slices as a way to reduce the size of the trainig sample and
+    improve the relative representation of more 'rare' [Fe/H] values.
+
+    Parameters
+    ----------
+    Fe_H: 1D float array
+        [Fe/H] values for all stars, of shape [N_star].
+
+    snr: 1D float array
+        SNR values for all stars, of shape [N_star].
+
+    is_candidate_mask: 1D bool array
+        Boolean mask indicating which of the sample are candidates for the
+        training sample, of shape [N_star].
+
+    Fe_H_bin_bounds: 1D float array
+        Array of [Fe/H] slice edges, where [Fe/H] > min and [Fe/H] <= max, of
+        shape [N_slice+1].
+
+    Fe_H_bin_min_snr: 1D float array
+        Array of minimum SNR to consider for each bin, of shape [N_slice].
+
+    N_star_per_bin_max: int
+        Maximum allowable number of stars per [Fe/H] slice.
+    
+    method: str
+        Method used to select stars for each slice where N_stars > N_max.
+        Must be one of ['snr', 'random'].
+
+    rng_seed: float
+        Random seet to use if randomly selecting stars for each slice.
+
+    Returns
+    -------
+    is_assigned_to_Fe_H_slice: 1D bool array
+        Boolean array where True indicates a candidate training sample star has
+        been allocated to a [Fe/H] slice.
+    """
+    VALID_METHODS = ["snr", "random"]
+
+    if method not in VALID_METHODS:
+        raise ValueError("Invalid method, must be in {}".format(VALID_METHODS))
+
+    print("%"*51, "\tSlicing by [Fe/H]", "%"*51, sep="\n")
+
+    # Initialise output mask
+    is_assigned_to_Fe_H_slice = np.full(Fe_H.size, False)
+
+    # Loop over all slices
+    n_slices = len(Fe_H_bin_bounds) - 1
+
+    for slice_i in range(n_slices):
+        # Grab slice information
+        Fe_H_min = Fe_H_bin_bounds[slice_i]
+        Fe_H_max = Fe_H_bin_bounds[slice_i+1]
+        snr_min = Fe_H_bin_min_snr[slice_i]
+
+        is_potential_slice_star = np.all([
+            is_candidate_mask,
+            Fe_H > Fe_H_min,
+            Fe_H <= Fe_H_max,
+            snr > snr_min,], axis=0)
+
+        # Create array of indices to keep track of order
+        star_ii = np.arange(Fe_H.size)
+
+        # Count the candidates passing our criteria for this slice
+        n_candidates = np.sum(is_potential_slice_star)
+
+        #---------------------------------------
+        # Option 0: accept everything if N < max
+        #---------------------------------------
+        if n_candidates <= N_star_per_bin_max:
+            # Select all candidates in this slice
+            is_assigned_to_Fe_H_slice[is_potential_slice_star] = True
+
+            # Print diagnostics
+            n_sel = np.sum(is_assigned_to_Fe_H_slice[is_potential_slice_star])
+            print("[Fe/H] slice {}:\t\t{} - {} (SNR~{})\t{} --> {}".format(
+                slice_i, Fe_H_min, Fe_H_max, snr_min, n_candidates, n_sel))
+
+        #---------------------------------------
+        # Option 1: take the N highest SNR stars
+        #---------------------------------------
+        elif n_candidates > N_star_per_bin_max and method == "snr":
+            # Sort SNR in descending order and obtain indices for *all* stars
+            snr_ii = np.argsort(snr)[::-1]
+
+            # Sort our candidate mask in SNR order
+            is_candidate_mask_sorted = is_potential_slice_star[snr_ii]
+
+            # Sort the stellar index array by SNR
+            high_snr_ii = star_ii[snr_ii]
+
+            # Select only the first N_star_per_bin_max candidate indices
+            selected_high_snr_ii = \
+                high_snr_ii[is_candidate_mask_sorted][:N_star_per_bin_max]
+
+            # Select these stars in our return array
+            is_assigned_to_Fe_H_slice[selected_high_snr_ii] = True
+
+            # Print diagnostics
+            n_sel = np.sum(is_assigned_to_Fe_H_slice[selected_high_snr_ii])
+            print("[Fe/H] slice {}:\t\t{} - {} (SNR~{})\t{} --> {}".format(
+                slice_i, Fe_H_min, Fe_H_max, snr_min, n_candidates, n_sel))
+
+        #---------------------------------------
+        # Option 2: randomly select N stars
+        #---------------------------------------
+        elif n_candidates > N_star_per_bin_max and method == "random":
+            # Initialise random generator
+            rng = np.random.default_rng(seed=rng_seed,)
+
+            # Select N_star_per_bin_max indices from our list of candidates.
+            selected_random_ii = rng.choice(
+                a=star_ii[is_potential_slice_star],
+                size=N_star_per_bin_max,
+                replace=False,)
+
+            # Select these stars in our return array
+            is_assigned_to_Fe_H_slice[selected_random_ii] = True
+
+            # Print diagnostics
+            n_sel = np.sum(is_assigned_to_Fe_H_slice[selected_random_ii])
+            print("[Fe/H] slice {}:\t\t{} - {} (SNR~{})\t{} --> {}".format(
+                slice_i, Fe_H_min, Fe_H_max, snr_min, n_candidates, n_sel))
+
+        # Shouldn't be able to get here?
+        else:
+            raise Exception("wot")
+
+    return is_assigned_to_Fe_H_slice
+
+#------------------------------------------------------------------------------
 # Import Settings
 #------------------------------------------------------------------------------
 cannon_settings_yaml = "scripts_gaia/cannon_settings_gaia_rvs.yml"
@@ -54,6 +200,8 @@ obs_join = pu.load_fits_table(
 # And given these we save all results when using this model to a unique fits
 # HDU, which allows for the same fits file to contain the results of multiple
 # Cannon models using different sets of benchmarks, labels, or pixels.
+
+# Reduce the sample by appling cuts in BP-RP and M_G to the sample
 if cs.do_use_subset_of_benchmark_sample:
     M_G = obs_join["M_G"].values
     bp_rp = obs_join["bp_rp"].values
@@ -67,12 +215,31 @@ if cs.do_use_subset_of_benchmark_sample:
     within_M_G_bounds = np.logical_and(
             M_G > cs.M_G_lims[0], M_G < cs.M_G_lims[1])
 
-    adopted_benchmark = np.all((
+    candidate_benchmark = np.all((
         within_bp_rp_bounds, within_M_G_bounds, icb), axis=0)
 
 else:
-    adopted_benchmark = obs_join["is_cannon_benchmark"].values
+    candidate_benchmark = obs_join["is_cannon_benchmark"].values
 
+# Reduce the sample by assigning stars to [Fe/H] slices and allowing a maximum
+# number of stars per slice. We can either select the stars by slice in order
+# of SNR, or we can select randomly.
+if cs.select_candidates_from_Fe_H_slices:
+    is_assigned_to_Fe_H_slice = apply_snr_cuts_per_Fe_H_bin(
+        Fe_H=obs_join["label_adopt_Fe_H"].values,
+        snr=obs_join["rvs_snr"].values,
+        is_candidate_mask=candidate_benchmark,
+        Fe_H_bin_bounds=cs.Fe_H_bin_bounds,
+        Fe_H_bin_min_snr=cs.Fe_H_bin_min_snr,
+        N_star_per_bin_max=cs.N_star_per_bin_max,
+        method=cs.Fe_H_bin_assignment_method,
+        rng_seed=cs.k_fold_CV_rng_seed,)
+
+    adopted_benchmark = is_assigned_to_Fe_H_slice
+else:
+    adopted_benchmark = candidate_benchmark
+
+# Error checking
 if np.sum(adopted_benchmark) == 0:
     raise Exception("Zero benchmarks selected!")
 

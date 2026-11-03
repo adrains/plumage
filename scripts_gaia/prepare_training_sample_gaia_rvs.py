@@ -182,7 +182,7 @@ def flag_Ca_triplet_emission(
 #------------------------------------------------------------------------------
 # Settings
 #------------------------------------------------------------------------------
-label_settings = "scripts_gaia/gaia_rvs_label_settings.yml"
+label_settings = "scripts_gaia/label_settings_gaia_rvs.yml"
 ls = su.load_yaml_settings(label_settings)
 
 #------------------------------------------------------------------------------
@@ -397,8 +397,8 @@ leg = axis_spec.legend(
 for legobj in leg.legendHandles:
     legobj.set_linewidth(1.5)
 
-fig_spec.savefig("plots/gaia_rvs_selected_spectra.pdf")
-fig_spec.savefig("plots/gaia_rvs_selected_spectra.png", dpi=400)
+fig_spec.savefig("plots/gaia_rvs_selected_spectra_{}.pdf".format(N_BM))
+fig_spec.savefig("plots/gaia_rvs_selected_spectra_{}.png".format(N_BM),dpi=400)
 
 #=========================================
 # Plot #2: CMD colour-coded by [Fe/H]
@@ -419,5 +419,5 @@ axis_cmd.set_title(r"$N_{{\rm stars}}={:0.0f}$".format(N_BM))
 
 axis_cmd.set_ylim(13, -5)
 fig_cmd.tight_layout()
-fig_cmd.savefig("plots/gaia_rvs_selected_cmd.pdf")
-fig_cmd.savefig("plots/gaia_rvs_selected_cmd.png", dpi=400)
+fig_cmd.savefig("plots/gaia_rvs_selected_cmd_{}.pdf".format(N_BM))
+fig_cmd.savefig("plots/gaia_rvs_selected_cmd_{}.png".format(N_BM), dpi=400)

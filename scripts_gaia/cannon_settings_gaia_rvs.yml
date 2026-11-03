@@ -21,15 +21,22 @@
 
 # This is our model 'label' which serves as a simple shorthand name for the
 # model in question, e.g. 'MK' for a model including both M and K dwarfs.
-model_label: "full_cmd"
+model_label: "RGB"
 
 # If False, we don't make any cuts to our sample and simply adopt all 
 # benchmarks with 'is_cannon_benchmark' = True.
-do_use_subset_of_benchmark_sample: False
+do_use_subset_of_benchmark_sample: True
 
-# Limits on CMD
-BP_RP_lims: [-100,100]
-M_G_lims: [5,100]
+# Settings for applying training sample limits based on CMD cuts
+BP_RP_lims: [0.8,2.5]
+M_G_lims: [-4,4]
+
+# Settings for applying training sample limits based on [Fe/H] slices
+select_candidates_from_Fe_H_slices: True
+Fe_H_bin_bounds: [-2.5, -1.0, -0.7, -0.5, -0.3,  -0.1, 0.1, 0.3, 0.6]
+Fe_H_bin_min_snr: [40, 40, 80, 100, 100, 100, 100, 50]
+N_star_per_bin_max: 100
+Fe_H_bin_assignment_method: "snr"
 
 #------------------------------------------------------------------------------
 # Model Settings
@@ -138,7 +145,7 @@ spectra_std_scale_fac: 1.0
 # Pointers to fits file of spectra + parameters to train the Cannon on.
 fits_folder: "spectra"
 fits_fn_base: "rvs_spectra"
-fits_label: "APOGEE_DR17"
+fits_label: "APOGEE_DR17_SNR40"
 
 # Format of data, must be ['wifes', 'mike']
 spectra_format: "wifes"
@@ -151,6 +158,6 @@ model_save_path: "spectra"
 # Available options (for Montes+18, which is the most complete): 
 # Na, Mg, Al, Si, Ca, Sc, Ti, V, Cr, Mn, Co, Ni
 # Select as e.g.["X_H",..] or leave empty to not use abundances.
-abundance_labels: ["Ti_Fe", "Ca_Fe", "Ni_Fe", "Si_Fe"]
+abundance_labels: ["Ca_Fe",]
 
 base_labels: ["teff", "logg", "Fe_H",]
