@@ -1804,6 +1804,9 @@ def plot_delta_cannon_vs_marcs(
     fig_size=(12,3),
     plot_smooth_interpolated_fluxes=False,
     s=None,
+    bp_rp_col="BP_RP_dr3",
+    wave_extent=(3500,7000),
+    x_lims=(4000, 7000),
     xticks=(200,100),
     plot_folder="plots/",):
     """Plots a series of comparisons of Cannon vs MARCS spectra below the
@@ -1827,13 +1830,36 @@ def plot_delta_cannon_vs_marcs(
         three panels showing only those wavelengths with fluxes within 10%, 5%,
         and 2%.
 
+    fig_size: float tuple, default: (12, 6)
+            Size of the figure.
+
+    plot_smooth_interpolated_fluxes: boolean, default: False
+        If True, we interpolate the fluxes so that the colour dimension is
+        smoothly sampled.
+
+    s: float, default: None
+        Smoothing value to pass to scipy.interpolate.splrep if we have set
+        plot_smooth_interpolated_fluxes = True.
+
+    bp_rp_col: str, default: 'BP_RP_dr3'
+        The column name to use for BP-RP.
+        
+    wave_extent: float tuple, default: (3500,7000)
+        The full range of the wavelength scale used to train the Cannon.
+
+    x_lims: float tuple, default: (4000, 7000)
+        Limits on the wavelength scale to use when plotting.
+
+    xticks: float tuple, default: (200, 100)
+        Major and minor ticks to use for the wavelength axis.
+
     plot_folder: str, default: "plots/"
         Folder to save plots to. By default just a subdirectory called plots.
     """
     # Sort our benchmarks by their BP-RP colour
     is_cannon_benchmark = obs_join["is_cannon_benchmark"].values
 
-    bprp = obs_join[is_cannon_benchmark]["BP_RP_dr3"].values
+    bprp = obs_join[is_cannon_benchmark][bp_rp_col].values
     bprp_ii = np.argsort(bprp)
 
     spec_cannon_all = np.vstack(
@@ -1849,8 +1875,6 @@ def plot_delta_cannon_vs_marcs(
 
     # Compute the fractional flux difference
     delta = (cannon_fluxes_sorted - marcs_fluxes_sorted) / cannon_fluxes_sorted
-
-    #import pdb; pdb.set_trace()
 
     # TODO
     if plot_smooth_interpolated_fluxes:
@@ -1887,7 +1911,7 @@ def plot_delta_cannon_vs_marcs(
 
         ax.imshow(rgb_mask,
             aspect="auto",
-            extent=(3500, 7000,bprp.max(), bprp.min()),
+            extent=(wave_extent[0], wave_extent[1], bprp.max(), bprp.min()),
             interpolation="none")
 
         # Plot data
@@ -1898,12 +1922,12 @@ def plot_delta_cannon_vs_marcs(
         ss = ax.imshow(
             delta_masked*100,
             aspect="auto",
-            extent=(3500, 7000,bprp.max(), bprp.min()),
+            extent=(wave_extent[0], wave_extent[1], bprp.max(), bprp.min()),
             interpolation="none",
             cmap="PRGn")
         
         # Other plot formatting
-        ax.set_xlim(4000,7000)
+        ax.set_xlim(x_lims[0], x_lims[1])
         ax.set_title(
             r"$\Delta{{\rm Flux}} < $ {:0.0f}%".format(dt*100),
             fontsize="small")
@@ -1928,7 +1952,8 @@ def plot_delta_cannon_vs_marcs(
         wspace=0.1, hspace=0.5, right=0.98, left=0.05, top=0.90, bottom=0.20)
     fig.supylabel(r"$BP-RP$")
     ax.set_xlabel("Wavelength")
-
+    plt.tight_layout()
+    
     # Save plot
     if not os.path.isdir(plot_folder):
         os.mkdir(plot_folder)
@@ -2724,3 +2749,145 @@ def plot_theta_coefficient_barcode_plot(
             fn_suffix))
 
     plt.savefig("{}.pdf".format(plot_fn))
+
+
+def plot_label_resid_vs_snr(
+    sm,
+    snr,
+    resid,
+    n_per_snr_slice=50,
+    figsize=(12, 6),
+    plot_folder="plots/",):
+    """Plots a 3 panel plot (Teff, logg, chemistry) of label recovery residuals
+    in cross-validation as a function of spectral SNR. Stars are grouped into
+    sets of n_per_snr_slice stars, with a median and standard deviation
+    computed for each SNR slice. The median is plotted as a scatter plot, and
+    shaded regions are plotted to correspond to the standard deviation of each
+    slice.
+
+    Parameters
+    ----------
+    sm: Stannon object
+        Trained Stannon object.
+
+    snr: 1D float array
+        SNR of the training star specta.
+
+    resid: 2D float array
+        Residuals between input training labels and cross-validation label
+        recovery, of shape [N_star, N_label].
+
+    n_per_snr_slice: int, default: 50
+        Number of stars to include for each SNR slice.
+
+    fig_size: float tuple, default: (12, 6)
+        Size of the figure.
+
+    plot_folder: str, default: "plots/"
+        Relative or absolute filepath to save plots to.
+    """
+    # Sort in SNR order
+    snr_ii = np.argsort(snr)
+    snr = snr[snr_ii]
+    resid = resid[snr_ii]
+
+    # Work out how many slices
+    rmdr = sm.S % n_per_snr_slice
+    n_slices = \
+        sm.S // n_per_snr_slice if rmdr == 0 else sm.S // n_per_snr_slice + 1
+
+    # Create new arrays
+    snr_slices = np.array(
+        [np.nanmedian(snr[si*n_per_snr_slice:(si+1)*n_per_snr_slice]) 
+         for si in range(n_slices)])
+    resid_slices = np.zeros( (n_slices, sm.L),)
+    std_slices = np.zeros( (n_slices, sm.L),)
+
+    # Intialise plot
+    plt.close("all")
+    fig, (ax_teff, ax_logg, ax_chem) = plt.subplots(
+        nrows=3, sharex=True, figsize=figsize)
+
+    # Grab Matplotlib default colour cycle, and use this to ensure that the
+    # point/line colour matches the shaded region.
+    colours = plt.rcParams['axes.prop_cycle'].by_key()["color"]
+
+    # Loop over each label
+    for lbl_i, label in enumerate(sm.label_names):
+        # Compute median and standard deviation for each SNR slice
+        xx = np.abs(resid[:, lbl_i])
+        xx_med = np.array(
+            [np.nanmedian(xx[si*n_per_snr_slice:(si+1)*n_per_snr_slice])
+            for si in range(n_slices)])
+        xx_std = np.array(
+            [np.nanstd(xx[si*n_per_snr_slice:(si+1)*n_per_snr_slice])
+            for si in range(n_slices)])
+
+        # Store
+        resid_slices[:, lbl_i] = xx_med
+        std_slices[:, lbl_i] = xx_std
+
+        # Plot median line and standard deviation shaded region
+        if label == "teff":
+            ax = ax_teff
+            plt_lbl = r"$T_{\rm eff}$"
+        elif label == "logg":
+            ax = ax_logg
+            plt_lbl = r"$\log g$"
+        else:
+            ax = ax_chem
+            plt_lbl = "[{}]".format(label.replace("_", "/"))
+        
+        ax.plot(
+            snr_slices,
+            resid_slices[:,lbl_i],
+            marker=".",
+            label=plt_lbl,
+            alpha=0.7,
+            linewidth=1.0,
+            c=colours[lbl_i])
+
+        ax.fill_between(
+            x=snr_slices,
+            y1=xx_med + xx_std/2,
+            y2=xx_med - xx_std/2,
+            edgecolor=None,
+            facecolor=colours[lbl_i],
+            alpha=0.1,
+            zorder=100)
+
+        ax.legend(loc="upper center", ncol=sm.L)
+
+    ax_teff.set_ylabel(r"$\Delta T_{\rm eff}$ (K)")
+    ax_logg.set_ylabel(r"$\Delta \log g$ (dex)")
+    ax_chem.set_ylabel(r"$\Delta$[Fe/H] or $\Delta$[X/Fe] (dex)")
+    ax.set_xlabel("SNR (RVS)")
+
+    ax.set_xlim(snr.min(), snr_slices[-1]*1.01)
+
+    ax_teff.set_ylim(-1, resid_slices[0,0]+std_slices[0,0]/2)
+    ax_logg.set_ylim(-0.01, resid_slices[0,1]+std_slices[0,1]/2)
+    ax_chem.set_ylim(-0.01, np.nanmax(resid_slices[0,2:]+std_slices[0,2:]/2))
+
+    ax.xaxis.set_major_locator(plticker.MultipleLocator(base=100))
+    ax.xaxis.set_minor_locator(plticker.MultipleLocator(base=25))
+
+    ax_teff.yaxis.set_major_locator(plticker.MultipleLocator(base=40))
+    ax_teff.yaxis.set_minor_locator(plticker.MultipleLocator(base=10))
+    ax_logg.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
+    ax_logg.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.01))
+    ax_chem.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
+    ax_chem.yaxis.set_minor_locator(plticker.MultipleLocator(base=0.01))
+
+    plt.tight_layout()
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "snr_vs_delta_label_{}_per_slice".format(n_per_snr_slice))
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
