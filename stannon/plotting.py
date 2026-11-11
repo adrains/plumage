@@ -2891,3 +2891,86 @@ def plot_label_resid_vs_snr(
 
     plt.savefig("{}.pdf".format(plot_fn))
     plt.savefig("{}.png".format(plot_fn), dpi=300)
+
+
+def plot_chi2_hists(
+    sm,
+    n_slices=4,
+    n_bins=100,
+    figsize=(20,3),
+    plot_folder="plots/",):
+    """Plots histograms of the chi^2 of each label, grouped into n_slices per
+    label.
+
+    Parameters
+    ----------
+    sm: Stannon object
+        Trained Stannon object.
+
+    n_slices: int, default: 4
+        Number of groups to slice each label into for plotting chi^2.
+
+    n_bins: int, default: 100
+        Number of bins to use when plotting histograms, where bin edges are
+        consistent for all labels.
+
+    fig_size: float tuple, default: (12, 6)
+        Size of the figure.
+
+    plot_folder: str, default: "plots/"
+        Relative or absolute filepath to save plots to.
+    """
+    n_per_slice = sm.S // n_slices
+
+    plt.close("all")
+    fig, axes = plt.subplots(ncols=sm.L, sharey=True, figsize=figsize)
+
+    fig.subplots_adjust(left=0.02, bottom=0.1, right=0.99, top=0.9, wspace=0.1)
+
+    chi2 = sm.cross_val_chi2
+    bins = np.linspace(np.nanmin(chi2), np.nanmax(chi2), n_bins)
+
+    for label_i, label in enumerate(sm.label_names):
+        label_values = sm.training_labels[:,label_i]
+
+        # Sort
+        ii = np.argsort(label_values)
+
+        for slice_i in range(n_slices):
+            lv = label_values[ii][slice_i*n_per_slice:(slice_i+1)*n_per_slice]
+            c2 = chi2[ii][slice_i*n_per_slice:(slice_i+1)*n_per_slice]
+
+            if label == "teff":
+                label_fmt = r"$T_{\rm eff}$"
+                plt_label = r"${:0.0f} \leq T_{{\rm eff}} \leq{:0.0f}$".format(
+                    lv.min(), lv.max())
+
+            elif label == "logg":
+                label_fmt = r"$\log g$"
+                plt_label = r"${:0.2f} \leq$ {} $\leq {:0.2f}$".format(
+                    lv.min(), label, lv.max())
+
+            else:
+                label_fmt = "[{}]".format(label.replace("_", "/"))
+                plt_label = r"${:+0.2f} \leq$ {} $\leq {:+0.2f}$".format(
+                    lv.min(), label, lv.max())
+
+                
+
+            axes[label_i].hist(c2, bins, alpha=0.4, label=plt_label)
+
+        axes[label_i].legend(fontsize="small")
+        axes[label_i].set_title(label_fmt)
+        axes[label_i].loglog()
+
+    # Save plot
+    if not os.path.isdir(plot_folder):
+        os.mkdir(plot_folder)
+
+    plot_fn = os.path.join(
+        plot_folder,
+        "chi2_histograms_per_label")
+
+    plt.savefig("{}.pdf".format(plot_fn))
+    plt.savefig("{}.png".format(plot_fn), dpi=300)
+        
